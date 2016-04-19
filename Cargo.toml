@@ -1,0 +1,7 @@
+[package]
+name = "tqrs"
+version = "0.1.0"
+authors = ["Erik Price <github@erikprice.net>"]
+
+[dependencies]
+redis = "0.5.2"
