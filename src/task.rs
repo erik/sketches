@@ -4,10 +4,27 @@ use std::vec::Vec;
 
 use rustc_serialize::json::ToJson;
 
-use broker::Broker;
+use broker::{Broker};
 
 
 pub type TaskFunction = fn(args: ToJson) -> ToJson;
+
+// for now
+pub type TaskId = String;
+pub enum TaskState {
+    Queued,
+    Unknown,
+    Success,
+    Error
+}
+
+
+pub struct TaskStatus {
+    state: TaskState,
+    result: ToJson
+}
+
+
 
 
 pub struct TaskDef<'a> {
@@ -39,11 +56,9 @@ impl <'a> TaskRegistry<'a> {
         self
     }
 
-    fn execute(&self, name: &String, args: &ToJson) -> () {
+    fn execute(&self, name: &String, args: &ToJson) -> TaskId {
         match self.registry.get(name) {
-            Some(task) => {
-
-            },
+            Some(task) => self.broker.execute_task(task, args),
             None => panic!("FUCK")
         }
     }

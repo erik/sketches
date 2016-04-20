@@ -3,7 +3,7 @@
 extern crate redis;
 extern crate rustc_serialize;
 
-mod queue;
+mod task;
 mod broker;
 
 #[cfg(test)]
