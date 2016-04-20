@@ -5,3 +5,4 @@ authors = ["Erik Price <github@erikprice.net>"]
 
 [dependencies]
 redis = "0.5.2"
+rustc-serialize = "0.3"
