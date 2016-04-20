@@ -3,7 +3,7 @@ use std::option::Option;
 use redis;
 use rustc_serialize::json::ToJson;
 
-use queue::{TaskDef, TaskId, TaskState};
+use task::{TaskDef, TaskId, TaskState};
 
 
 pub trait Broker {

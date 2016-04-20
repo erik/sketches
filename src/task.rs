@@ -4,13 +4,15 @@ use std::vec::Vec;
 
 use rustc_serialize::json::ToJson;
 
-use broker::{Broker};
+use broker::Broker;
 
 
 pub type TaskFunction = fn(args: ToJson) -> ToJson;
 
+
 // for now
 pub type TaskId = String;
+
 pub enum TaskState {
     Queued,
     Unknown,
@@ -23,8 +25,6 @@ pub struct TaskStatus {
     state: TaskState,
     result: ToJson
 }
-
-
 
 
 pub struct TaskDef<'a> {
