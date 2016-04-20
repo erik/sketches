@@ -7,12 +7,6 @@ use rustc_serialize::json::ToJson;
 use broker::Broker;
 
 
-pub type TaskFunction = fn(args: ToJson) -> ToJson;
-
-
-// for now
-pub type TaskId = String;
-
 pub enum TaskState {
     Queued,
     Unknown,
@@ -21,11 +15,30 @@ pub enum TaskState {
 }
 
 
-pub struct TaskStatus {
-    state: TaskState,
-    result: ToJson
+pub trait Task {
+    fn await<'a>(&self) -> Option<&'a ToJson>;
+    fn get<'a>(&self) -> Option<&'a ToJson>;
 }
 
+pub struct RedisTask<'a> {
+    id: String,
+    state: TaskState,
+    broker: &'a Broker
+}
+
+
+impl<'a> Task for RedisTask<'a> {
+    fn await<'b>(&self) -> Option<&'b ToJson> {
+        None
+    }
+
+    fn get<'b>(&self) -> Option<&'b ToJson> {
+        None
+    }
+}
+
+
+pub type TaskFunction = fn(args: ToJson) -> ToJson;
 
 pub struct TaskDef<'a> {
     name: String,
@@ -56,7 +69,7 @@ impl <'a> TaskRegistry<'a> {
         self
     }
 
-    fn execute(&self, name: &String, args: &ToJson) -> TaskId {
+    fn execute(&self, name: &String, args: &ToJson) -> &Task {
         match self.registry.get(name) {
             Some(task) => self.broker.execute_task(task, args),
             None => panic!("FUCK")

@@ -3,14 +3,14 @@ use std::option::Option;
 use redis;
 use rustc_serialize::json::ToJson;
 
-use task::{TaskDef, TaskId, TaskState};
+use task::{TaskDef, Task, TaskState, RedisTask};
 
 
 pub trait Broker {
-    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> TaskId;
-    fn task_status(&self, task_id: &TaskId) -> ();
-    fn await(&self, task_id: &TaskId) -> TaskState;
-    fn get(&self, task_id: &TaskId) -> Option<TaskState>;
+    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> &Task;
+    fn task_status(&self, task_id: &String) -> ();
+    fn await(&self, task_id: &String) -> Option<&ToJson>;
+    fn get(&self, task_id: &String) -> Option<&ToJson>;
 }
 
 
@@ -29,16 +29,19 @@ impl RedisBroker {
 
 
 impl Broker for RedisBroker {
-    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> TaskId {
+    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> &Task {
         unimplemented!()
     }
-    fn task_status(&self, task_id: &TaskId) -> () {
+
+    fn task_status(&self, task_id: &String) -> () {
         unimplemented!()
     }
-    fn await(&self, task_id: &TaskId) -> TaskState {
+
+    fn await(&self, task_id: &String) -> Option<&ToJson> {
         unimplemented!()
     }
-    fn get(&self, task_id: &TaskId) -> Option<TaskState> {
+
+    fn get(&self, task_id: &String) -> Option<&ToJson> {
         unimplemented!()
     }
 }
