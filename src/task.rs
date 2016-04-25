@@ -4,7 +4,7 @@ use std::vec::Vec;
 
 use rustc_serialize::json::ToJson;
 
-use broker::Broker;
+use broker::{RedisBroker, RedisTask};
 
 
 pub enum TaskState {
@@ -18,23 +18,7 @@ pub enum TaskState {
 pub trait Task {
     fn await<'a>(&self) -> Option<&'a ToJson>;
     fn get<'a>(&self) -> Option<&'a ToJson>;
-}
-
-pub struct RedisTask<'a> {
-    id: String,
-    state: TaskState,
-    broker: &'a Broker
-}
-
-
-impl<'a> Task for RedisTask<'a> {
-    fn await<'b>(&self) -> Option<&'b ToJson> {
-        None
-    }
-
-    fn get<'b>(&self) -> Option<&'b ToJson> {
-        None
-    }
+    fn status<'b>(&self) -> Option<&'b ToJson>;
 }
 
 
@@ -47,13 +31,13 @@ pub struct TaskDef<'a> {
 
 
 pub struct TaskRegistry<'a> {
-    broker: &'a Broker,
+    broker: &'a RedisBroker,
     registry: HashMap<String, TaskDef<'a>>
 }
 
 
 impl <'a> TaskRegistry<'a> {
-    pub fn new(broker: &Broker) -> TaskRegistry {
+    pub fn new(broker: &RedisBroker) -> TaskRegistry {
         TaskRegistry {
             broker: broker,
             registry: HashMap::new()
@@ -69,7 +53,7 @@ impl <'a> TaskRegistry<'a> {
         self
     }
 
-    fn execute(&self, name: &String, args: &ToJson) -> &Task {
+    fn execute(&self, name: &String, args: &ToJson) -> RedisTask {
         match self.registry.get(name) {
             Some(task) => self.broker.execute_task(task, args),
             None => panic!("FUCK")

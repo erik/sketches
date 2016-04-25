@@ -2,19 +2,35 @@ use std::option::Option;
 
 use redis;
 use rustc_serialize::json::ToJson;
+use uuid::Uuid;
 
-use task::{TaskDef, Task, TaskState, RedisTask};
+
+use task::{TaskDef, Task, TaskState};
 
 
-pub trait Broker {
-    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> &Task;
-    fn task_status(&self, task_id: &String) -> ();
-    fn await(&self, task_id: &String) -> Option<&ToJson>;
-    fn get(&self, task_id: &String) -> Option<&ToJson>;
+pub struct RedisTask<'a> {
+    id: String,
+    state: TaskState,
+    broker: &'a RedisBroker
 }
 
 
-struct RedisBroker {
+impl<'a> Task for RedisTask<'a> {
+    fn status<'b>(&self) -> Option<&'b ToJson> {
+        None
+    }
+
+    fn await<'b>(&self) -> Option<&'b ToJson> {
+        None
+    }
+
+    fn get<'b>(&self) -> Option<&'b ToJson> {
+        None
+    }
+}
+
+
+pub struct RedisBroker {
     conn: redis::Connection,
     key_prefix: &'static str,
     poll_interval_ms: u32
@@ -22,26 +38,17 @@ struct RedisBroker {
 
 
 impl RedisBroker {
-    fn new(conn: redis::Connection) -> RedisBroker {
+    pub fn new(conn: redis::Connection) -> RedisBroker {
         RedisBroker {conn: conn, key_prefix: "", poll_interval_ms: 5}
     }
-}
 
+    pub fn execute_task(&self, task_def: &TaskDef, args: &ToJson) -> RedisTask {
+        let id = Uuid::new_v4().simple().to_string();
 
-impl Broker for RedisBroker {
-    fn execute_task(&self, task: &TaskDef, args: &ToJson) -> &Task {
-        unimplemented!()
-    }
-
-    fn task_status(&self, task_id: &String) -> () {
-        unimplemented!()
-    }
-
-    fn await(&self, task_id: &String) -> Option<&ToJson> {
-        unimplemented!()
-    }
-
-    fn get(&self, task_id: &String) -> Option<&ToJson> {
-        unimplemented!()
+        RedisTask {
+            id: id,
+            state: TaskState::Queued,
+            broker: self
+        }
     }
 }
