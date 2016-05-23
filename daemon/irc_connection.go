@@ -60,7 +60,9 @@ func (c *IrcConnection) Send(msg *irc.Message) error {
 		return err
 	}
 
-	return c.sendRaw(msg.Bytes())
+	log.Println(">>> ", msg)
+
+	return c.sendRaw([]byte(msg.String() + "\r\n"))
 }
 
 func (c *IrcConnection) Start() {
@@ -76,6 +78,10 @@ func (c *IrcConnection) Start() {
 		if msg == nil {
 			log.Printf("Message failed to parse: %s\n", line)
 			continue
+		}
+
+		if err := c.backlog.AddMessage(msg); err != nil {
+			log.Fatal("Oh no", err)
 		}
 
 		c.Data <- msg

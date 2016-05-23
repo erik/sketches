@@ -68,16 +68,37 @@ func NewBacklog(logdir string, address string) *Backlog {
 	}
 }
 
-func (b *Backlog) AddMessage(msg *irc.Message) error {
+func (b *Backlog) getTarget(target string) io.ReadWriter {
+	if b.targets[target] == nil {
+		filename := filepath.Join(b.directory, target)
 
+		rw, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0700)
+		if err != nil {
+			log.Fatal("Couldn't do it", err)
+		}
+
+		b.targets[target] = rw
+	}
+
+	return b.targets[target]
+}
+
+func (b *Backlog) AddMessage(msg *irc.Message) error {
 	switch msg.Command {
 	case irc.PRIVMSG, irc.NOTICE:
+		rw := b.getTarget(msg.Params[0])
+		rw.Write([]byte(msg.String() + "\n"))
+		break
+	case irc.RPL_NAMREPLY:
 		break
 	case irc.JOIN:
 		break
 	case irc.PART:
 		break
-
+	default:
+		rw := b.getTarget("@server_log")
+		rw.Write([]byte(msg.String() + "\n"))
 	}
+
 	return nil
 }
