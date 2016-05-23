@@ -4,71 +4,69 @@ import (
 	"io"
 	"log"
 
+	"github.com/erik/urk/common"
 	"gopkg.in/sorcix/irc.v1"
 )
 
-type DaemonConfig struct {
-	Listen  string
-	LogDir  string
-	Network map[string]NetworkConfig
+type Daemon struct {
+	config common.DaemonConfig
+	net    common.NetworkConfig
+
+	conn    *IrcConnection
+	clients []io.ReadWriteCloser
 }
 
-type NetworkConfig struct {
-	Address  string
-	Nick     string
-	RealName string
+func New(config *common.Config, net common.NetworkConfig) *Daemon {
+	conn := NewIrcConnection(&config.Daemon)
+
+	return &Daemon{
+		config: config.Daemon,
+		net:    net,
+		conn:   conn,
+
+		clients: make([]io.ReadWriteCloser, 0),
+	}
 }
 
-type daemon struct {
-	config  DaemonConfig
-	clients []io.ReadWriter
-}
+func (d *Daemon) Start() {
 
-func Start(config DaemonConfig) {
-	log.Println("Starting in daemon mode")
+	log.Printf("Connecting to %s as %s", d.net.Address, d.net.Nick)
 
-	daemon := daemon{
-		config: config,
+	if err := d.conn.Dial(d.net.Address); err != nil {
+		log.Fatalf("Failed to connect: %v", err)
 	}
 
-	for _, net := range config.Network {
-		log.Printf("Connecting to %s as %s", net.Address, net.Nick)
+	go d.conn.Start()
 
-		conn, err := irc.Dial(net.Address)
-
-		if err != nil {
-			log.Fatalf("Failed to connect: %v", err)
-		}
-
-		c := make(chan *irc.Message, 10)
-
-		go daemon.handleConnection(c, conn)
-		go daemon.messageLoop(c)
-
-	}
-
-	// Our work is done, take a nap.
-	select {}
+	d.authenticate()
+	d.messageLoop()
 }
 
-func (d *daemon) messageLoop(c chan *irc.Message) {
-	for msg := range c {
+func (d *Daemon) authenticate() {
+	d.conn.Send(&irc.Message{
+		Command: irc.NICK,
+		Params:  []string{d.net.Nick},
+	})
+
+	d.conn.Send(&irc.Message{
+		Command:  irc.USER,
+		Params:   []string{d.net.User, "0", "*"},
+		Trailing: d.net.User,
+	})
+}
+
+func (d *Daemon) messageLoop() {
+	for msg := range d.conn.Data {
 		if msg.Command == irc.PING {
+			log.Println("SENDING PONG")
 
+			d.conn.Send(&irc.Message{
+				Command:  irc.PONG,
+				Params:   msg.Params,
+				Trailing: msg.Trailing,
+			})
 		}
 
 		log.Print(msg)
-	}
-}
-
-func (d *daemon) handleConnection(c chan *irc.Message, conn *irc.Conn) {
-	for {
-		message, err := conn.Decode()
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		c <- message
 	}
 }

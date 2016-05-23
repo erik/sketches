@@ -4,46 +4,39 @@ import (
 	"flag"
 	"log"
 
-	"github.com/BurntSushi/toml"
 	"github.com/erik/urk/client"
+	"github.com/erik/urk/common"
 	"github.com/erik/urk/daemon"
 )
 
-type Config struct {
-	Daemon daemon.DaemonConfig
-
-	Client struct {
-	}
-}
-
-const defaultConfig = `
-[daemon]
-listen = ":5567"
-logdir = "/tmp/urklog/"
-
-[daemon.network.freenode]
-address = "irc.freenode.net:6667"
-nick = "ErikBot"
-realname = "Erik Bot"
-`
-
-var daemonMode = flag.Bool("daemon", false, "toggles whether this is a daemon")
-var configFile = flag.String("config", "", "path to config file")
+var (
+	daemonMode = flag.Bool("daemon", false, "toggles whether this is a daemon")
+	configFile = flag.String("config", "", "path to config file")
+)
 
 func main() {
 	flag.Parse()
 
-	var config Config
+	config, err := common.LoadConfig(*configFile)
 
-	if _, err := toml.Decode(defaultConfig, &config); err != nil {
+	if err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("%v\n", config)
 
 	if *daemonMode {
-		daemon.Start(config.Daemon)
+		log.Println("Starting in daemon mode")
+
+		for _, net := range config.Network {
+			d := daemon.New(config, net)
+			go d.Start()
+		}
+
 	} else {
 		client.Start()
 	}
+
+	// Our work is done, take a nap.
+	select {}
 }
