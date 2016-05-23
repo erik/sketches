@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -40,12 +41,9 @@ func (m *Metadata) sync(directory string) {
 			log.Println("Couldn't serialize json", err)
 		}
 
-		fp, err := os.Open(filename)
-		if err != nil {
+		if err := ioutil.WriteFile(filename, marshal, 0700); err != nil {
 			log.Fatal(err)
 		}
-
-		fp.Write(marshal)
 	}
 }
 
