@@ -25,10 +25,12 @@ type Metadata struct {
 }
 
 type ChannelMetadata struct {
-	// map of nick -> last seen ts
-	Nicks map[string]int64
-	Topic string
+	Active bool             // Are we currently in this channel?
+	Nicks  map[string]int64 // map of nick -> last seen ts
+	Topic  string
 }
+
+const serverLogFile = "server.log"
 
 // Sync on disk and in memory representation of metadata
 func (m *Metadata) sync(directory string) {
@@ -102,7 +104,14 @@ func (b *Backlog) AddMessage(msg *irc.Message) error {
 
 	switch msg.Command {
 	case irc.PRIVMSG, irc.NOTICE:
-		rw := b.getTarget(msg.Params[0])
+		target := msg.Params[0]
+
+		// Don't generate a file named "*"
+		if target == "*" {
+			target = serverLogFile
+		}
+
+		rw := b.getTarget(target)
 		rw.Write([]byte(msg.String() + "\n"))
 
 		meta := b.getMetadata(msg.Params[0])
@@ -113,7 +122,11 @@ func (b *Backlog) AddMessage(msg *irc.Message) error {
 		meta := b.getMetadata(msg.Params[0])
 
 		for _, n := range strings.Split(msg.Trailing, " ") {
-			meta.Nicks[n] = time.Now().Unix()
+			// remove Oper etc markings
+			// TODO: make this an exhaustive set and factor out
+			bare_nick := strings.TrimLeft(n, "~@+")
+
+			meta.Nicks[bare_nick] = time.Now().Unix()
 		}
 
 		break
@@ -126,7 +139,8 @@ func (b *Backlog) AddMessage(msg *irc.Message) error {
 	case irc.JOIN, irc.PART:
 		// FIXME: This is stupid brittle, just us JOIN/PARTing
 		if len(msg.Params) == 1 {
-			break
+			meta := b.getMetadata(msg.Params[0])
+			meta.Active = (msg.Command == irc.JOIN)
 		}
 
 		meta := b.getMetadata(msg.Params[1])
@@ -134,7 +148,7 @@ func (b *Backlog) AddMessage(msg *irc.Message) error {
 		break
 
 	default:
-		rw := b.getTarget(".server.log")
+		rw := b.getTarget(serverLogFile)
 		rw.Write([]byte(msg.String() + "\n"))
 	}
 
