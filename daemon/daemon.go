@@ -53,6 +53,11 @@ func (d *Daemon) authenticate() {
 		Params:   []string{d.net.User, "0", "*"},
 		Trailing: d.net.User,
 	})
+
+	d.conn.Send(&irc.Message{
+		Command: irc.JOIN,
+		Params:  []string{"#bot-test-1555"},
+	})
 }
 
 func (d *Daemon) messageLoop() {

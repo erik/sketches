@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/sorcix/irc.v1"
@@ -19,13 +20,14 @@ type Backlog struct {
 }
 
 type Metadata struct {
-	channels    map[string]ChannelMetadata
-	currentNick string
+	Channels    map[string]*ChannelMetadata
+	CurrentNick string
 }
 
 type ChannelMetadata struct {
-	nicks map[string]bool
-	topic string
+	// map of nick -> last seen ts
+	Nicks map[string]int64
+	Topic string
 }
 
 // Sync on disk and in memory representation of metadata
@@ -55,8 +57,8 @@ func NewBacklog(logdir string, address string) *Backlog {
 	}
 
 	meta := &Metadata{
-		channels:    make(map[string]ChannelMetadata),
-		currentNick: "",
+		Channels:    make(map[string]*ChannelMetadata),
+		CurrentNick: "",
 	}
 
 	go meta.sync(directory)
@@ -83,20 +85,56 @@ func (b *Backlog) getTarget(target string) io.ReadWriter {
 	return b.targets[target]
 }
 
+func (b *Backlog) getMetadata(target string) *ChannelMetadata {
+	log.Printf("Getting metadata for %s", target)
+	if b.metadata.Channels[target] == nil {
+		b.metadata.Channels[target] = &ChannelMetadata{
+			Nicks: make(map[string]int64, 1),
+			Topic: "",
+		}
+	}
+
+	return b.metadata.Channels[target]
+}
+
 func (b *Backlog) AddMessage(msg *irc.Message) error {
+	log.Printf("ok adding msg=%s, params=%v", msg.String(), msg.Params)
+
 	switch msg.Command {
 	case irc.PRIVMSG, irc.NOTICE:
 		rw := b.getTarget(msg.Params[0])
 		rw.Write([]byte(msg.String() + "\n"))
+
+		meta := b.getMetadata(msg.Params[0])
+		meta.Nicks[msg.Name] = time.Now().Unix()
 		break
+
 	case irc.RPL_NAMREPLY:
+		meta := b.getMetadata(msg.Params[0])
+
+		for _, n := range strings.Split(msg.Trailing, " ") {
+			meta.Nicks[n] = time.Now().Unix()
+		}
+
 		break
-	case irc.JOIN:
+
+	case irc.RPL_TOPIC:
+		data := b.getMetadata(msg.Params[0])
+		data.Topic = msg.Trailing
 		break
-	case irc.PART:
+
+	case irc.JOIN, irc.PART:
+		// FIXME: This is stupid brittle, just us JOIN/PARTing
+		if len(msg.Params) == 1 {
+			break
+		}
+
+		meta := b.getMetadata(msg.Params[1])
+		meta.Nicks[msg.Name] = time.Now().Unix()
 		break
+
 	default:
-		rw := b.getTarget("@server_log")
+		rw := b.getTarget(".server.log")
 		rw.Write([]byte(msg.String() + "\n"))
 	}
 
