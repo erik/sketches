@@ -1,8 +1,9 @@
 package daemon
 
 import (
-	"io"
 	"log"
+
+	"net"
 
 	"github.com/erik/urk/common"
 	"gopkg.in/sorcix/irc.v1"
@@ -13,18 +14,17 @@ type Daemon struct {
 	net    common.NetworkConfig
 
 	conn    *IrcConnection
-	clients []io.ReadWriteCloser
+	clients []chan *irc.Message
 }
 
 func New(config *common.Config, net common.NetworkConfig) *Daemon {
 	conn := NewIrcConnection(&config.Daemon)
 
 	return &Daemon{
-		config: config.Daemon,
-		net:    net,
-		conn:   conn,
-
-		clients: make([]io.ReadWriteCloser, 0),
+		config:  config.Daemon,
+		net:     net,
+		conn:    conn,
+		clients: make([]chan *irc.Message, 1),
 	}
 }
 
@@ -37,9 +37,38 @@ func (d *Daemon) Start() {
 	}
 
 	go d.conn.Start()
+	go d.acceptClients()
 
 	d.authenticate()
 	d.messageLoop()
+}
+
+func (d *Daemon) acceptClients() {
+	listener, err := net.Listen("tcp", d.config.Listen)
+	if err != nil {
+		log.Fatal("Failed to listen for connections", err)
+	}
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal("Failed to grab listener", err)
+		}
+
+		log.Printf("Handling a client: %v", conn.RemoteAddr())
+
+		go d.handleClientConnection(conn)
+	}
+}
+
+func (d *Daemon) handleClientConnection(conn net.Conn) {
+	c := make(chan *irc.Message, 10)
+	d.clients = append(d.clients, c)
+
+	for msg := range c {
+		conn.Write(msg.Bytes())
+		conn.Write([]byte("\n"))
+	}
 }
 
 func (d *Daemon) authenticate() {
@@ -70,6 +99,12 @@ func (d *Daemon) messageLoop() {
 				Params:   msg.Params,
 				Trailing: msg.Trailing,
 			})
+		} else {
+			// Just directly pass the message on to each
+			// of the the clients
+			for _, client := range d.clients {
+				client <- msg
+			}
 		}
 
 		log.Print(msg)
