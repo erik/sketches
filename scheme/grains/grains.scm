@@ -6,4 +6,4 @@
   (expt 2 (- n 1)))
 
 (define (total)
-  (apply + (map square (cdr (iota 65)))))
+  (- (square 65) 1))
