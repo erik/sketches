@@ -1,8 +1,6 @@
 (define-module (dna)
   #:export (to-rna))
 
-(import (rnrs))
-
 (define (to-rna dna)
   (string-map
    (lambda (c)
@@ -12,6 +10,3 @@
       ((char=? c #\T) #\A)
       ((char=? c #\A) #\U)))
    dna))
-
-
-(to-rna "GCTA")
