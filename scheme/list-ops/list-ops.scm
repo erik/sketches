@@ -13,9 +13,7 @@
       (my-fold-left fn (fn (car lst) init) (cdr lst))))
 
 (define (my-fold-right fn init lst)
-  (if (null? lst)
-      init
-      (my-fold-left fn init (my-reverse lst))))
+  (my-fold-left fn init (my-reverse lst)))
 
 (define (my-length lst)
   (my-fold-left (lambda (_ acc) (1+ acc)) 0 lst))
