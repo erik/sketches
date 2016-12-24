@@ -25,7 +25,7 @@ app.listen(8080);
 // Middleware to assign user with new identity, if valid
 // TODO: sign cookies to prevent tampering.
 function attachIdentityCookie(req, res, next) {
-  var identityCookie = req.cookies.identityCookie;
+  let identityCookie = req.cookies.identityCookie;
 
   // New user, assign a cookie
   if (identityCookie === undefined) {
@@ -43,7 +43,7 @@ function attachIdentityCookie(req, res, next) {
 }
 
 
-var DATABASE = {
+let DATABASE = {
   questions: [{
     id: 123,
     content: 'what is new?',
@@ -72,7 +72,7 @@ app.post('/api/room/new', attachIdentityCookie, (req, res) => {
   if (!['name', 'description'].every(k => k in req.body))
     return res.sendStatus(400);
 
-  var room_id = randomstring.generate();
+  let room_id = randomstring.generate();
 
   DATABASE.rooms[room_id] = {
     name: req.body.name,
@@ -110,13 +110,13 @@ app.post('/api/question/new', attachIdentityCookie, (req, res) => {
   if (!DATABASE.rooms[req.body.room_id])
     return res.sendStatus(404);
 
-  var q_id = randomstring.generate(3);
+  let q_id = randomstring.generate(3);
 
   DATABASE.questions.push({
     id: q_id,
     content: req.body.content,
     room_id: req.body.room_id,
-    name:  req.body.name || 'Anonymous',
+    name:  req.body.name,
     user_id: req.identityCookie
   });
 
@@ -126,7 +126,7 @@ app.post('/api/question/new', attachIdentityCookie, (req, res) => {
 });
 
 app.post('/api/question/:id/delete', attachIdentityCookie, (req, res) => {
-  var index = DATABASE.questions.findIndex(q => q.id == req.params.id);
+  let index = DATABASE.questions.findIndex(q => q.id == req.params.id);
 
   if (index === -1)
     return res.sendStatus(404);
@@ -141,7 +141,7 @@ app.post('/api/question/:id/delete', attachIdentityCookie, (req, res) => {
 });
 
 app.post('/api/question/:id/vote', attachIdentityCookie, (req, res) => {
-  var votes = DATABASE.votes[req.params.id];
+  let votes = DATABASE.votes[req.params.id];
 
   if (!votes)
     return res.sendStatus(404);
