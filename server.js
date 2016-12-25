@@ -18,6 +18,7 @@ app.use(cookieParser())
 app.use(bodyParser())
 app.use((req, res, next) => { res.io = io; next(); })
 
+app.use(express.static('dist/'))
 
 app.listen(8080)
 
@@ -25,6 +26,7 @@ app.listen(8080)
 // Middleware to assign user with new identity, if valid
 // TODO: sign cookies to prevent tampering.
 function attachIdentityCookie(req, res, next) {
+  console.log(req.cookies, req.signedCookies)
   let identityCookie = req.cookies.identityCookie
 
   // New user, assign a cookie
@@ -50,7 +52,7 @@ let DATABASE = {
     user_id: '12931283123',
     room_id: 'venice'
   }],
-  votes: {},
+  votes: { 123: new Set() },
   rooms: {
     venice: {
       name: 'venice',
@@ -63,7 +65,7 @@ let DATABASE = {
 
 
 app.get('/', attachIdentityCookie, (req, res) => {
-  res.send('hello homepage')
+  res.sendFile('index.html')
 })
 
 
@@ -89,7 +91,7 @@ app.get('/api/room/:id', attachIdentityCookie, (req, res) => {
     return res.sendStatus(404)
 
   res.json({
-    room: DATABASE.rooms[req.params.id],
+    meta: DATABASE.rooms[req.params.id],
     questions: DATABASE.questions
       .filter(q => q.room_id == req.params.id)
       .map(q => ({
@@ -149,7 +151,7 @@ app.post('/api/question/:id/vote', attachIdentityCookie, (req, res) => {
 
   votes.add(req.identityCookie)
 
-  res.json({vote: votes.size})
+  res.json({votes: votes.size})
 })
 
 
