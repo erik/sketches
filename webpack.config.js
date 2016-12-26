@@ -1,24 +1,33 @@
+var vue = require('vue-loader')
 var path = require('path')
 var webpack = require('webpack')
 
 module.exports = {
-  entry: './server.js',
+  entry: './src/frontend/main.js',
   output: {
     path: path.resolve(__dirname, './dist'),
     publicPath: '/dist/',
-    filename: 'server.dist.js'
+    filename: 'frontend.dist.js'
   },
   module: {
     loaders: [
       {
+        test: /\.vue$/,
+        loader: 'vue',
+        exclude: /node_modules/
+      },
+      {
         test: /\.js$/,
-        loader: 'babel-loader',
-        exclude: /node_modules/,
-        query: {
-          presets: ['es2015']
-        }
+        loader: 'babel',
+        exclude: /node_modules/
       }
     ]
+  },
+  resolve: {
+    root: [path.join(__dirname, 'node_modules')],
+    alias: {
+      'vue$': 'vue/dist/vue.common.js'
+    }
   },
   devServer: {
     historyApiFallback: true,

@@ -39,7 +39,7 @@ let DATABASE = {
 }
 
 // load the auth variables
-let secrets = require('./config/secrets.json')
+let secrets = require('../../config/secrets.json')
 
 passport.serializeUser((user, done) => done(null, user.id))
 passport.deserializeUser((id, done) => done(null, DATABASE.users[id]))
