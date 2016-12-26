@@ -4,9 +4,7 @@ import VueRouter from 'vue-router'
 import App from './App.vue'
 import Room from './components/Room.vue'
 
-
 Vue.use(VueRouter)
-
 
 const routes = [
   {path: '/', component: {template: `<div>todo: ask a new question</div>`}},

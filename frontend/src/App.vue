@@ -1,13 +1,15 @@
 <template>
     <div id="app">
-        <nav>
-            <router-link to="/">Home</router-link>
-            <router-link to="/topic">Create Topic</router-link>
-        </nav>
+        <div id="wrapper">
+            <nav>
+                <router-link to="/">Home</router-link>
+                <router-link to="/topic">Create Topic</router-link>
+            </nav>
 
-        <main>
-            <router-view></router-view>
-        </main>
+            <main>
+                <router-view></router-view>
+            </main>
+        </div>
     </div>
 </template>
 
@@ -28,6 +30,16 @@ export default {
   color: #2c3e50;
 }
 
+nav, main {
+    margin: 8px;
+}
+
+#wrapper {
+    padding: 8px;
+    max-width: 960px;
+    margin: auto;
+}
+
 h1, h2 {
   font-weight: normal;
 }
@@ -39,7 +51,7 @@ ul {
 
 li {
   display: inline-block;
-  margin: 0 10px;
+  margin: 0;
 }
 
 a {

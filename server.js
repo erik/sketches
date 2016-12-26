@@ -46,17 +46,39 @@ function attachIdentityCookie(req, res, next) {
 
 let DATABASE = {
   questions: [{
-    id: 123,
-    content: 'what is new?',
+    id: 1,
+    content: 'is this a question?',
     name: 'anonymous',
     user_id: '12931283123',
-    room_id: 'venice'
-  }],
-  votes: { 123: new Set() },
+    room_id: 'venice',
+    timestamp: new Date()
+  },{
+    id: 2,
+    content: 'what are questions?',
+    name: 'anonymous',
+    user_id: '12931283123',
+    room_id: 'venice',
+    timestamp: new Date()
+  },{
+    id: 3,
+    content: 'things and words and things and questions and things and words',
+    name: 'anonymous',
+    user_id: '12931283123',
+    room_id: 'venice',
+    timestamp: new Date()
+  },{
+    id: 4,
+    content: 'asdf',
+    name: 'anonymous',
+    user_id: '12931283123',
+    room_id: 'venice',
+    timestamp: new Date()
+  },],
+  votes: { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set() },
   rooms: {
     venice: {
-      name: 'venice',
-      description: 'weekly allhands',
+      name: 'Venice All Hands Meeting',
+      description: 'Questions for the weekly allhands meeting',
       created_at: new Date(),
       creator: 'erik'
     }
@@ -65,7 +87,7 @@ let DATABASE = {
 
 
 app.get('/', attachIdentityCookie, (req, res) => {
-  res.sendFile('index.html')
+  res.sendFile(__dirname + '/index.html')
 })
 
 
@@ -98,7 +120,9 @@ app.get('/api/room/:id', attachIdentityCookie, (req, res) => {
         id: q.id,
         name: q.name,
         content: q.content,
-        votes: (DATABASE.votes[q.id] || new Set()).size
+        timestamp: q.timestamp,
+        votes: (DATABASE.votes[q.id] || new Set()).size,
+        already_voted: (DATABASE.votes[q.id] || new Set()).has(req.identityCookie)
       }))
   })
 })
@@ -117,8 +141,9 @@ app.post('/api/question/new', attachIdentityCookie, (req, res) => {
     id: q_id,
     content: req.body.content,
     room_id: req.body.room_id,
-    name:  req.body.name,
-    user_id: req.identityCookie
+    name:  req.body.anonymous ? null : req.body.name,
+    user_id: req.identityCookie,
+    timestamp: new Date()
   })
 
   DATABASE.votes[q_id] = new Set()
@@ -149,7 +174,12 @@ app.post('/api/question/:id/vote', attachIdentityCookie, (req, res) => {
   if (!votes)
     return res.sendStatus(404)
 
-  votes.add(req.identityCookie)
+  console.log(req.body)
+
+  if (req.body.down)
+    votes.delete(req.identityCookie)
+  else
+    votes.add(req.identityCookie)
 
   res.json({votes: votes.size})
 })

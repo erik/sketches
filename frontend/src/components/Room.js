@@ -1,16 +1,22 @@
+import moment from 'moment'
+
+
 export default {
   data () {
     return {
       meta: {
         name: null,
         description: null,
-        creator: null
+        creator: null,
+        created_at: new Date()
       },
 
       questions: [],
       room_id: this.$route.params.id,
       loading: false,
-      error: null
+      error: null,
+      content: null,
+      anon: true
     }
   },
 
@@ -18,16 +24,39 @@ export default {
     this.fetchData()
   },
 
+  computed: {
+    sortedQuestions () {
+      return this.questions.sort((a, b) => b.votes - a.votes)
+    }
+  },
+
   methods: {
+    fromNow (time) {
+      return moment(time).fromNow()
+    },
+
+    ask () {
+      fetch('/api/question/new', {
+        method: 'post',
+        headers: {'Content-type': 'application/json'},
+        body: JSON.stringify({
+          content: this.content,
+          room_id: this.room_id,
+          anonymous: this.anon
+        })
+      }).catch(err => this.error = err)
+    },
+
     vote (question) {
-      console.log('upvote', question)
-
-      // Optimistically update vote count (might be double vote)
-      question.votes += 1
-
-      fetch(`/api/question/${question.id}/vote`, { method: 'post' })
-        .then(r => r.json())
-        .then(data => { question.votes = data.votes })
+      fetch(`/api/question/${question.id}/vote`, {
+        method: 'post',
+        headers: {'Content-type': 'application/json'},
+        body: JSON.stringify({ down: question.already_voted })
+      }).then(r => r.json())
+        .then(data => {
+          question.votes = data.votes
+          question.already_voted = !question.already_voted
+        })
         .catch(err => {
           this.error = err
           console.log('failed to upvote', err)
@@ -35,7 +64,8 @@ export default {
     },
 
     fetchData () {
-      this.error = this.meta = this.questions = null
+      this.error = this.meta = null
+      this.questions = []
       this.loading = true
 
       fetch(`/api/room/${this.room_id}`)
