@@ -38,6 +38,7 @@ export default {
     ask () {
       fetch('/api/question/new', {
         method: 'post',
+        credentials: 'include',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({
           content: this.content,
@@ -50,6 +51,7 @@ export default {
     vote (question) {
       fetch(`/api/question/${question.id}/vote`, {
         method: 'post',
+        credentials: 'include',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({ down: question.already_voted })
       }).then(r => r.json())
@@ -68,7 +70,7 @@ export default {
       this.questions = []
       this.loading = true
 
-      fetch(`/api/room/${this.room_id}`)
+      fetch(`/api/room/${this.room_id}`, {credentials: 'include'})
         .then(r => { return r.json(); })
         .then(data => {
           this.loading = false
