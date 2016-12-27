@@ -8,23 +8,24 @@
       {{ error.toString() }}
     </div>
 
-    <div v-if="meta" class="meta">
+    <div v-if="meta" id="meta">
       <h2>{{ meta.name }}</h2>
       <span>started by {{ meta.creator }} {{ fromNow(meta.created_at) }}</span>
       <p>{{ meta.description }}</p>
     </div>
 
-    <div id="question-container">
-        <div id="ask" class="question">
-            <div class="column">
-                <span><input v-model="content" placeholder="Ask a question..."></span>
-                <span><label>Be anonymous.</label>
-                    <input v-model="anon" type="checkbox">
-                    </span>
-            </div>
-            <button v-on:click="ask()">Ask</button>
-        </div>
+    <div v-if="sortedQuestions" id="ask">
+        <input id="question-box"
+               v-model="content"
+               @keyup.enter="ask()"
+               placeholder="Ask a question...">
 
+        <input v-model="anon" type="checkbox">
+        <label>Ask anonymously</label>
+    </div>
+
+
+    <div id="question-container">
         <div class="question" v-for="q in sortedQuestions">
             <div class="question-title">
                 <span class="question-votes" v-on:click="vote(q)">
@@ -50,44 +51,38 @@
 
 <style>
 
+#meta {
+  text-align: center;
+}
+
 #question-container {
-  margin-top: 8px;
+  width: 100%;
+  margin-top: 32px;
   display: flex;
   flex-wrap: wrap;
 }
 
-.row {
+#ask {
+  font-size: 20px;
+  padding: 16px;
   width: 100%;
+  margin-top: 32px;
+  margin-bottom: 32px;
+  height: 64px;
+}
+
+#question-box {
+  height: 32px;
+  width: 100%;
+  border: 1px solid grey;
+  float: left;
+  padding: 8px;
+  margin: 8px;
+  font-size: 16px;
 }
 
 #ask * {
-  float: left;
-  margin: 0;
-}
-
-#ask .column {
-  height: 64px;
-  width: 75%;
-}
-
-#ask .column span {
-  width: 100%;
-  height: 32px;
-}
-
-#ask .column input {
-  max-width: 80%;
-  border: 1px solid black;
-  padding: 8px;
-  text-size: 16px;
-}
-
-#ask button {
-  width: 25%;
-  height: 64px;
-  float: left;
-  border: 1px solid black;
-  border-radius: 4px;
+  float: right;
 }
 
 @media (max-width: 500px) {

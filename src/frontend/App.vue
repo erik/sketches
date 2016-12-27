@@ -36,7 +36,7 @@ nav, main {
 
 #wrapper {
     padding: 8px;
-    max-width: 960px;
+    max-width: 568px;
     margin: auto;
 }
 
