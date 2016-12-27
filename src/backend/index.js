@@ -98,9 +98,9 @@ app.get('/', (req, res) => {
   console.log(req.user, req.isAuthenticated())
 
   if (req.isAuthenticated())
-    res.sendFile(__dirname + '/index.html')
+    res.sendFile(__dirname + '/views/index.html')
   else
-    res.send('<a href="/auth/google">Log In with Google</a>')
+    res.sendFile(__dirname + '/views/login.html')
 })
 
 
