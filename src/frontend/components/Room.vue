@@ -74,11 +74,12 @@
 #question-box {
   height: 32px;
   width: 100%;
-  border: 1px solid grey;
+  border: 1px solid lightgrey;
   float: left;
   padding: 8px;
   margin: 8px;
   font-size: 16px;
+  border-radius: 8px;
 }
 
 #ask * {
