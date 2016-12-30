@@ -43,6 +43,20 @@ router.post('/api/room/new', authenticated, (req, res) => {
 })
 
 
+router.get('/api/room', authenticated, (req, res) => {
+  let rooms = Object.keys(DATABASE.rooms).map(id => {
+    let room = DATABASE.rooms[id]
+    return {
+      id,
+      name: room.name,
+      description: room.description,
+      created_at: room.created_at
+    }})
+
+  res.json({rooms})
+})
+
+
 router.get('/api/room/:id', authenticated, (req, res) => {
   if (!req.params.id || !DATABASE.rooms[req.params.id])
     return res.sendStatus(404)
