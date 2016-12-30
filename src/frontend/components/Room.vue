@@ -40,7 +40,7 @@
             </div>
 
             <span class="question-meta">
-                asked by {{ q.name}}
+                asked by {{ q.name || 'anonymous' }}
                 <br />
                 {{ fromNow(q.timestamp) }}
             </span>

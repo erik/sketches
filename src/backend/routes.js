@@ -78,26 +78,33 @@ router.get('/api/room/:id', authenticated, (req, res) => {
 
 
 router.post('/api/question/new', authenticated, (req, res) => {
-  if (!['room_id', 'content'].every(k => k in req.body))
+  if (!['room_id', 'content'].every(k => k in req.body && req.body[k].length))
     return res.sendStatus(400)
 
   if (!DATABASE.rooms[req.body.room_id])
     return res.sendStatus(404)
 
-  let q_id = randomstring.generate(3)
-
-  DATABASE.questions.push({
-    id: q_id,
+  let question = {
+    id: randomstring.generate(3),
     content: req.body.content,
     room_id: req.body.room_id,
     name:  req.body.anonymous ? null : req.user.name,
     user_id: req.user.id,
     timestamp: new Date()
+  }
+
+
+  DATABASE.questions.push(question)
+  DATABASE.votes[question.id] = new Set([req.user.id])
+
+  res.json({
+    id: question.id,
+    name: question.name,
+    content: question.content,
+    timestamp: question.timestamp,
+    votes: 1,
+    already_voted: true
   })
-
-  DATABASE.votes[q_id] = new Set()
-
-  res.json({})
 })
 
 

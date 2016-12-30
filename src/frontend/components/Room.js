@@ -45,7 +45,14 @@ export default {
           room_id: this.room_id,
           anonymous: this.anon
         })
-      }).catch(err => this.error = err)
+      })
+        .then(r => r.json())
+        .then(question => {
+          this.questions.unshift(question)
+        })
+        .catch(err => this.error = err)
+
+      this.content = ""
     },
 
     vote (question) {
@@ -71,7 +78,7 @@ export default {
       this.loading = true
 
       fetch(`/api/room/${this.room_id}`, {credentials: 'include'})
-        .then(r => { return r.json(); })
+        .then(r => r.json() )
         .then(data => {
           this.loading = false
           this.meta = data.meta
