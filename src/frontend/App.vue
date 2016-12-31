@@ -1,15 +1,17 @@
 <template>
     <div id="app">
-        <div id="wrapper">
-            <nav>
-                <router-link to="/">Home</router-link>
-                <router-link to="/topic">Create Topic</router-link>
-            </nav>
-
-            <main>
-                <router-view></router-view>
-            </main>
+        <div class="container">
+            <div class="header">
+                <nav class="nav">
+                    <div class="nav-left">
+                        <router-link class="nav-item" to="/">Home</router-link>
+                        <router-link class="nav-item" to="/topic">Create Topic</router-link>
+                    </div>
+                </nav>
+            </div>
         </div>
+
+        <router-view></router-view>
     </div>
 </template>
 
@@ -23,38 +25,4 @@ export default {
 </script>
 
 <style>
-#app {
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  color: #2c3e50;
-}
-
-nav, main {
-    margin: 8px;
-}
-
-#wrapper {
-    padding: 8px;
-    max-width: 568px;
-    margin: auto;
-}
-
-h1, h2 {
-  font-weight: normal;
-}
-
-ul {
-  list-style-type: none;
-  padding: 0;
-}
-
-li {
-  display: inline-block;
-  margin: 0;
-}
-
-a {
-  color: #42b983;
-}
 </style>

@@ -934,6 +934,10 @@ builtin-status-codes@^2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/builtin-status-codes/-/builtin-status-codes-2.0.0.tgz#6f22003baacf003ccd287afe6872151fddc58579"
 
+bulma:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/bulma/-/bulma-0.2.3.tgz#086394c65e74aa8081e658bdcf6742f81107936e"
+
 bytes@2.3.0:
   version "2.3.0"
   resolved "https://registry.yarnpkg.com/bytes/-/bytes-2.3.0.tgz#d5b680a165b6201739acb611542aabc2d8ceb070"

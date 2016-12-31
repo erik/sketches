@@ -54,8 +54,6 @@ router.get('/api/room/:id', authenticated, (req, res) => {
   if (!req.params.id)
     return res.sendStatus(404)
 
-  db.findQuestions({room_id: req.params.id, user_id: req.user.id}).then(rows => console.log('ballls', rows))
-
   Promise.all([
     db.findRoom({room_id: req.params.id}),
     db.findQuestions({room_id: req.params.id, user_id: req.user.id})
@@ -71,11 +69,11 @@ router.get('/api/room/:id', authenticated, (req, res) => {
     res.json({
       meta: rooms[0],
       questions: questions.map(q => ({
-        name: q.is_anonymous ? null : q.name,
+        name: q.is_anonymous == 1 ? null : q.name,
         content: q.content,
         votes: q.votes || 0,
         has_voted: q.has_voted > 0,
-        created_at: q.created_at
+        created_at: new Date(q.created_at + 'Z')
       }))
     })
   })

@@ -11,7 +11,7 @@ export default {
   createSchema () {
     knex.schema.createTableIfNotExists('users', function (table) {
       table.increments()
-      table.timestamp(true).defaultTo(knex.fn.now())
+      table.timestamp('created_at').defaultTo(knex.fn.now())
       table.string('name')
       table.string('google_id')
       table.string('google_token')
@@ -20,7 +20,7 @@ export default {
 
     knex.schema.createTableIfNotExists('rooms', function (table) {
       table.increments()
-      table.timestamp(true).defaultTo(knex.fn.now())
+      table.timestamp('created_at').defaultTo(knex.fn.now())
       table.string('name')
       table.text('description')
       table.integer('user_id')
@@ -32,7 +32,7 @@ export default {
 
     knex.schema.createTableIfNotExists('questions', function (table) {
       table.increments()
-      table.timestamp(true).defaultTo(knex.fn.now())
+      table.timestamp('created_at').defaultTo(knex.fn.now())
       table.integer('user_id')
       table.integer('room_id')
       table.boolean('is_anonymous')
@@ -44,7 +44,7 @@ export default {
 
     knex.schema.createTableIfNotExists('votes', function (table) {
       table.increments()
-      table.timestamp(true).defaultTo(knex.fn.now())
+      table.timestamp('created_at').defaultTo(knex.fn.now())
 
       table.integer('user_id')
       table.integer('room_id')
@@ -54,10 +54,10 @@ export default {
       table.foreign('room_id').references('Rooms.id')
     }).return()
 
-    //this.createUser({google_id: 'asdf', google_token: 'asdf', name: 'Seeded User'})
-    //this.createRoom({name: 'seeded', description: 'this is a seeded room', user_id: 1})
-    //this.createQuestion({user_id: 1, room_id: 1, content: 'this is a seeded question', is_anonymous: false})
-    //this.createQuestion({user_id: 1, room_id: 1, content: 'this is an anonymous seeded question', is_anonymous: true})
+    //this.createUser({google_id: 'asdf', google_token: 'asdf', name: 'timestamp
+    //this.createRoom({name: 'seeded', description: 'this is a seeded room', user_timestamp
+    //this.createQuestion({user_id: 1, room_id: 1, content: 'this is a seeded question', is_timestamp
+    //this.createQuestion({user_id: 1, room_id: 1, content: 'this is an q.timestampq.timestampq.timestampe})
   },
 
   createUser ({google_id, google_token, name}) {
@@ -121,7 +121,8 @@ export default {
         'users.name as name',
         'is_anonymous',
         'q.id as question_id',
-        'content'
+        'content',
+        'q.timestamp as created_at'
       ])
       .sumDistinct('all_votes.user_id as votes')
       .sumDistinct('my_votes.user_id as already_voted')
@@ -129,7 +130,7 @@ export default {
       .leftJoin('users', 'users.id', 'q.user_id')
       .leftOuterJoin('votes as all_votes', 'q.id', 'all_votes.question_id')
       .leftOuterJoin('votes as my_votes', 'my_votes.user_id', user_id)
-      .groupBy(['users.name', 'is_anonymous', 'q.id', 'content'])
+      .groupBy(['users.name', 'is_anonymous', 'q.id', 'content', 'q.timestamp'])
   }
 }
 

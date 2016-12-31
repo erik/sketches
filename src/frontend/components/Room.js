@@ -15,8 +15,7 @@ export default {
       room_id: this.$route.params.id,
       loading: false,
       error: null,
-      content: null,
-      anon: true
+      content: null
     }
   },
 
@@ -26,7 +25,12 @@ export default {
 
   computed: {
     sortedQuestions () {
-      return this.questions.sort((a, b) => b.votes - a.votes)
+      return this.questions.sort((a, b) => {
+        if (a.votes !== b.votes)
+          return b.votes - a.votes
+
+        return new Date(b.created_at) - new Date(a.created_at)
+      })
     }
   },
 
@@ -35,7 +39,7 @@ export default {
       return moment(time).fromNow()
     },
 
-    ask () {
+    ask (anonymous) {
       fetch('/api/question/new', {
         method: 'post',
         credentials: 'include',
@@ -43,7 +47,7 @@ export default {
         body: JSON.stringify({
           content: this.content,
           room_id: this.room_id,
-          anonymous: this.anon
+          anonymous: anonymous
         })
       })
         .then(r => r.json())
