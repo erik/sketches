@@ -3,8 +3,8 @@ import {Strategy as GoogleStrategy} from 'passport-google-oauth20'
 
 import {Router} from 'express'
 
-import DATABASE from './database'
-import {findUser, createUser} from './database'
+import {DATABASE} from './database'
+import db from './database'
 
 
 let router = Router()
@@ -14,7 +14,7 @@ let secrets = require('../../config/secrets.json')
 
 
 passport.serializeUser((user, done) => done(null, user.id))
-passport.deserializeUser((id, done) => findUser({id})
+passport.deserializeUser((id, done) => db.findUser({id})
                          .then(rows => done(null, rows[0]))
                          .catch(err => done(err, false)))
 
@@ -23,10 +23,10 @@ passport.use(new GoogleStrategy({
   clientSecret: secrets.google.client_secret,
   callbackURL: secrets.google.callback_url
 }, (token, refreshToken, profile, done) => {
-  findUser({google_id: profile.id})
+  db.findUser({google_id: profile.id})
     .then(rows => {
       if (rows.length === 0)
-        createUser({
+        return db.createUser({
           google_id: profile.id,
           google_token: token,
           name: profile.displayName
@@ -34,7 +34,7 @@ passport.use(new GoogleStrategy({
         .then(user => done(null, user))
         .catch(err => done(err, false))
 
-      done(null, rows[0])
+      return done(null, rows[0])
     })
     .catch(err => done(err, false))
 }))

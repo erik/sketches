@@ -10,7 +10,7 @@
 
     <div v-if="meta" id="meta">
       <h2>{{ meta.name }}</h2>
-      <span>started by {{ meta.creator }} {{ fromNow(meta.created_at) }}</span>
+      <span>started by {{ meta.user_name }} {{ fromNow(meta.created_at) }}</span>
       <p>{{ meta.description }}</p>
     </div>
 

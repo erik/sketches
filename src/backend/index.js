@@ -5,7 +5,7 @@ import expressSession from 'express-session'
 import cookieParser from 'cookie-parser'
 import bodyParser from 'body-parser'
 
-import DATABASE from './database'
+import db from './database'
 import router from './routes'
 import auth from './auth'
 
@@ -27,6 +27,8 @@ app.use(express.static('dist/'))
 
 auth.initialize(app)
 app.use(router)
+
+db.createSchema()
 
 app.listen(8080)
 
