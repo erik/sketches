@@ -40,12 +40,16 @@ export default {
     },
 
     ask (anonymous) {
+      // Don't ask blank questions
+      if (this.content.trim() === '')
+        return
+
       fetch('/api/question/new', {
         method: 'post',
         credentials: 'include',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({
-          content: this.content,
+          content: this.content.trim(),
           room_id: this.room_id,
           anonymous: anonymous
         })

@@ -1,10 +1,6 @@
 <template>
     <div>
-        <div class="loading" v-if="loading">
-            <i class="fa fa-spinner fa-pulse fa-2x fa-fw"></i>
-        </div>
-
-        <div v-if="error" class="error notification is-error">
+        <div v-if="error" class="error notification is-danger">
             {{ error.toString() }}
         </div>
 
