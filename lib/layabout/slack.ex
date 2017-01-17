@@ -18,14 +18,17 @@ defmodule Layabout.Slack do
                   "away" -> false
                   "active" -> true
                 end
-    IO.puts "presence change -> #{user}, online: #{is_online}"
+    IO.puts "#{user} is #{message.presence}"
+
+    cond do
+      is_online -> Layabout.Store.log_active(message.user)
+      !is_online -> Layabout.Store.log_inactive(message.user)
+    end
+
     {:ok, state}
   end
 
-  def handle_event(message, _, state) do
-    IO.puts "unknown message type: #{message.type}: #{inspect message}"
-    {:ok, state}
-  end
-
+  # Just ignore everything other than presence changes
+  def handle_event(_, _, state), do: {:ok, state}
   def handle_info(_, _, state), do: {:ok, state}
 end

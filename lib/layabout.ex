@@ -10,7 +10,7 @@ defmodule Layabout do
     unless slack_token, do: exit "need to set SLACK_API_TOKEN"
 
     children = [
-      worker(Slack.Bot, [Layabout.Slack, [], slack_token], name: :slackrtm),
+      worker(Slack.Bot, [Layabout.Slack, [], slack_token]),
       worker(Layabout.Store, [])
     ]
 
