@@ -20,7 +20,8 @@ defmodule Layabout.Store do
     record = get_user_record(user)
 
     unless record[:meta] do
-      # TODO: lookup
+      # TODO: Lookup meta data
+      # TODO: Need next point release of elixir-slack. 0.9.2 is broken on 1.4.0
     end
 
     [hd|rest] = record[:entries]
