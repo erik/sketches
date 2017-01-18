@@ -8,7 +8,7 @@ defmodule Layabout.Slack do
   end
 
   def handle_connect(slack, state) do
-    IO.puts "Connected as #{slack.me.name}"
+    IO.puts "Connected as #{slack.me.name} (#{inspect slack.me})"
     {:ok, state}
   end
 
@@ -18,7 +18,8 @@ defmodule Layabout.Slack do
                   "away" -> false
                   "active" -> true
                 end
-    IO.puts "#{user} is #{message.presence}"
+
+    # IO.puts "#{user} is #{message.presence}"
 
     cond do
       is_online -> Layabout.Store.log_active(message.user)
