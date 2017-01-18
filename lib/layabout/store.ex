@@ -1,4 +1,6 @@
 defmodule Layabout.Store do
+  use Timex
+
   def start_link do
     IO.puts "Starting store."
     {:ok, pid} = Agent.start_link(fn -> %{} end, name: __MODULE__)
@@ -39,10 +41,14 @@ defmodule Layabout.Store do
     now = DateTime.utc_now
     record = get_user_record(user)
 
-    [[b, _]|rest] = record[:entries]
+    [{b, _}|rest] = record[:entries]
 
     Agent.update(__MODULE__, &Map.put(&1, user,
-          Map.put(record, :entries, [[b, now]] ++ rest)))
+          Map.put(record, :entries, [{b, now}] ++ rest)))
   end
 
+  defp get_user_record(user) do
+    default = %{entries: [{Timex.now, Timex.end_of_day Timex.now}], meta: nil}
+    Agent.get(__MODULE__, &Map.get(&1, user)) || default
+  end
 end

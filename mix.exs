@@ -20,6 +20,7 @@ defmodule Layabout.Mixfile do
   end
 
   defp deps do
-    [{:slack, "~> 0.9.2"}]
+    [{:slack, "~> 0.9"},
+     {:timex, "~> 3.1.7"}]
   end
 end
