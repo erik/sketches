@@ -44,8 +44,14 @@ defmodule Layabout.Store do
     [hd|rest] = record[:entries]
     next =
       case hd do
-        {start, nil} -> [{start, nil}]
-        x            -> [{now, nil}, x]
+        {nil, nil} -> [{now, nil}]
+        {b, nil}   -> [{b, nil}]
+        {b, e} ->
+          cond do
+            # Being inactive < 5 minutes just merges into one record
+            Timex.diff(now, e, :minutes) < 5  -> [{b, nil}]
+            true -> [{now, nil}, {b, e}]
+          end
       end
 
     Agent.update(__MODULE__, &Map.put(&1, user,
@@ -63,7 +69,7 @@ defmodule Layabout.Store do
   end
 
   defp get_user_record(user) do
-    default = %{entries: [{Timex.now, Timex.end_of_day Timex.now}], meta: nil}
+    default = %{entries: [{nil, nil}], meta: nil}
     Agent.get(__MODULE__, &Map.get(&1, user)) || default
   end
 end
