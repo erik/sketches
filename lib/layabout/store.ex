@@ -41,21 +41,27 @@ defmodule Layabout.Store do
       # TODO: Need next point release of elixir-slack. 0.9.2 is broken on 1.4.0
     end
 
-    [hd|rest] = record[:entries]
-    next =
-      case hd do
-        {nil, nil} -> [{now, nil}]
-        {b, nil}   -> [{b, nil}]
-        {b, e} ->
-          cond do
-            # Being inactive < 5 minutes just merges into one record
-            Timex.diff(now, e, :minutes) < 5  -> [{b, nil}]
-            true -> [{now, nil}, {b, e}]
-          end
+    entries =
+      case record.entries do
+        # First session seen.
+        [] ->
+          [{now, nil}]
+
+        # Already have an open session.
+        [{_, e} | _] when is_nil e ->
+          record.entries
+
+        [{b, e} | rest] ->
+        # Being inactive < 5 minutes just merges into one record
+        if Timex.diff(now, e, :minutes) < 5 do
+          [{b, nil} | rest]
+        else
+          [{now, nil}, {b, e} | rest]
+        end
       end
 
     Agent.update(__MODULE__, &Map.put(&1, user,
-          Map.put(record, :entries, rest ++ next)))
+          Map.put(record, :entries, entries)))
   end
 
   def log_inactive(user) do
@@ -69,7 +75,7 @@ defmodule Layabout.Store do
   end
 
   defp get_user_record(user) do
-    default = %{entries: [{nil, nil}], meta: nil}
+    default = %{entries: [], meta: nil}
     Agent.get(__MODULE__, &Map.get(&1, user)) || default
   end
 end
