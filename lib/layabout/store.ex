@@ -13,23 +13,21 @@ defmodule Layabout.Store do
   end
 
   def get_histogram(user) do
-    hist = 0..23 |> Enum.map(&{&1, 0}) |> Enum.into(%{})
+    alias Timex.Duration
 
-    {_, hist} = get_user_record(user)[:entries]
-    |> Enum.reject(fn {_, e} -> e == nil end)
+    {_, hist} = get_user_record(user).entries
+    |> Enum.reject(fn {b, e} -> is_nil(b) || is_nil(e) end)
     |> Enum.map(fn {b, e} ->
-      hours = Timex.diff(e, b, :hours)
+      minutes = Timex.diff(e, b, :minutes)
 
-      Enum.into(0..hours, [], fn hr ->
-        Timex.add(b, Timex.Duration.from_hours(hr)).hour
+      Enum.into(0..minutes, [], fn(min) ->
+        time = Timex.add(b, Duration.from_minutes(min))
+        {time.hour, time.minute}
       end)
     end)
     |> List.flatten
-    |> Enum.map_reduce(hist, fn x, acc ->
-      Map.get_and_update(acc, x, &{&1, &1 + 1})
-    end)
+    |> Enum.group_by(&(&1[0]))
 
-    hist
   end
 
   def log_active(user) do
