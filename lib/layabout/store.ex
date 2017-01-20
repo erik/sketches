@@ -15,19 +15,21 @@ defmodule Layabout.Store do
   def get_histogram(user) do
     alias Timex.Duration
 
-    {_, hist} = get_user_record(user).entries
-    |> Enum.reject(fn {b, e} -> is_nil(b) || is_nil(e) end)
+    get_user_record(user).entries
+    |> Enum.reject(fn {_, e} -> is_nil(e) end)
     |> Enum.map(fn {b, e} ->
       minutes = Timex.diff(e, b, :minutes)
 
       Enum.into(0..minutes, [], fn(min) ->
         time = Timex.add(b, Duration.from_minutes(min))
-        {time.hour, time.minute}
+        (60 * time.hour) + time.minute
       end)
     end)
     |> List.flatten
-    |> Enum.group_by(&(&1[0]))
-
+    |> Enum.group_by(&(&1))
+    |> Map.to_list
+    |> Enum.map(fn {time, vals} -> {time, length vals} end)
+    |> Enum.into(%{})
   end
 
   def log_active(user) do
