@@ -68,10 +68,13 @@ defmodule Layabout.Store do
     now = DateTime.utc_now
     record = get_user_record(user)
 
-    [{b, _}|rest] = record[:entries]
+    entries = case record.entries do
+                [] -> []
+                [{b, _} | rest] -> [{b, now} | rest]
+              end
 
     Agent.update(__MODULE__, &Map.put(&1, user,
-          Map.put(record, :entries, [{b, now}] ++ rest)))
+          Map.put(record, :entries, entries)))
   end
 
   defp get_user_record(user) do
