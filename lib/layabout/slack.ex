@@ -13,17 +13,12 @@ defmodule Layabout.Slack do
   end
 
   def handle_event(message = %{type: "presence_change"}, slack, state) do
-    user = Slack.Lookups.lookup_user_name(message.user, slack)
-    is_online = case message.presence do
-                  "away" -> false
-                  "active" -> true
-                end
-
+    # user = Slack.Lookups.lookup_user_name(message.user, slack)
     # IO.puts "#{user} is #{message.presence}"
 
-    cond do
-      is_online -> Layabout.Store.log_active(message.user)
-      !is_online -> Layabout.Store.log_inactive(message.user)
+    case message.presence do
+      "away" -> Layabout.Store.log_inactive(message.user)
+      "active" -> Layabout.Store.log_active(message.user)
     end
 
     {:ok, state}
