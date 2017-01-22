@@ -32,8 +32,7 @@ defmodule Layabout.Store do
     |> Enum.into(%{})
   end
 
-  def log_active(user) do
-    now = DateTime.utc_now
+  def log_active(user, timestamp \\ DateTime.utc_now) do
     record = get_user_record(user)
 
     unless record[:meta] do
@@ -45,7 +44,7 @@ defmodule Layabout.Store do
       case record.entries do
         # First session seen.
         [] ->
-          [{now, nil}]
+          [{timestamp, nil}]
 
         # Already have an open session.
         [{_, e} | _] when is_nil e ->
@@ -53,10 +52,10 @@ defmodule Layabout.Store do
 
         [{b, e} | rest] ->
         # Being inactive < 5 minutes just merges into one record
-        if Timex.diff(now, e, :minutes) < 5 do
+        if Timex.diff(timestamp, e, :minutes) < 5 do
           [{b, nil} | rest]
         else
-          [{now, nil}, {b, e} | rest]
+          [{timestamp, nil}, {b, e} | rest]
         end
       end
 
@@ -64,13 +63,12 @@ defmodule Layabout.Store do
           Map.put(record, :entries, entries)))
   end
 
-  def log_inactive(user) do
-    now = DateTime.utc_now
+  def log_inactive(user, timestamp \\ DateTime.utc_now) do
     record = get_user_record(user)
 
     entries = case record.entries do
                 [] -> []
-                [{b, _} | rest] -> [{b, now} | rest]
+                [{b, _} | rest] -> [{b, timestamp} | rest]
               end
 
     Agent.update(__MODULE__, &Map.put(&1, user,
