@@ -16,20 +16,22 @@ defmodule Layabout.Store do
     alias Timex.Duration
 
     get_user_record(user).entries
-    |> Enum.reject(fn {_, e} -> is_nil(e) end)
     |> Enum.map(fn {b, e} ->
-      minutes = Timex.diff(e, b, :minutes)
+      span_end = e || DateTime.utc_now
+      duration = Timex.diff(span_end, b, :minutes)
 
-      Enum.into(0..minutes, [], fn(min) ->
+      Enum.into(0..duration, [], fn(min) ->
         time = Timex.add(b, Duration.from_minutes(min))
-        (60 * time.hour) + time.minute
+        {time.hour, time.minute}
       end)
     end)
     |> List.flatten
     |> Enum.group_by(&(&1))
     |> Map.to_list
-    |> Enum.map(fn {time, vals} -> {time, length vals} end)
-    |> Enum.into(%{})
+    |> Enum.map(fn {{hr, min}, vals} ->
+      bin = :io_lib.format("~2..0B:~2..0B", [hr, min])
+      %{bin: List.to_string(bin), count: length vals}
+    end)
   end
 
   def log_active(user, timestamp \\ DateTime.utc_now) do
@@ -52,7 +54,7 @@ defmodule Layabout.Store do
 
         [{b, e} | rest] ->
         # Being inactive < 5 minutes just merges into one record
-        if Timex.diff(timestamp, e, :minutes) < 5 do
+        if Timex.diff(timestamp, e, :minutes) < 0 do
           [{b, nil} | rest]
         else
           [{timestamp, nil}, {b, e} | rest]
