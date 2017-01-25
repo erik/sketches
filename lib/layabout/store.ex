@@ -20,14 +20,13 @@ defmodule Layabout.Store do
       span_end = e || DateTime.utc_now
       duration = Timex.diff(span_end, b, :minutes)
 
-      Enum.into(0..duration, [], fn(min) ->
+      for min <- 0..duration do
         time = Timex.add(b, Duration.from_minutes(min))
         {time.hour, time.minute}
-      end)
+      end
     end)
     |> List.flatten
     |> Enum.group_by(&(&1))
-    |> Map.to_list
     |> Enum.map(fn {{hr, min}, vals} ->
       bin = :io_lib.format("~2..0B:~2..0B", [hr, min])
       %{bin: List.to_string(bin), count: length vals}
