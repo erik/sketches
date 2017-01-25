@@ -12,7 +12,7 @@ defmodule Layabout.Slack do
     {:ok, state}
   end
 
-  def handle_event(message = %{type: "presence_change"}, slack, state) do
+  def handle_event(message = %{type: "presence_change"}, _slack, state) do
     # user = Slack.Lookups.lookup_user_name(message.user, slack)
     # IO.puts "#{user} is #{message.presence}"
 
