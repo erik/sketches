@@ -8,7 +8,7 @@ defmodule Layabout.Slack do
   end
 
   def handle_connect(slack, state) do
-    IO.puts "Connected as #{slack.me.name} (#{inspect slack.me})"
+    IO.puts "Connected as #{slack.me.name}."
     {:ok, state}
   end
 

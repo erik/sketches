@@ -15,12 +15,15 @@ defmodule Layabout.Mixfile do
   # Type "mix help compile.app" for more information
   def application do
     # Specify extra applications you'll use from Erlang/Elixir
-    [extra_applications: [:logger, :slack],
+    [extra_applications: [:logger, :slack, :cowboy, :plug],
      mod: {Layabout, []}]
   end
 
   defp deps do
     [{:slack, "~> 0.9"},
-     {:timex, "~> 3.1.7"}]
+     {:timex, "~> 3.1.7"},
+     {:cowboy, "~> 1.0.0"},
+     {:plug, "~> 1.0"},
+     {:poison, "~> 3.0"}]
   end
 end
