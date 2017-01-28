@@ -12,7 +12,11 @@ defmodule Layabout.Store do
     {:ok, pid}
   end
 
-  def get_histogram(user) do
+  def get_user_list do
+    Agent.get(__MODULE__, &(&1)) |> Map.keys
+  end
+
+  def build_histogram(user) do
     alias Timex.Duration
 
     get_user_record(user)
