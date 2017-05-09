@@ -1,7 +1,10 @@
+import sys
+
 CUT_CHARS = {'(', ')', ' '}
 LITERAL_TOKENS = {'(', ')'}
 NODE_TYPES = {'if', 'fn', 'builtin'}
-BUILTINS = {'list', 'print'}
+BUILTINS = {'map', 'list', 'print', '+', '-', '*', '/'}
+CALLABLE_TYPES = {'fn', 'fn_literal', 'builtin'}
 
 
 def lex(source):
@@ -96,53 +99,99 @@ class Interpreter(object):
 
         return result
 
-    def evaluate_exp(self, exp):
+    def evaluate_exp(self, exp, bindings={}):
+        print 'eval exp', exp, bindings
         kind, value = exp
 
         if kind == 'list':
-            return self.evaluate_list(value)
+            return self.evaluate_list(value, bindings)
         elif kind == 'number':
-            return value
+            return exp
+
         elif kind == 'ident':
-            return self.lookup_ident(value)
+            return self.lookup_ident(value, bindings)
+
+        elif kind in {'fn', 'fn_literal', 'builtin'}:
+            return exp
+
         else:
             # not implemented...
             raise NotImplemented('oops')
 
-    def evaluate_list(self, lst):
+    def evaluate_list(self, lst, bindings={}):
         if not lst:
             return
 
-        fn, args = lst[0], lst[1:]
-        return self.evaluate_function(fn, args)
+        (kind, val), args = lst[0], lst[1:]
+        (kind_, val_) = self.evaluate_exp((kind, val), bindings)
+        print 'evaluated->', kind_, val_
+        assert kind_ in CALLABLE_TYPES, 'can only evaluate function!'
 
-    def evaluate_function(self, fn, args):
+        return self.evaluate_function((kind_, val_), args, bindings)
+
+    def evaluate_function(self, fn, args, bindings={}):
         kind, ident = fn
 
         if kind == 'builtin':
-            return self.evaluate_builtin(ident, args)
+            return self.evaluate_builtin(ident, args, bindings)
 
         elif kind == 'if':
             assert len(args) == 3, '(if cond then else)'
             cond, then, else_ = args
 
             if self.evaluate_exp(cond):
-                return self.evaluate_exp(then)
+                return self.evaluate_exp(then, bindings)
 
             else:
-                return self.evaluate_exp(else_)
+                return self.evaluate_exp(else_, bindings)
 
-    def evaluate_builtin(self, fn, args):
+        elif kind == 'fn':
+            print 'build_fn:', args
+            assert len(args) == 2, '(fn (arg, ...) body)'
+            assert args[0][0] == 'list', 'expected args to be list of ident'
+            assert all(a[0] == 'ident' for a in args[0][1])
+
+            fn_args = [v for (_, v) in args[0][1]]
+
+            return ('fn_literal', {'args': fn_args, 'body': args[1]})
+
+        elif kind == 'fn_literal':
+            assert len(args) == len(ident['args']), 'incorrect arg count'
+
+            args_ = [self.evaluate_exp(a, bindings) for a in args]
+            bindings = dict(zip(ident['args'], args_))
+
+            return self.evaluate_exp(ident['body'], bindings=bindings)
+
+    def evaluate_builtin(self, fn, args, bindings={}):
+        args = [self.evaluate_exp(a, bindings) for a in args]
+
         if fn == 'list':
             return args
 
         elif fn == 'print':
             print args
 
-    def lookup_ident(self, ident):
+        elif fn == 'map':
+            fn_ = args[0]
+            return self.evaluate_function(fn_, args[1:], bindings)
+
+        elif fn == '+':
+            return sum(args)
+
+        elif fn == '*':
+            return reduce(lambda a, b: a*b, args, 1)
+
+        else:
+            raise NotImplemented('sorry')
+
+    def lookup_ident(self, ident, bindings):
         if ident in BUILTINS:
             return ('builtin', ident)
+        if ident in bindings:
+            return bindings[ident]
 
 
 if __name__ == '__main__':
-    pass
+    repo = sys.argv[1]
+    print 'running on repo:', repo
