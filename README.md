@@ -11,5 +11,5 @@ $ git subtree add -P [prefix] repo.git master
 ## Splitting sketches out into standalone projects.
 
 ```bash
-$ git subtree -P [prefix] path_to_new_repo
+$ git subtree push -P [prefix] repo.git master
 ```
