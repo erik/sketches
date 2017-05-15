@@ -83,7 +83,11 @@ class GitScope(Scope):
         print('Entering time machine: %s' % ident)
 
         subprocess.check_call([
-            'git', '--git-dir', self.repo, 'reset', '--hard', ident
+            'git', '--git-dir', self.repo, 'checkout', '-f', ident
+        ])
+
+        subprocess.check_call([
+            'git', '--git-dir', self.repo, 'checkout', '--', self.file_name
         ])
 
         with open(self.file_name, 'r') as fp:
@@ -97,7 +101,8 @@ class Lambda(object):
     def __init__(self, params, body, scope):
         self.params, self.body, self.scope = params, body, scope
 
-    def __call__(self, *args):
+    def __call__(self, args, scope=None):
+        # TODO: fill me in
         return eval_exp(self.body)
 
 
