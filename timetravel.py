@@ -1,197 +1,204 @@
-import sys
+""" Extremely simple lisp parser, inspired by http://norvig.com/lispy2.html """
 
-CUT_CHARS = {'(', ')', ' '}
-LITERAL_TOKENS = {'(', ')'}
-NODE_TYPES = {'if', 'fn', 'builtin'}
-BUILTINS = {'map', 'list', 'print', '+', '-', '*', '/'}
-CALLABLE_TYPES = {'fn', 'fn_literal', 'builtin'}
+from __future__ import print_function
+
+import operator as op
+import os.path
+import subprocess
+import re
+import cStringIO as StringIO
 
 
-def lex(source):
-    i = 0
+class Symbol(str):
+    interned = {}
 
-    def ident_or_num(i):
-        string = ''
+    @classmethod
+    def intern(cls, name):
+        sym = cls.interned.get(name, Symbol(name))
+        cls.interned[name] = sym
+        return sym
 
-        while i < len(source) and source[i] not in CUT_CHARS:
-            string += source[i]
-            i += 1
+    def __repr__(self):
+        return '#<%s>' % self
 
-        return (i, string)
 
-    while i < len(source):
-        if source[i] in LITERAL_TOKENS:
-            i += 1
-            yield (source[i-1], None)
-        elif source[i] == ' ':
-            i += 1
-            continue
+class Scope(dict):
+    def __init__(self, params=(), args=(), parent=None, git=None):
+        self.parent = parent
+        self.git_scope = git
+
+        if isinstance(params, Symbol):
+            self.update({params: list(args)})
+
         else:
-            (i, tok) = ident_or_num(i)
+            assert len(params) == len(args)
+            self.update(zip(params, args))
 
-            if tok.isdigit():
-                yield ('number', int(tok))
+    def find(self, ident):
+        if ident in self:
+            return self[ident]
 
-            else:
-                yield ('ident', tok)
+        elif self.parent is not None:
+            return self.parent.find(ident)
 
-    yield ('eof', None)
+        elif self.git_scope is not None:
+            exp = self.git_scope.find(ident)
+            return eval_exp(exp, self)
+
+        raise LookupError(ident)
 
 
-def parse_exp(tokens):
-    (tok, value), rest = tokens[0], tokens[1:]
-    if tok == '(':
-        return parse_list(rest)
-    elif tok == 'number':
-        return ('number', value), rest
-    elif tok == 'ident' and value in BUILTINS:
-        return ('builtin', value), rest
-    elif tok == 'ident' and value in NODE_TYPES:
-        return (value, value), rest
-    elif tok == 'ident' and value not in NODE_TYPES:
-        return ('ident', value), rest
+def make_global_scope(repo_path, fname):
+    git = GitScope(repo_path, fname)
+    global_scope = Scope(git=git)
+
+    global_scope.update({
+        '+': lambda *args: sum(args),
+        '-': op.sub,
+        '*': lambda *args: reduce(lambda a, b: a*b, args, 1),
+        '/': op.div,
+        'not': op.not_,
+        '>': op.gt,
+        '<': op.lt,
+        '>=': op.ge,
+        '<=': op.le,
+        '=': op.eq,
+        'list': lambda *args: list(args),
+        'read': read,
+        'eval': lambda exp: eval_exp(exp, global_scope)
+    })
+
+    return global_scope
+
+
+class GitScope(Scope):
+    def __init__(self, repo_path, fname='time.lisp'):
+        self.repo = os.path.join(repo_path, '.git')
+        self.file_name = fname
+
+    def __repr__(self):
+        return '#git{%s}' % self.file_name
+
+    def find(self, ident):
+        print('Entering time machine: %s' % ident)
+
+        subprocess.check_call([
+            'git', '--git-dir', self.repo, 'reset', '--hard', ident
+        ])
+
+        with open(self.file_name, 'r') as fp:
+            tokens = tokenize(fp)
+            exp = parse(tokens)
+
+            return exp
+
+
+class Lambda(object):
+    def __init__(self, params, body, scope):
+        self.params, self.body, self.scope = params, body, scope
+
+    def __call__(self, *args):
+        return eval_exp(self.body)
+
+
+EOF = Symbol('#<eof>')
+
+
+def tokenize(buf):
+    tokenizer = r'''^\s*([(')]|"(?:[^"])*"|;.*|[^\s('"`;)]+)(.*)'''
+
+    line = ''
+
+    while True:
+        if line == '':
+            line = buf.readline()
+
+        if line == '':
+            yield EOF
+
+        token, line = re.match(tokenizer, line).groups()
+        if token != '' and not token.startswith(';'):
+            yield token
+
+
+def atom(tok):
+    if tok == '#t':
+        return True
+    elif tok == '#f':
+        return False
+    elif tok[0] == '"':
+        return tok[1:-1].decode('string_escape')
+
+    types = [int, float, Symbol.intern]
+    for typ in types:
+        try:
+            return typ(tok)
+        except ValueError:
+            pass
     else:
-        raise SyntaxError('unexpected token: %s: %s' % (tok, value))
+        raise SyntaxError('everything is broken.')
 
 
-def parse_list(tokens):
-    lst = []
+def parse(tokens):
+    tok = next(tokens)
 
-    while len(tokens):
-        (tok, value) = tokens[0]
-        if tok == ')':
-            return ('list', lst), tokens[1:]
-        elif tok == 'eof':
+    def handle_tok(tok):
+        if tok == '(':
+            lst = []
+
+            for tok in tokens:
+                if tok == ')':
+                    return lst
+                elif tok == EOF:
+                    raise SyntaxError('expected )')
+                else:
+                    lst.append(handle_tok(tok))
+
+        elif tok == ')':
+            raise SyntaxError('unmatched )')
+
+        elif tok == EOF:
             raise SyntaxError('unexpected EOF')
-        else:
-            value, tokens = parse_exp(tokens)
-            lst.append(value)
-
-    raise SyntaxError('unterminated list?')
-
-
-def parse(source):
-    tokens = [t for t in lex(source)]
-    ast = []
-
-    while len(tokens):
-        if tokens[0][0] == 'eof':
-            break
-
-        (value, tokens) = parse_exp(tokens)
-        ast.append(value)
-
-    return ast
-
-
-class Interpreter(object):
-    def __init__(self, ast):
-        self.commitish = {}
-        self.ast = ast
-
-    def evaluate(self):
-        result = None
-
-        for kind, value in self.ast:
-            print 'eval:', kind, value
-
-            result = self.evaluate_exp((kind, value))
-
-        return result
-
-    def evaluate_exp(self, exp, bindings={}):
-        print 'eval exp', exp, bindings
-        kind, value = exp
-
-        if kind == 'list':
-            return self.evaluate_list(value, bindings)
-        elif kind == 'number':
-            return exp
-
-        elif kind == 'ident':
-            return self.lookup_ident(value, bindings)
-
-        elif kind in {'fn', 'fn_literal', 'builtin'}:
-            return exp
 
         else:
-            # not implemented...
-            raise NotImplemented('oops')
+            return atom(tok)
 
-    def evaluate_list(self, lst, bindings={}):
-        if not lst:
-            return
+    return EOF if tok is EOF else handle_tok(tok)
 
-        (kind, val), args = lst[0], lst[1:]
-        (kind_, val_) = self.evaluate_exp((kind, val), bindings)
-        print 'evaluated->', kind_, val_
-        assert kind_ in CALLABLE_TYPES, 'can only evaluate function!'
 
-        return self.evaluate_function((kind_, val_), args, bindings)
+def read(string):
+    io = StringIO.StringIO(string)
+    return parse(tokenize(io))
 
-    def evaluate_function(self, fn, args, bindings={}):
-        kind, ident = fn
 
-        if kind == 'builtin':
-            return self.evaluate_builtin(ident, args, bindings)
+def eval_exp(exp, scope):
+    if isinstance(exp, Symbol):
+        return scope.find(exp)
 
-        elif kind == 'if':
-            assert len(args) == 3, '(if cond then else)'
-            cond, then, else_ = args
+    # atoms unevaluated
+    elif not isinstance(exp, list):
+        return exp
 
-            if self.evaluate_exp(cond):
-                return self.evaluate_exp(then, bindings)
+    # evaluate function call
+    fn_atom, args = exp[0], exp[1:]
 
-            else:
-                return self.evaluate_exp(else_, bindings)
+    # builtin forms
+    if fn_atom is Symbol.intern('if'):
+        (cond, then, else_) = args
+        branch = then if eval_exp(cond, scope) else else_
 
-        elif kind == 'fn':
-            print 'build_fn:', args
-            assert len(args) == 2, '(fn (arg, ...) body)'
-            assert args[0][0] == 'list', 'expected args to be list of ident'
-            assert all(a[0] == 'ident' for a in args[0][1])
+        return eval_exp(branch, scope)
 
-            fn_args = [v for (_, v) in args[0][1]]
+    elif fn_atom is Symbol.intern('lambda'):
+        (params, body) = args
+        return Lambda(params, body, scope)
 
-            return ('fn_literal', {'args': fn_args, 'body': args[1]})
+    else:
+        exps = [eval_exp(e, scope) for e in exp]
+        fn, args = exps[0], exps[1:]
 
-        elif kind == 'fn_literal':
-            assert len(args) == len(ident['args']), 'incorrect arg count'
-
-            args_ = [self.evaluate_exp(a, bindings) for a in args]
-            bindings = dict(zip(ident['args'], args_))
-
-            return self.evaluate_exp(ident['body'], bindings=bindings)
-
-    def evaluate_builtin(self, fn, args, bindings={}):
-        args = [self.evaluate_exp(a, bindings) for a in args]
-
-        if fn == 'list':
-            return args
-
-        elif fn == 'print':
-            print args
-
-        elif fn == 'map':
-            fn_ = args[0]
-            return self.evaluate_function(fn_, args[1:], bindings)
-
-        elif fn == '+':
-            return sum(args)
-
-        elif fn == '*':
-            return reduce(lambda a, b: a*b, args, 1)
-
+        if isinstance(fn, Lambda):
+            scope = Scope(fn.params, args, fn.scope)
+            return fn(*args, scope=scope)
         else:
-            raise NotImplemented('sorry')
-
-    def lookup_ident(self, ident, bindings):
-        if ident in BUILTINS:
-            return ('builtin', ident)
-        if ident in bindings:
-            return bindings[ident]
-
-
-if __name__ == '__main__':
-    repo = sys.argv[1]
-    print 'running on repo:', repo
+            return fn(*args)
