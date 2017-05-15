@@ -101,9 +101,9 @@ class Lambda(object):
     def __init__(self, params, body, scope):
         self.params, self.body, self.scope = params, body, scope
 
-    def __call__(self, args, scope=None):
-        # TODO: fill me in
-        return eval_exp(self.body)
+    def __call__(self, *args):
+        call_scope = Scope(self.params, args, self.scope)
+        return eval_exp(self.body, call_scope)
 
 
 EOF = Symbol('#<eof>')
@@ -204,6 +204,6 @@ def eval_exp(exp, scope):
 
         if isinstance(fn, Lambda):
             scope = Scope(fn.params, args, fn.scope)
-            return fn(*args, scope=scope)
+            return fn(*args)
         else:
             return fn(*args)
