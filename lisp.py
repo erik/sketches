@@ -2,11 +2,12 @@
 
 from __future__ import print_function
 
+import cStringIO as StringIO
 import operator as op
 import os.path
-import subprocess
 import re
-import cStringIO as StringIO
+import subprocess
+import sys
 
 
 class Symbol(str):
@@ -65,7 +66,8 @@ def make_global_scope(repo_path, fname):
         '=': op.eq,
         'list': lambda *args: list(args),
         'read': read,
-        'eval': lambda exp: eval_exp(exp, global_scope)
+        'eval': lambda exp: eval_exp(exp, global_scope),
+        'display': lambda val: sys.stdout.write(repr(val) + '\n')
     })
 
     return global_scope
