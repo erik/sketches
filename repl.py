@@ -1,8 +1,9 @@
 from __future__ import print_function
 
 import argparse
-import sys
 import readline
+import sys
+import traceback
 
 import lisp
 
@@ -29,10 +30,8 @@ def repl(args):
             val = lisp.eval_exp(exp, global_scope)
             print('>>', val)
 
-        except ValueError as exc:
-            # FIXME: yeah.
-            raise exc
-
+        except:
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
