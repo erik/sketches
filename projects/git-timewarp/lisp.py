@@ -206,6 +206,18 @@ def eval_exp(exp, scope):
 
         return args
 
+    elif fn_atom is Symbol.intern('do'):
+        val = None
+        for arg in args:
+            val = eval_exp(arg, scope)
+        return val
+
+    elif fn_atom is Symbol.intern('print'):
+        vals = [eval_exp(arg, scope) for arg in args]
+        print(repr(vals))
+
+        return vals
+
     else:
         exps = [eval_exp(e, scope) for e in exp]
         fn, args = exps[0], exps[1:]

@@ -30,6 +30,9 @@ def repl(args):
             val = lisp.eval_exp(exp, global_scope)
             print('>>', val)
 
+        except KeyboardInterrupt:
+            break
+
         except:
             traceback.print_exc()
 
