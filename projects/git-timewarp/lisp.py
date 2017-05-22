@@ -218,6 +218,21 @@ def eval_exp(exp, scope):
 
         return vals
 
+    elif fn_atom is Symbol.intern('stash!'):
+        # TODO: this should modify the file and then git stash
+        # TODO: (stash! (lambda (x) (x + 1)))
+        pass
+
+    elif fn_atom is Symbol.intern('pop!'):
+        # TODO: this should pop the stash and return the parsed AST
+        # TODO: (eval (pop!))
+        pass
+
+    elif fn_atom is Symbol.intern('commit!'):
+        # TODO: this should apply a commit on top of the named branch.
+        # TODO: (commit! "fn/add-1" (lambda (x) (x + 1)))
+        pass
+
     else:
         exps = [eval_exp(e, scope) for e in exp]
         fn, args = exps[0], exps[1:]
