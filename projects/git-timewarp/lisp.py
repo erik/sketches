@@ -122,7 +122,12 @@ def tokenize(buf):
         if line == '':
             yield EOF
 
-        token, line = re.match(tokenizer, line).groups()
+        match = re.match(tokenizer, line)
+        if not match:
+            yield EOF
+            break
+
+        token, line = match.groups()
         if token != '' and not token.startswith(';'):
             yield token
 
@@ -146,8 +151,6 @@ def atom(tok):
 
 
 def parse(tokens):
-    tok = next(tokens)
-
     def handle_tok(tok):
         if tok == '(':
             lst = []
@@ -172,7 +175,11 @@ def parse(tokens):
         else:
             return atom(tok)
 
-    return EOF if tok is EOF else handle_tok(tok)
+    try:
+        tok = next(tokens)
+        return EOF if tok is EOF else handle_tok(tok)
+    except StopIteration:
+        raise SyntaxError('unexpected EOF')
 
 
 def read(string):

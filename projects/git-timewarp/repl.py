@@ -21,11 +21,8 @@ def repl(args):
             sys.stderr.write(prompt)
             exp = lisp.parse(token_stream)
 
-            if exp is None:
+            if exp is None or exp is lisp.EOF:
                 continue
-
-            if exp is lisp.EOF:
-                return
 
             val = lisp.eval_exp(exp, global_scope)
             print('>>', val)
@@ -35,6 +32,8 @@ def repl(args):
 
         except:
             traceback.print_exc()
+            # Reset the parser
+            token_stream = lisp.tokenize(sys.stdin)
 
 
 if __name__ == '__main__':
