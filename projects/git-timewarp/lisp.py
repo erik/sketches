@@ -66,8 +66,7 @@ def make_global_scope(repo_path, fname):
         '=': op.eq,
         'list': lambda *args: list(args),
         'read': read,
-        'eval': lambda exp: eval_exp(exp, global_scope),
-        'display': lambda val: sys.stdout.write(repr(val) + '\n')
+        'eval': lambda exp: eval_exp(exp, global_scope)
     })
 
     return global_scope
