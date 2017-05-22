@@ -27,7 +27,7 @@ def repl(args):
             val = lisp.eval_exp(exp, global_scope)
             print('>>', val)
 
-        except KeyboardInterrupt:
+        except KeyboardInterrupt, IOError:
             break
 
         except:

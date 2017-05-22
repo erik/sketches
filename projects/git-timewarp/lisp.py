@@ -80,22 +80,20 @@ class GitScope(Scope):
     def __repr__(self):
         return '#git{%s}' % self.file_name
 
-    def find(self, ident):
-        print('Entering time machine: %s' % ident)
+    def find(self, treeish):
+        print('Entering time machine: %s' % treeish)
 
-        subprocess.check_call([
-            'git', '--git-dir', self.repo, 'checkout', '-f', ident
-        ])
+        blob = '%s:%s' % (treeish, self.file_name)
 
-        subprocess.check_call([
-            'git', '--git-dir', self.repo, 'checkout', '--', self.file_name
-        ])
+        ps = subprocess.Popen([
+            'git', '--git-dir', self.repo, 'cat-file', 'blob', blob
+        ], stdout=subprocess.PIPE)
 
-        with open(self.file_name, 'r') as fp:
-            tokens = tokenize(fp)
-            exp = parse(tokens)
+        out, _ = ps.communicate()
 
-            return exp
+        if out.strip():
+            return read(out)
+
 
 
 class Lambda(object):
@@ -116,20 +114,24 @@ def tokenize(buf):
     line = ''
 
     while True:
+        if not buf:
+            break
+
         if line == '':
             line = buf.readline()
 
         if line == '':
-            yield EOF
+            break
 
         match = re.match(tokenizer, line)
         if not match:
-            yield EOF
             break
 
         token, line = match.groups()
         if token != '' and not token.startswith(';'):
             yield token
+
+    yield EOF
 
 
 def atom(tok):
@@ -175,11 +177,8 @@ def parse(tokens):
         else:
             return atom(tok)
 
-    try:
-        tok = next(tokens)
-        return EOF if tok is EOF else handle_tok(tok)
-    except StopIteration:
-        raise SyntaxError('unexpected EOF')
+    tok = next(tokens)
+    return EOF if tok is EOF else handle_tok(tok)
 
 
 def read(string):
