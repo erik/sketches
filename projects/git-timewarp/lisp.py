@@ -163,6 +163,9 @@ def parse(tokens):
         elif tok == ')':
             raise SyntaxError('unmatched )')
 
+        elif tok == "'":
+            return [Symbol.intern('quote'), handle_tok(next(tokens))]
+
         elif tok == EOF:
             raise SyntaxError('unexpected EOF')
 
