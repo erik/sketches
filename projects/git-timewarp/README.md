@@ -3,8 +3,6 @@
 lisping through time.
 
 
-
-
     ;; warp.lisp on branch "fn/inc"
 
     (lambda (x) (+ 1 x))

@@ -200,6 +200,12 @@ def eval_exp(exp, scope):
         (params, body) = args
         return Lambda(params, body, scope)
 
+    elif fn_atom is Symbol.intern('quote'):
+        if len(args) == 1:
+            return args[0]
+
+        return args
+
     else:
         exps = [eval_exp(e, scope) for e in exp]
         fn, args = exps[0], exps[1:]
