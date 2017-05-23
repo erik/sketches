@@ -19,6 +19,9 @@ class Symbol(str):
         cls.interned[name] = sym
         return sym
 
+    def __str__(self):
+        return '' + self
+
     def __repr__(self):
         return '#<%s>' % self
 
@@ -34,6 +37,13 @@ class Scope(dict):
         else:
             assert len(params) == len(args)
             self.update(zip(params, args))
+
+    def get_git_scope(self):
+        if self.git_scope is not None:
+            return self.git_scope
+
+        if self.parent is not None:
+            return self.parent.get_git_scope()
 
     def find(self, ident):
         if ident in self:
@@ -75,19 +85,34 @@ def make_global_scope(repo_path, fname):
 class GitScope(Scope):
     def __init__(self, repo_path, fname='time.lisp'):
         self.repo = os.path.join(repo_path, '.git')
+        self.file_path = os.path.join(repo_path, fname)
         self.file_name = fname
+        self.git = [
+            'git', '--git-dir', self.repo, '--work-tree', repo_path
+        ]
 
     def __repr__(self):
         return '#git{%s}' % self.file_name
+
+    def commit(self, branch, code, message=None):
+        subprocess.check_call(self.git + ['checkout', '-B', branch])
+
+        with open(self.file_path, 'w') as fp:
+            print('writing', code)
+            fp.write(code)
+
+        subprocess.check_call(self.git + ['add', self.file_name])
+        subprocess.check_call(self.git + ['commit', '-m', message or branch])
+
+        return branch
 
     def find(self, treeish):
         print('Entering time machine: %s' % treeish)
 
         blob = '%s:%s' % (treeish, self.file_name)
 
-        ps = subprocess.Popen([
-            'git', '--git-dir', self.repo, 'cat-file', 'blob', blob
-        ], stdout=subprocess.PIPE)
+        ps = subprocess.Popen(self.git + ['cat-file', 'blob', blob],
+                              stdout=subprocess.PIPE)
 
         out, _ = ps.communicate()
 
@@ -238,8 +263,14 @@ def eval_exp(exp, scope):
 
     elif fn_atom is Symbol.intern('commit!'):
         # TODO: this should apply a commit on top of the named branch.
-        # TODO: (commit! "fn/add-1" (lambda (x) (x + 1)))
-        pass
+        # TODO: (commit! 'fn/add-1 (lambda (x) (x + 1)))
+
+        (branch, code) = map(lambda x: eval_exp(x, scope), args)
+
+        assert isinstance(branch, str)
+
+        git = scope.get_git_scope()
+        return git.commit(branch, code)
 
     else:
         exps = [eval_exp(e, scope) for e in exp]
