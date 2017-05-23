@@ -76,7 +76,8 @@ def make_global_scope(repo_path, fname):
         '=': op.eq,
         'list': lambda *args: list(args),
         'read': read,
-        'eval': lambda exp: eval_exp(exp, global_scope)
+        'eval': lambda exp: eval_exp(exp, global_scope),
+        'unparse': unparse
     })
 
     return global_scope
@@ -116,7 +117,6 @@ class GitScope(Scope):
 
         if out.strip():
             return read(out)
-
 
 
 class Lambda(object):
@@ -204,6 +204,26 @@ def parse(tokens):
     return EOF if tok is EOF else handle_tok(tok)
 
 
+def unparse(ast):
+    if isinstance(ast, list):
+        return '(%s)' % ' '.join(map(unparse, ast))
+    elif isinstance(ast, bool):
+        return {True: '#t', False: '#f'}[ast]
+    elif isinstance(ast, Symbol):
+        return str(ast)
+    elif isinstance(ast, str):
+        return '"%s"' % ast
+    elif isinstance(ast, int) or isinstance(ast, float):
+        return str(ast)
+    elif isinstance(ast, Lambda):
+        params = unparse(ast.params)
+        body = unparse(ast.body)
+
+        return '(lambda %s %s)' % (params, body)
+    else:
+        raise ValueError('what is this:' % repr(ast))
+
+
 def read(string):
     io = StringIO.StringIO(string)
     return parse(tokenize(io))
@@ -268,7 +288,7 @@ def eval_exp(exp, scope):
         assert isinstance(branch, str)
 
         git = scope.get_git_scope()
-        return git.commit(branch, code)
+        return git.commit(branch, unparse(code))
 
     else:
         exps = [eval_exp(e, scope) for e in exp]
