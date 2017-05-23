@@ -84,12 +84,10 @@ def make_global_scope(repo_path, fname):
 
 class GitScope(Scope):
     def __init__(self, repo_path, fname='time.lisp'):
-        self.repo = os.path.join(repo_path, '.git')
+        self.repo = repo_path
         self.file_path = os.path.join(repo_path, fname)
         self.file_name = fname
-        self.git = [
-            'git', '--git-dir', self.repo, '--work-tree', repo_path
-        ]
+        self.git = ['git', '-C', self.repo]
 
     def __repr__(self):
         return '#git{%s}' % self.file_name
