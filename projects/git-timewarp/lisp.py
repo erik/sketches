@@ -7,7 +7,6 @@ import operator as op
 import os.path
 import re
 import subprocess
-import sys
 
 
 class Symbol(str):
@@ -30,6 +29,7 @@ class Scope(dict):
     def __init__(self, params=(), args=(), parent=None, git=None):
         self.parent = parent
         self.git_scope = git
+        self.modules = {}
 
         if isinstance(params, Symbol):
             self.update({params: list(args)})
@@ -45,14 +45,17 @@ class Scope(dict):
         if self.parent is not None:
             return self.parent.get_git_scope()
 
-    def find(self, ident):
-        if ident in self:
+    def find(self, ident, module=None):
+        if not module and ident in self:
             return self[ident]
 
-        elif self.parent is not None:
-            return self.parent.find(ident)
+        elif module in self.modules:
+            return self.modules[module].find(ident)
 
-        elif self.git_scope is not None:
+        elif self.parent is not None:
+            return self.parent.find(ident, module)
+
+        elif not module and self.git_scope is not None:
             exp = self.git_scope.find(ident)
             return eval_exp(exp, self)
 
@@ -117,6 +120,8 @@ class GitScope(Scope):
 
         if out.strip():
             return read(out)
+
+        raise LookupError(treeish)
 
 
 class Lambda(object):
@@ -231,7 +236,9 @@ def read(string):
 
 def eval_exp(exp, scope):
     if isinstance(exp, Symbol):
-        return scope.find(exp)
+        module, ident = exp.split('.', 1) if '.' in exp else (None, exp)
+        print('looking up', module, ident)
+        return scope.find(ident, module)
 
     # atoms unevaluated
     elif not isinstance(exp, list):
@@ -289,6 +296,14 @@ def eval_exp(exp, scope):
 
         git = scope.get_git_scope()
         return git.commit(branch, unparse(code))
+
+    elif fn_atom is Symbol.intern('use'):
+        # TODO: (use "/path/to/repo" 'name)
+        # TODO: (lib/foo 1 2) => looks in 'lib' library for ident "foo"
+        (repo_path, name) = map(lambda x: eval_exp(x, scope), args)
+
+        scope.modules[name] = make_global_scope(repo_path, 'warp.lisp')
+        return name
 
     else:
         exps = [eval_exp(e, scope) for e in exp]
