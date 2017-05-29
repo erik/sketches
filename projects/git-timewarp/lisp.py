@@ -7,6 +7,7 @@ import operator as op
 import os.path
 import re
 import subprocess
+import sys
 
 
 class Symbol(str):
@@ -80,7 +81,9 @@ def make_global_scope(repo_path, fname):
         'list': lambda *args: list(args),
         'read': read,
         'eval': lambda exp: eval_exp(exp, global_scope),
-        'unparse': unparse
+        'unparse': unparse,
+        'do': lambda *args: list(args)[-1],
+        'print': lambda *args: sys.stdout.write(repr(args) + '\n'),
     })
 
     return global_scope
@@ -237,7 +240,6 @@ def read(string):
 def eval_exp(exp, scope):
     if isinstance(exp, Symbol):
         module, ident = exp.split('.', 1) if '.' in exp else (None, exp)
-        print('looking up', module, ident)
         return scope.find(ident, module)
 
     # atoms unevaluated
@@ -263,18 +265,6 @@ def eval_exp(exp, scope):
             return args[0]
 
         return args
-
-    elif fn_atom is Symbol.intern('do'):
-        val = None
-        for arg in args:
-            val = eval_exp(arg, scope)
-        return val
-
-    elif fn_atom is Symbol.intern('print'):
-        vals = [eval_exp(arg, scope) for arg in args]
-        print(repr(vals))
-
-        return vals
 
     elif fn_atom is Symbol.intern('stash!'):
         # TODO: this should modify the file and then git stash
