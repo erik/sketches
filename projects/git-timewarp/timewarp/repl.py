@@ -19,6 +19,7 @@ def repl(args):
     while True:
         try:
             sys.stderr.write(prompt)
+            sys.stderr.flush()
             exp = lisp.parse(token_stream)
 
             if exp is None or exp is lisp.EOF:
@@ -27,7 +28,7 @@ def repl(args):
             val = lisp.eval_exp(exp, global_scope)
             print('>>', val)
 
-        except KeyboardInterrupt, IOError:
+        except (KeyboardInterrupt, IOError):
             break
 
         except:

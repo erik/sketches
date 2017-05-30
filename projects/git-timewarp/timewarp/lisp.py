@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import cStringIO as StringIO
+
 import operator as op
 import os.path
 import re
@@ -103,7 +104,6 @@ class GitScope(Scope):
         subprocess.check_call(self.git + ['checkout', '-B', branch])
 
         with open(self.file_path, 'w') as fp:
-            print('writing', code)
             fp.write(code)
 
         subprocess.check_call(self.git + ['add', self.file_name])
@@ -112,7 +112,7 @@ class GitScope(Scope):
         return branch
 
     def find(self, treeish):
-        print('Entering time machine: %s' % treeish)
+        print('warp: %s' % treeish)
 
         blob = '%s:%s' % (treeish, self.file_name)
 
@@ -289,7 +289,7 @@ def eval_exp(exp, scope):
 
     elif fn_atom is Symbol.intern('use'):
         # TODO: (use "/path/to/repo" 'name)
-        # TODO: (lib/foo 1 2) => looks in 'lib' library for ident "foo"
+        # TODO: (lib.foo 1 2) => looks in 'lib' library for ident "foo"
         (repo_path, name) = map(lambda x: eval_exp(x, scope), args)
 
         scope.modules[name] = make_global_scope(repo_path, 'warp.lisp')
