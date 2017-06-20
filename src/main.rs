@@ -25,18 +25,18 @@ enum Expression<'a> {
 
 
 #[derive(PartialEq, Clone, Debug)]
-enum Type<'a> {
+enum Type {
     Number,
     Boolean,
     Unbound(FreeVariable),
-    Lambda(&'a [Type<'a>], &'a Type<'a>),
-
+    // FIXME: can I avoid having this be boxed and vec'd?
+    Lambda(Vec<Type>, Box<Type>),
 }
 
 
-type TaggedType<'a> = (Expression<'a>, Type<'a>);
+type TaggedType<'a> = (Expression<'a>, Type);
 
-type TypeEnv<'a> = HashMap<VariableName<'a>, Type<'a>>;
+type TypeEnv<'a> = HashMap<VariableName<'a>, Type>;
 
 #[derive(Clone, Copy)]
 struct VariableGen { current: FreeVariable }
@@ -46,7 +46,7 @@ impl VariableGen {
 
 /// Run algorithm W on expr with given type env, yielding the resolved
 /// type of the expression, or the type error encountered.
-fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -> Type<'a> {
+fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -> Type {
     match *expr {
         // simplest case: literals have immediately defined types.
         Expression::Number(_) => Type::Number,
@@ -55,12 +55,30 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         // variables we need to look up inside our type environment
         Expression::Variable(name) => match env.get(name) {
             Some(typ) => typ.clone(),
-            None => panic!("undefined variable")
+            None => panic!("undefined variable, {}", name)
         },
 
-        Expression::Lambda(args, body) => Type::Unbound(inst.next()),
+        Expression::Lambda(args, body) => {
+            // TODO: args -> types. modify the environment
+            let body_ty = w(body, env, inst);
+            let args_ty = args
+                .into_iter()
+                .map(|arg| {
+                    let ty = inst.next();
+                    env.insert(arg, Type::Unbound(ty));
+                    Type::Unbound(ty)
+                })
+                .collect::<Vec<Type>>();
 
-        Expression::Let(name, expr, body) => Type::Unbound(inst.next()),
+            Type::Lambda(args_ty, Box::new(body_ty))
+        },
+
+        Expression::Let(name, expr, body) => {
+            let expr_ty = w(expr, env, inst);
+            env.insert(name, expr_ty);
+
+            w(body, env, inst)
+        },
 
         // 1. ensure that the callable in this function call is truly callable.
         // 2. ensure that the number and type of args match
@@ -70,7 +88,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
             let mut env_ = env.clone();
             let mut inst_ = inst.clone();
 
-            let mut type_args = args
+            let type_args = args
                 .iter()
                 .map(|arg| {
                     w(arg, &mut env_, &mut inst_)
@@ -78,16 +96,14 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 .collect::<Vec<Type>>();
 
             match w(callable, env, inst) {
-                Type::Lambda(expected, _) if args.len() != expected.len() => {
-                    panic!("wrong number of args given")
-                },
-
                 Type::Lambda(expected, body_type) => {
-                    if expected != type_args.as_slice() {
-                        panic!("bad types given")
+                    if args.len() != expected.len() {
+                        panic!("wrong number of args given, {} for {}", args.len(), expected.len())
+                    } else if expected != type_args.as_slice() {
+                        panic!("bad types given: {:?} for {:?}", type_args.as_slice(), expected)
                     }
 
-                    body_type.clone()
+                    *body_type.clone()
                 }
 
                 _ => panic!("trying to call non-function")
@@ -101,14 +117,18 @@ fn main() {
     // let incr = \x -> 123.0 in incr (123.0) :: Number
     let num = Expression::Number(123.0);
     let incr = Expression::Variable("incr");
+    let x = Expression::Variable("x");
     let args = ["x"];
     let args_ = [&num];
     let fn_call = Expression::FnCall(&incr, &args_);
     let lambda = Expression::Lambda(&args, &num);
 
-    let expr = Expression::Let(
-        "incr", &lambda,
-        &fn_call);
+    // let expr = Expression::Let(
+    //     "incr", &lambda,
+    //     &fn_call);
+
+    let expr = Expression::Let("y", &num, &x);
+
 
     let mut inst = VariableGen {current: 0};
     let mut env = HashMap::new();
