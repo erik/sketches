@@ -24,7 +24,7 @@ enum Expression<'a> {
 }
 
 
-#[derive(Debug)]
+#[derive(PartialEq, Clone, Debug)]
 enum Type<'a> {
     Number,
     Boolean,
@@ -36,9 +36,9 @@ enum Type<'a> {
 
 type TaggedType<'a> = (Expression<'a>, Type<'a>);
 
-
 type TypeEnv<'a> = HashMap<VariableName<'a>, Type<'a>>;
 
+#[derive(Clone, Copy)]
 struct VariableGen { current: FreeVariable }
 impl VariableGen {
     fn next(&mut self) -> FreeVariable { self.current += 1; self.current }
@@ -48,10 +48,48 @@ impl VariableGen {
 /// type of the expression, or the type error encountered.
 fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -> Type<'a> {
     match *expr {
+        // simplest case: literals have immediately defined types.
         Expression::Number(_) => Type::Number,
         Expression::Boolean(_) => Type::Boolean,
+
+        // variables we need to look up inside our type environment
         Expression::Variable(name) => Type::Unbound(inst.next()),
-        _ => Type::Unbound(inst.next()),
+
+        Expression::Lambda(args, body) => Type::Unbound(inst.next()),
+
+        Expression::Let(name, expr, body) => Type::Unbound(inst.next()),
+
+        // 1. ensure that the callable in this function call is truly callable.
+        // 2. ensure that the number and type of args match
+        // 3. return type of body of lambda
+        Expression::FnCall(callable, args) => {
+            // FIXME: this seems broken.
+            let mut env_ = env.clone();
+            let mut inst_ = inst.clone();
+
+            let mut type_args = args
+                .iter()
+                .map(|arg| {
+                    w(arg, &mut env_, &mut inst_)
+                })
+                .collect::<Vec<Type>>();
+
+            match w(callable, env, inst) {
+                Type::Lambda(expected, _) if args.len() != expected.len() => {
+                    panic!("wrong number of args given")
+                },
+
+                Type::Lambda(expected, body_type) => {
+                    if expected != type_args.as_slice() {
+                        panic!("bad types given")
+                    }
+
+                    body_type.clone()
+                }
+
+                _ => panic!("trying to call non-function")
+            }
+        }
     }
 }
 
