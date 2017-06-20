@@ -53,7 +53,10 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         Expression::Boolean(_) => Type::Boolean,
 
         // variables we need to look up inside our type environment
-        Expression::Variable(name) => Type::Unbound(inst.next()),
+        Expression::Variable(name) => match env.get(name) {
+            Some(typ) => typ.clone(),
+            None => panic!("undefined variable")
+        },
 
         Expression::Lambda(args, body) => Type::Unbound(inst.next()),
 
