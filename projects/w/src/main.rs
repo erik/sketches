@@ -77,10 +77,7 @@ fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> Result<Type, Unificatio
             let mut unified_args = Vec::with_capacity(args1.len());
 
             for iter in args1.into_iter().zip(args2.into_iter()) {
-                let (a1, a2) = iter;
-
-                // TODO: should try to avoid the clone here
-                match unify(a1, a2, env) {
+                match unify(iter.0, iter.1, env) {
                     Ok(ty) => unified_args.push(ty),
                     err => return err
                 }
@@ -111,16 +108,20 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         },
 
         Expression::Lambda(args, body) => {
+            // Any parameters or variables defined inside the lambda are scoped
+            // only to the lambda.
+            let mut child_env = env.clone();
+
             let args_ty = args
                 .into_iter()
                 .map(|arg| {
                     let ty = inst.next();
-                    env.insert(arg, Type::Unbound(ty));
+                    child_env.insert(arg, Type::Unbound(ty));
                     Type::Unbound(ty)
                 })
                 .collect::<Vec<Type>>();
 
-            let body_ty = w(body, env, inst);
+            let body_ty = w(body, &mut child_env, inst);
 
             Type::Lambda(args_ty, Box::new(body_ty))
         },
@@ -128,9 +129,11 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         // TODO: need an occurs check here.
         Expression::Let(name, expr, body) => {
             let expr_ty = w(expr, env, inst);
-            env.insert(name, expr_ty);
+            let mut child_env = env.clone();
 
-            w(body, env, inst)
+            child_env.insert(name, expr_ty);
+
+            w(body, &mut child_env, inst)
         },
 
         // 1. ensure that the callable in this function call is truly callable.
