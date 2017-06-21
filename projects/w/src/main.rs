@@ -133,7 +133,6 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         // 1. ensure that the callable in this function call is truly callable.
         // 2. ensure that the number and type of args match
         // 3. return type of body of lambda
-        // TODO: Need unification algo here.
         Expression::FnCall(callable, args) => {
             // FIXME: this seems broken.
             let mut env_ = env.clone();
@@ -147,7 +146,9 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 .collect::<Vec<Type>>();
 
             // Try to unify the lambda we are calling with the way we are calling it.
-            unify(w(callable, env, inst), Type::Lambda(type_args, Box::new(Type::Unbound(inst.next()))), env)
+            unify(w(callable, env, inst),
+                  Type::Lambda(type_args, Box::new(Type::Unbound(inst.next()))),
+                  env)
                 .map(move |ty|{
                     match ty {
                         Type::Lambda(_, return_type) => *return_type,
@@ -236,8 +237,29 @@ mod test {
         let app_args = [&boolean];
         let application = Expression::FnCall(&lambda, &app_args);
 
-        assert_eq!(infer(application), Type::Number)
+        assert_eq!(infer(application), Type::Number);
 
+        // let
+        //    x = (\a -> a)
+        // in
+        //    let y = (\a -> a)
+        //    in
+        //       x (y)
+        // ===> \a -> a
+        let var_a = Expression::Variable("a");
+        let var_x = Expression::Variable("x");
+        let var_y = Expression::Variable("y");
+        let args_a = ["a"];
+        let args_y = [&var_y];
+        let lambda_x = Expression::Lambda(&args_a, &var_a);
+        let lambda_y = Expression::Lambda(&args_a, &var_a);
+
+        let fncall = Expression::FnCall(&var_x, &args_y);
+
+        let let_y = Expression::Let("y", &lambda_y, &fncall);
+        let let_x = Expression::Let("x", &lambda_x, &let_y);
+
+        assert_eq!(infer(let_x), Type::Lambda(vec![Type::Unbound(3)], Box::new(Type::Unbound(3))))
     }
 
     #[test]
