@@ -57,6 +57,8 @@ impl VariableGen {
 
 
 type UnificationError = &'static str;
+type TypeError = &'static str;
+
 
 /// modifies the environment to unify the given types (or returns false if not possible)
 fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> Result<Type, UnificationError> {
@@ -74,11 +76,11 @@ fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> Result<Type, Unificatio
 
             let mut unified_args = Vec::with_capacity(args1.len());
 
-            for iter in args1.iter().zip(args2.iter()) {
+            for iter in args1.into_iter().zip(args2.into_iter()) {
                 let (a1, a2) = iter;
 
                 // TODO: should try to avoid the clone here
-                match unify(a1.clone(), a2.clone(), env) {
+                match unify(a1, a2, env) {
                     Ok(ty) => unified_args.push(ty),
                     err => return err
                 }
@@ -109,7 +111,6 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         },
 
         Expression::Lambda(args, body) => {
-            let body_ty = w(body, env, inst);
             let args_ty = args
                 .into_iter()
                 .map(|arg| {
@@ -118,6 +119,8 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                     Type::Unbound(ty)
                 })
                 .collect::<Vec<Type>>();
+
+            let body_ty = w(body, env, inst);
 
             Type::Lambda(args_ty, Box::new(body_ty))
         },
@@ -146,9 +149,9 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 .collect::<Vec<Type>>();
 
             // Try to unify the lambda we are calling with the way we are calling it.
-            unify(w(callable, env, inst),
+            unify(w(callable, &mut env_, inst),
                   Type::Lambda(type_args, Box::new(Type::Unbound(inst.next()))),
-                  env)
+                  &mut env_)
                 .map(move |ty|{
                     match ty {
                         Type::Lambda(_, return_type) => *return_type,
@@ -205,8 +208,8 @@ mod test {
         // \x -> \y -> 123.0
         let lambdalambda = Expression::Lambda(&args, &lambda);
         assert_eq!(infer(lambdalambda),
-                   Type::Lambda(vec![Type::Unbound(2)], Box::new(
-                       Type::Lambda(vec![Type::Unbound(1)], Box::new(Type::Number)))));
+                   Type::Lambda(vec![Type::Unbound(1)], Box::new(
+                       Type::Lambda(vec![Type::Unbound(2)], Box::new(Type::Number)))));
     }
 
     #[test]
