@@ -34,14 +34,51 @@ enum Type {
 }
 
 
-type TaggedType<'a> = (Expression<'a>, Type);
-
 type TypeEnv<'a> = HashMap<VariableName<'a>, Type>;
+
+/// Bind previously unbound type variables to a specified type.
+fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) {
+    for val in env.values_mut() {
+        if *val == Type::Unbound(var) {
+            *val = ty.clone();
+        }
+    }
+}
+
 
 #[derive(Clone, Copy)]
 struct VariableGen { current: FreeVariable }
 impl VariableGen {
     fn next(&mut self) -> FreeVariable { self.current += 1; self.current }
+}
+
+
+/// modifies the environment to unify the given types (or returns false if not possible)
+fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> bool {
+    match (a, b) {
+        // Easy. Literals match with themselves
+        (Type::Number, Type::Number) => true,
+        (Type::Boolean, Type::Boolean) => true,
+
+        (Type::Unbound(n), ty) | (ty, Type::Unbound(n)) => {
+            bind_type(env, n, ty);
+            true
+        }
+
+        (Type::Lambda(args1, body1), Type::Lambda(args2, body2)) => {
+            if args1.len() != args2.len() { return false }
+
+            for iter in args1.iter().zip(args2.iter()) {
+                let (a1, a2) = iter;
+
+                if !unify(a1.clone(), a2.clone(), env) { return false }
+            }
+
+            unify(*body1, *body2, env)
+        }
+
+        _ => false
+    }
 }
 
 /// Run algorithm W on expr with given type env, yielding the resolved
@@ -59,7 +96,6 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         },
 
         Expression::Lambda(args, body) => {
-            // TODO: args -> types. modify the environment
             let body_ty = w(body, env, inst);
             let args_ty = args
                 .into_iter()
@@ -73,6 +109,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
             Type::Lambda(args_ty, Box::new(body_ty))
         },
 
+        // TODO: need an occurs check here.
         Expression::Let(name, expr, body) => {
             let expr_ty = w(expr, env, inst);
             env.insert(name, expr_ty);
@@ -96,7 +133,9 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 })
                 .collect::<Vec<Type>>();
 
-            match w(callable, env, inst) {
+            let lambda_ty = w(callable, env, inst);
+
+            match lambda_ty {
                 Type::Lambda(expected, body_type) => {
                     if args.len() != expected.len() {
                         panic!("wrong number of args given, {} for {}", args.len(), expected.len())
@@ -169,6 +208,21 @@ mod test {
         // let y = (let x = false in x) in y
         let nested_let = Expression::Let("y", &let_, &var_y);
         assert_eq!(infer(nested_let), Type::Boolean);
+    }
+
+    // TODO: test the other inferencers
+
+    #[test]
+    fn test_unify() {
+        let mut env = HashMap::new();
+
+        assert!(unify(Type::Number, Type::Number, &mut env));
+        assert_eq!(unify(Type::Number, Type::Boolean, &mut env), false);
+        assert!(unify(Type::Unbound(1), Type::Number, &mut env));
+
+        assert!(unify(Type::Lambda(vec![Type::Unbound(1), Type::Unbound(2)], Box::new(Type::Number)),
+                      Type::Lambda(vec![Type::Unbound(3), Type::Unbound(4)], Box::new(Type::Number)),
+                      &mut env));
     }
 }
 
