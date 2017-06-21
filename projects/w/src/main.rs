@@ -5,7 +5,7 @@ type FreeVariable = u64;
 type VariableName<'a> = &'a str;
 
 /// AST node expression
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Expression<'a> {
     Number(f64),
     Boolean(bool),
@@ -24,7 +24,7 @@ enum Expression<'a> {
 }
 
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Type {
     Number,
     Boolean,
@@ -113,26 +113,65 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
     }
 }
 
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn infer(exp: Expression) -> Type {
+        let mut inst = VariableGen { current: 0 };
+        let mut env = HashMap::new();
+
+        w(&exp, &mut env, &mut inst)
+    }
+
+    #[test]
+    fn literal_inference() {
+        let num = Expression::Number(123.0);
+        let boolean = Expression::Boolean(true);
+        // let var = Expression::Variable("x");
+
+        assert_eq!(infer(num), Type::Number);
+        assert_eq!(infer(boolean), Type::Boolean);
+
+        // FIXME: until we return a result type this will panic.
+        // assert_eq!(w(&var, &mut env, &mut inst), Type::Unbound(1));
+    }
+
+    #[test]
+    fn lambda_expression_inference() {
+        let args = ["x"];
+        let num = Expression::Number(123.0);
+
+        // \x -> 123.0
+        let lambda = Expression::Lambda(&args, &num);
+
+        assert_eq!(infer(lambda), Type::Lambda(vec![Type::Unbound(1)], Box::new(Type::Number)));
+
+        // \x -> \y -> 123.0
+        let lambdalambda = Expression::Lambda(&args, &lambda);
+        assert_eq!(infer(lambdalambda),
+                   Type::Lambda(vec![Type::Unbound(2)], Box::new(
+                       Type::Lambda(vec![Type::Unbound(1)], Box::new(Type::Number)))));
+    }
+
+    #[test]
+    fn let_inference() {
+        let boolean = Expression::Boolean(false);
+        let var_x = Expression::Variable("x");
+        let var_y = Expression::Variable("y");
+
+        // let x = false in x
+        let let_ = Expression::Let("x", &boolean, &var_x);
+
+        assert_eq!(infer(let_), Type::Boolean);
+
+        // let y = (let x = false in x) in y
+        let nested_let = Expression::Let("y", &let_, &var_y);
+        assert_eq!(infer(nested_let), Type::Boolean);
+    }
+}
+
 fn main() {
-    // FIXME: this is so gnarly.
-    // let incr = \x -> 123.0 in incr (123.0) :: Number
-    let num = Expression::Number(123.0);
-    let incr = Expression::Variable("incr");
-    let x = Expression::Variable("x");
-    let args = ["x", "y", "z"];
-    let args_ = [&num];
-    let fn_call = Expression::FnCall(&incr, &args_);
-    let lambda = Expression::Lambda(&args, &num);
-
-    // let expr = Expression::Let(
-    //     "incr", &lambda,
-    //     &fn_call);
-
-    let expr = Expression::Let("x", &num, &x);
-
-
-    let mut inst = VariableGen {current: 0};
-    let mut env = HashMap::new();
-
-    println!("this is the thing: {:?}\n", w(&lambda, &mut env, &mut inst))
+    println!("patience.");
 }
