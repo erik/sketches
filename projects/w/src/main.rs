@@ -38,6 +38,8 @@ type TypeEnv<'a> = HashMap<VariableName<'a>, Type>;
 
 /// Bind previously unbound type variables to a specified type.
 fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) {
+    println!("substitute unbound({}) for {:?}", var, ty);
+
     for val in env.values_mut() {
         if *val == Type::Unbound(var) {
             *val = ty.clone();
@@ -133,21 +135,16 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 })
                 .collect::<Vec<Type>>();
 
+            let return_type = Type::Unbound(inst.next());
+
             let lambda_ty = w(callable, env, inst);
+            let derived_ty = Type::Lambda(type_args, Box::new(return_type.clone()));
 
-            match lambda_ty {
-                Type::Lambda(expected, body_type) => {
-                    if args.len() != expected.len() {
-                        panic!("wrong number of args given, {} for {}", args.len(), expected.len())
-                    } else if expected != type_args.as_slice() {
-                        panic!("bad types given: {:?} for {:?}", type_args.as_slice(), expected)
-                    }
-
-                    *body_type.clone()
-                }
-
-                _ => panic!("trying to call non-function")
+            if !unify(lambda_ty.clone(), derived_ty.clone(), env) {
+                panic!("could not unify! {:?} for {:?}", lambda_ty, derived_ty)
             }
+
+            return_type
         }
     }
 }
@@ -210,7 +207,21 @@ mod test {
         assert_eq!(infer(nested_let), Type::Boolean);
     }
 
-    // TODO: test the other inferencers
+    #[test]
+    fn fn_call_inference() {
+        let args = ["x"];
+        let num = Expression::Number(123.0);
+        let boolean = Expression::Boolean(false);
+
+        // \x -> 123.0
+        let lambda = Expression::Lambda(&args, &num);
+
+        let app_args = [&boolean];
+        let application = Expression::FnCall(&lambda, &app_args);
+
+        assert_eq!(infer(application), Type::Number)
+
+    }
 
     #[test]
     fn test_unify() {
