@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::collections::HashMap;
 
 type FreeVariable = u64;
@@ -37,7 +36,7 @@ enum Type {
 type TypeEnv<'a> = HashMap<VariableName<'a>, Type>;
 
 /// Bind previously unbound type variables to a specified type.
-fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) {
+fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) -> Type {
     println!("substitute unbound({}) for {:?}", var, ty);
 
     for val in env.values_mut() {
@@ -45,6 +44,8 @@ fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) {
             *val = ty.clone();
         }
     }
+
+    ty
 }
 
 
@@ -55,31 +56,41 @@ impl VariableGen {
 }
 
 
+type UnificationError = &'static str;
+
 /// modifies the environment to unify the given types (or returns false if not possible)
-fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> bool {
+fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>) -> Result<Type, UnificationError> {
     match (a, b) {
         // Easy. Literals match with themselves
-        (Type::Number, Type::Number) => true,
-        (Type::Boolean, Type::Boolean) => true,
+        (Type::Number, Type::Number) => Ok(Type::Number),
+        (Type::Boolean, Type::Boolean) => Ok(Type::Boolean),
 
-        (Type::Unbound(n), ty) | (ty, Type::Unbound(n)) => {
-            bind_type(env, n, ty);
-            true
-        }
+        (Type::Unbound(n), ty) | (ty, Type::Unbound(n)) => Ok(bind_type(env, n, ty)),
 
         (Type::Lambda(args1, body1), Type::Lambda(args2, body2)) => {
-            if args1.len() != args2.len() { return false }
+            if args1.len() != args2.len() {
+                return Err("lambdas take differing numbers of arguments")
+            }
+
+            let mut unified_args = Vec::with_capacity(args1.len());
 
             for iter in args1.iter().zip(args2.iter()) {
                 let (a1, a2) = iter;
 
-                if !unify(a1.clone(), a2.clone(), env) { return false }
+                // TODO: should try to avoid the clone here
+                match unify(a1.clone(), a2.clone(), env) {
+                    Ok(ty) => unified_args.push(ty),
+                    err => return err
+                }
             }
 
-            unify(*body1, *body2, env)
+            match unify(*body1, *body2, env) {
+                Ok(body_ty) => Ok(Type::Lambda(unified_args, Box::new(body_ty))),
+                err => err
+            }
         }
 
-        _ => false
+        _ => Err("could not unify types")
     }
 }
 
@@ -135,16 +146,17 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 })
                 .collect::<Vec<Type>>();
 
-            let return_type = Type::Unbound(inst.next());
-
-            let lambda_ty = w(callable, env, inst);
-            let derived_ty = Type::Lambda(type_args, Box::new(return_type.clone()));
-
-            if !unify(lambda_ty.clone(), derived_ty.clone(), env) {
-                panic!("could not unify! {:?} for {:?}", lambda_ty, derived_ty)
-            }
-
-            return_type
+            // Try to unify the lambda we are calling with the way we are calling it.
+            unify(w(callable, env, inst), Type::Lambda(type_args, Box::new(Type::Unbound(inst.next()))), env)
+                .map(move |ty|{
+                    match ty {
+                        Type::Lambda(_, return_type) => *return_type,
+                        _ => panic!("BUG: expected unify to return lambda, not {:?}", ty)
+                    }
+                })
+                .or(Err("could not unify lambda types"))
+                // FIXME: this should eventually return a result anyway.
+                .unwrap()
         }
     }
 }
@@ -162,16 +174,21 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn undefined_variable() {
+        let var = Expression::Variable("x");
+
+        // FIXME: until we return a result type this will panic.
+        infer(var);
+    }
+
+    #[test]
     fn literal_inference() {
         let num = Expression::Number(123.0);
         let boolean = Expression::Boolean(true);
-        // let var = Expression::Variable("x");
 
         assert_eq!(infer(num), Type::Number);
         assert_eq!(infer(boolean), Type::Boolean);
-
-        // FIXME: until we return a result type this will panic.
-        // assert_eq!(w(&var, &mut env, &mut inst), Type::Unbound(1));
     }
 
     #[test]
@@ -227,13 +244,14 @@ mod test {
     fn test_unify() {
         let mut env = HashMap::new();
 
-        assert!(unify(Type::Number, Type::Number, &mut env));
-        assert_eq!(unify(Type::Number, Type::Boolean, &mut env), false);
-        assert!(unify(Type::Unbound(1), Type::Number, &mut env));
+        assert_eq!(unify(Type::Number, Type::Number, &mut env), Ok(Type::Number));
+        assert!(unify(Type::Number, Type::Boolean, &mut env).is_err());
+        assert_eq!(unify(Type::Unbound(1), Type::Number, &mut env), Ok(Type::Number));
 
-        assert!(unify(Type::Lambda(vec![Type::Unbound(1), Type::Unbound(2)], Box::new(Type::Number)),
-                      Type::Lambda(vec![Type::Unbound(3), Type::Unbound(4)], Box::new(Type::Number)),
-                      &mut env));
+        assert_eq!(unify(Type::Lambda(vec![Type::Unbound(1), Type::Unbound(2)], Box::new(Type::Number)),
+                         Type::Lambda(vec![Type::Unbound(3), Type::Unbound(4)], Box::new(Type::Number)),
+                         &mut env),
+                   Ok(Type::Lambda(vec![Type::Unbound(3), Type::Unbound(4)], Box::new(Type::Number))));
     }
 }
 
