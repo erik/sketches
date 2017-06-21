@@ -137,21 +137,17 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         // 2. ensure that the number and type of args match
         // 3. return type of body of lambda
         Expression::FnCall(callable, args) => {
-            // FIXME: this seems broken.
-            let mut env_ = env.clone();
-            let mut inst_ = inst.clone();
-
             let type_args = args
                 .iter()
                 .map(|arg| {
-                    w(arg, &mut env_, &mut inst_)
+                    w(arg, env, inst)
                 })
                 .collect::<Vec<Type>>();
 
             // Try to unify the lambda we are calling with the way we are calling it.
-            unify(w(callable, &mut env_, inst),
+            unify(w(callable, env, inst),
                   Type::Lambda(type_args, Box::new(Type::Unbound(inst.next()))),
-                  &mut env_)
+                  env)
                 .map(move |ty|{
                     match ty {
                         Type::Lambda(_, return_type) => *return_type,
