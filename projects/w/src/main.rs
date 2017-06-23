@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type FreeVariable = u64;
 type VariableName<'a> = &'a str;
@@ -33,19 +33,38 @@ enum Type {
 }
 
 
-type TypeEnv<'a> = HashMap<VariableName<'a>, Type>;
+#[derive(Clone, Debug)]
+struct TypeEnv<'a> {
+    bindings: HashMap<VariableName<'a>, Type>,
+    // FIXME: This isn't the correct naming. Perhaps generic?
+    instances: HashSet<FreeVariable>
+}
 
-/// Bind previously unbound type variables to a specified type.
-fn bind_type<'a>(env: &mut TypeEnv<'a>, var: FreeVariable, ty: Type) -> Type {
-    println!("binding free({}) = {:?}", var, ty);
-
-    for val in env.values_mut() {
-        if *val == Type::Free(var) {
-            *val = ty.clone();
+impl <'a> TypeEnv <'a> {
+    fn new() -> TypeEnv<'a> {
+        TypeEnv {
+            bindings: HashMap::new(),
+            instances: HashSet::new()
         }
     }
 
-    ty
+    fn instantiate(&mut self, var: FreeVariable) {
+        self.instances.insert(var);
+    }
+
+    /// Bind previously unbound type variables to a specified type.
+    fn bind_type(&mut self, var: FreeVariable, ty: Type) -> Type {
+        println!("binding free({}) = {:?}", var, ty);
+
+        for val in self.bindings.values_mut() {
+            if *val == Type::Free(var) {
+                *val = ty.clone();
+            }
+        }
+
+        ty
+    }
+
 }
 
 
@@ -69,13 +88,13 @@ fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>, inst: &mut VariableGen) ->
 
         // FIXME: is this correct?
         (Type::Free(a), Type::Free(b)) => {
-            let t1 = bind_type(env, b, Type::Free(inst.next()));
+            let t1 = env.bind_type(b, Type::Free(inst.next()));
 
-            Ok(bind_type(env, a, t1))
+            Ok(env.bind_type(a, t1))
         }
 
         (Type::Free(n), ty) | (ty, Type::Free(n)) =>
-            Ok(bind_type(env, n, ty)),
+            Ok(env.bind_type(n, ty)),
 
         (Type::Lambda(args1, body1), Type::Lambda(args2, body2)) => {
             if args1.len() != args2.len() {
@@ -115,7 +134,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         Expression::Boolean(_) => Type::Boolean,
 
         // variables we need to look up inside our type environment
-        Expression::Variable(name) => match env.get(name) {
+        Expression::Variable(name) => match env.bindings.get(name) {
             Some(typ) => typ.clone(),
             None => panic!("undefined variable, {}", name)
         },
@@ -129,7 +148,8 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
                 .into_iter()
                 .map(|arg| {
                     let ty = inst.next();
-                    child_env.insert(arg, Type::Free(ty));
+                    child_env.bindings.insert(arg, Type::Free(ty));
+                    child_env.instantiate(ty);
                     Type::Free(ty)
                 })
                 .collect::<Vec<Type>>();
@@ -144,7 +164,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
             let expr_ty = w(expr, env, inst);
             let mut child_env = env.clone();
 
-            child_env.insert(name, expr_ty);
+            child_env.bindings.insert(name, expr_ty);
 
             w(body, &mut child_env, inst)
         },
@@ -157,7 +177,9 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
 
             let type_args = args
                 .iter()
-                .map(|arg| { w(arg, &mut child_env, inst) })
+                .map(|arg| {
+                    w(arg, &mut child_env, inst)
+                })
                 .collect::<Vec<Type>>();
 
             // Try to unify the lambda we are calling with the way we are calling it.
@@ -186,14 +208,14 @@ mod test {
 
     fn infer(exp: Expression) -> Type {
         let mut inst = VariableGen { current: 0 };
-        let mut env = HashMap::new();
+        let mut env = TypeEnv::new();
 
         w(&exp, &mut env, &mut inst)
     }
 
     fn unify_(t1: Type, t2: Type) -> Result<Type, UnificationError> {
         let mut inst = VariableGen { current: 0 };
-        let mut env = HashMap::new();
+        let mut env = TypeEnv::new();
 
         unify(t1, t2, &mut env, &mut inst)
     }
@@ -250,7 +272,7 @@ mod test {
     }
 
     #[test]
-    fn simple_fn_call_inference() {
+    fn simple_lambda_call_inference() {
         let args = ["x"];
         let num = Expression::Number(123.0);
         let boolean = Expression::Boolean(false);
@@ -277,7 +299,7 @@ mod test {
     }
 
     #[test]
-    fn fn_returning_lambda() {
+    fn lambda_returning_lambda() {
         // let
         //    x = (\a -> a)
         // in
