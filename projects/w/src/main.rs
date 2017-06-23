@@ -19,7 +19,7 @@ enum Expression<'a> {
     Let(VariableName<'a>, &'a Expression<'a>, &'a Expression<'a>),
 
     /// some_fn (x, y, z)
-    FnCall(&'a Expression<'a>, &'a [ &'a Expression<'a>])
+    FnCall(&'a Expression<'a>, &'a [&'a Expression<'a>]),
 }
 
 
@@ -37,14 +37,14 @@ enum Type {
 struct TypeEnv<'a> {
     bindings: HashMap<VariableName<'a>, Type>,
     // FIXME: This isn't the correct naming. Perhaps generic?
-    instances: HashSet<FreeVariable>
+    instances: HashSet<FreeVariable>,
 }
 
-impl <'a> TypeEnv <'a> {
+impl<'a> TypeEnv<'a> {
     fn new() -> TypeEnv<'a> {
         TypeEnv {
             bindings: HashMap::new(),
-            instances: HashSet::new()
+            instances: HashSet::new(),
         }
     }
 
@@ -64,14 +64,18 @@ impl <'a> TypeEnv <'a> {
 
         ty
     }
-
 }
 
 
 #[derive(Clone, Copy)]
-struct VariableGen { current: FreeVariable }
+struct VariableGen {
+    current: FreeVariable,
+}
 impl VariableGen {
-    fn next(&mut self) -> FreeVariable { self.current += 1; self.current }
+    fn next(&mut self) -> FreeVariable {
+        self.current += 1;
+        self.current
+    }
 }
 
 
@@ -80,7 +84,12 @@ type TypeError = &'static str;
 
 
 /// modifies the environment to unify the given types (or returns false if not possible)
-fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -> Result<Type, UnificationError> {
+fn unify<'a>(
+    a: Type,
+    b: Type,
+    env: &mut TypeEnv<'a>,
+    inst: &mut VariableGen,
+) -> Result<Type, UnificationError> {
     let res = match (a.clone(), b.clone()) {
         // Easy. Literals match with themselves
         (Type::Number, Type::Number) => Ok(Type::Number),
@@ -93,12 +102,12 @@ fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>, inst: &mut VariableGen) ->
             Ok(env.bind_type(a, t1))
         }
 
-        (Type::Free(n), ty) | (ty, Type::Free(n)) =>
-            Ok(env.bind_type(n, ty)),
+        (Type::Free(n), ty) |
+        (ty, Type::Free(n)) => Ok(env.bind_type(n, ty)),
 
         (Type::Lambda(args1, body1), Type::Lambda(args2, body2)) => {
             if args1.len() != args2.len() {
-                return Err("lambdas take differing numbers of arguments")
+                return Err("lambdas take differing numbers of arguments");
             }
 
             let mut unified_args = Vec::with_capacity(args1.len());
@@ -106,17 +115,17 @@ fn unify<'a>(a: Type, b: Type, env: &mut TypeEnv<'a>, inst: &mut VariableGen) ->
             for iter in args1.into_iter().zip(args2.into_iter()) {
                 match unify(iter.0, iter.1, env, inst) {
                     Ok(ty) => unified_args.push(ty),
-                    err => return err
+                    err => return err,
                 }
             }
 
             match unify(*body1, *body2, env, inst) {
                 Ok(body_ty) => Ok(Type::Lambda(unified_args, Box::new(body_ty))),
-                err => err
+                err => err,
             }
         }
 
-        _ => Err("could not unify types")
+        _ => Err("could not unify types"),
     };
 
 
@@ -134,18 +143,19 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         Expression::Boolean(_) => Type::Boolean,
 
         // variables we need to look up inside our type environment
-        Expression::Variable(name) => match env.bindings.get(name) {
-            Some(typ) => typ.clone(),
-            None => panic!("undefined variable, {}", name)
-        },
+        Expression::Variable(name) => {
+            match env.bindings.get(name) {
+                Some(typ) => typ.clone(),
+                None => panic!("undefined variable, {}", name),
+            }
+        }
 
         Expression::Lambda(args, body) => {
             // Any parameters or variables defined inside the lambda are scoped
             // only to the lambda.
             let mut child_env = env.clone();
 
-            let args_ty = args
-                .into_iter()
+            let args_ty = args.into_iter()
                 .map(|arg| {
                     let ty = inst.next();
                     child_env.bindings.insert(arg, Type::Free(ty));
@@ -157,7 +167,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
             let body_ty = w(body, &mut child_env, inst);
 
             Type::Lambda(args_ty, Box::new(body_ty))
-        },
+        }
 
         // TODO: need an occurs check here.
         Expression::Let(name, expr, body) => {
@@ -167,7 +177,7 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
             child_env.bindings.insert(name, expr_ty);
 
             w(body, &mut child_env, inst)
-        },
+        }
 
         // 1. ensure that the callable in this function call is truly callable.
         // 2. ensure that the number and type of args match
@@ -175,11 +185,8 @@ fn w<'a>(expr: &Expression<'a>, env: &mut TypeEnv<'a>, inst: &mut VariableGen) -
         Expression::FnCall(callable, args) => {
             let mut child_env = env.clone();
 
-            let type_args = args
-                .iter()
-                .map(|arg| {
-                    w(arg, &mut child_env, inst)
-                })
+            let type_args = args.iter()
+                .map(|arg| w(arg, &mut child_env, inst))
                 .collect::<Vec<Type>>();
 
             // Try to unify the lambda we are calling with the way we are calling it.
@@ -246,13 +253,20 @@ mod test {
         // \x -> 123.0
         let lambda = Expression::Lambda(&args, &num);
 
-        assert_eq!(infer(lambda), Type::Lambda(vec![Type::Free(1)], Box::new(Type::Number)));
+        assert_eq!(
+            infer(lambda),
+            Type::Lambda(vec![Type::Free(1)], Box::new(Type::Number))
+        );
 
         // \x -> \y -> 123.0
         let lambdalambda = Expression::Lambda(&args, &lambda);
-        assert_eq!(infer(lambdalambda),
-                   Type::Lambda(vec![Type::Free(1)], Box::new(
-                       Type::Lambda(vec![Type::Free(2)], Box::new(Type::Number)))));
+        assert_eq!(
+            infer(lambdalambda),
+            Type::Lambda(
+                vec![Type::Free(1)],
+                Box::new(Type::Lambda(vec![Type::Free(2)], Box::new(Type::Number))),
+            )
+        );
     }
 
     #[test]
@@ -320,7 +334,10 @@ mod test {
         let let_y = Expression::Let("y", &lambda_y, &fncall);
         let let_x = Expression::Let("x", &lambda_x, &let_y);
 
-        assert_eq!(infer(let_x), Type::Lambda(vec![Type::Free(3)], Box::new(Type::Free(3))))
+        assert_eq!(
+            infer(let_x),
+            Type::Lambda(vec![Type::Free(3)], Box::new(Type::Free(3)))
+        )
     }
 
     #[test]
@@ -330,9 +347,13 @@ mod test {
         assert_eq!(unify_(Type::Number, Type::Number).unwrap(), Type::Number);
         assert_eq!(unify_(Type::Free(10), Type::Number).unwrap(), Type::Number);
 
-        assert_eq!(unify_(Type::Lambda(vec![Type::Free(10), Type::Free(20)], Box::new(Type::Number)),
-                          Type::Lambda(vec![Type::Free(30), Type::Free(40)], Box::new(Type::Number))).unwrap(),
-                   Type::Lambda(vec![Type::Free(1), Type::Free(2)], Box::new(Type::Number)));
+        assert_eq!(
+            unify_(
+                Type::Lambda(vec![Type::Free(10), Type::Free(20)], Box::new(Type::Number)),
+                Type::Lambda(vec![Type::Free(30), Type::Free(40)], Box::new(Type::Number)),
+            ).unwrap(),
+            Type::Lambda(vec![Type::Free(1), Type::Free(2)], Box::new(Type::Number))
+        );
     }
 }
 
