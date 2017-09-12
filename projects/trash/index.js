@@ -1,14 +1,21 @@
 class Observer {
-    constructor (inst) {
+    constructor (inst, data) {
         this.dependencies = new Set();
         this.instance = inst;
+
+        this.observeTree(data);
     }
 
     clearDependencies () { this.dependencies = new Set(); }
 
-    observe(key, value) {
-        console.log('observing', key, 'initially', value);
+    observeTree (map) {
+        for (let k in map) {
+            let v = map[k];
+            this.observe(k, v);
+        }
+    }
 
+    observe(key, value) {
         Object.defineProperty(this.instance, key, {
             get: () => {
                 this.dependencies.add(key);
@@ -25,15 +32,12 @@ class Observer {
 
 class Trash {
     constructor (options) {
-        this.$observer = new Observer(this);
         this.$data = options.data || {};
         this.$hooks = options.hooks || {};
         this.$renderer = options.render;
         this.$dirty = true;
 
-        for (let k in this.$data) {
-            this.$observer.observe(k, options.data[k]);
-        }
+        this.$observer = new Observer(this, this.$data);
 
         if (options.el) {
             this.$mount(options.el);
@@ -50,9 +54,9 @@ class Trash {
 
     $notify (key) {
         if (this.$dirty) return;
-
-        console.log('key modified', key, 'queuing change');
         this.$dirty = true;
+
+        console.log('queue repaint.')
 
         // microtask
         Promise.resolve().then(() => {
@@ -64,20 +68,32 @@ class Trash {
     $render (initial) {
         if (!initial && !this.$dirty) return;
 
-        let createElement = (tag, props, children) => {
-            let el = document.createElement(tag);
+        const domify = (item) => {
+            if (item instanceof Node) { return item; }
+            else if (typeof item === 'function') {
+                return domify(item.call(this));
+            } else if (typeof item === 'string') {
+                return document.createTextNode(item);
+            } else {
+                window.alert('i dont know what this is');
+                return null;
+            }
+        };
+
+        const createElement = (tag, props, children) => {
+            const hooks = props || {};
+            const el = document.createElement(tag);
+
+            for (let k in props) {
+                el.addEventListener(k, hooks[k].bind(this));
+            }
+
+            if (!Array.isArray(children)) {
+                children = [children];
+            }
+
             children.forEach(child => {
-                switch (typeof child) {
-                case 'function':
-                    el.appendChild(child.bind(this)());
-                    break;
-                case 'string':
-                    el.appendChild(document.createTextNode(child));
-                    break;
-                default:
-                    // assuming this is a node but that's not a safe assumption
-                    el.appendChild(child);
-                }
+                el.appendChild(domify(child));
             });
 
             return el;
@@ -87,44 +103,7 @@ class Trash {
 
         let newElem = this.$renderer(createElement);
 
-        this.$el.replaceChild(newElem, this.$el.childNodes[0]);
+        this.$el.replaceChild(newElem, this.$el.firstChild);
         this.$dirty = false;
     }
 };
-
-
-window.onload = () => {
-    let t = new Trash({
-        el: '#app',
-        data: {x: 1, y: true, date: null},
-
-        hooks: {
-            mounted: function () {
-                console.log('i was mounted', this);
-            },
-            destroyed: function () { console.log('i was destroyed'); }
-        },
-        render: function(h) {
-            return h('div', {}, [
-                h('h1', {}, [
-                    'straight trash',
-                    h('small', {}, [`updated: ${this.date}`])
-                ]),
-                `x = ${this.x}`,
-                () => { return h('div', {}, [this.y ? 'y is true' : 'y is false']); },
-
-                h('ul', {}, Array.from(Array(100)).map((_, i) => {
-                    return h('ol', {}, [`${i+this.x}`]);
-                }))
-            ]);
-        }
-    });
-
-
-    setInterval(() => {
-        console.log('poking things');
-        t.date = new Date();
-        t.x ++;
-        t.y = !t.y;
-    }, 400);
-}

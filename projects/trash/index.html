@@ -1,9 +1,60 @@
-<!html>
 <head>
   <script src="index.js"></script>
 </head>
 
-
 <body>
-  <div id="app">unrendered</app>
+  <div id="app">
+    unrendered
+  </div>
+
+  <script>
+   window.onload = () => {
+       let t = new Trash({
+           el: '#app',
+           data: {
+               x: 1,
+               y: true,
+               date: null,
+               nest: {a: 1}
+           },
+
+           hooks: {
+               mounted: function () {
+                   console.log('i was mounted', this);
+               },
+               destroyed: function () {
+                   console.log('i was destroyed');
+               }
+           },
+
+           render: function(h) {
+               return h('div', {}, [
+                   h('h1', {}, [
+                       'Trash ',
+                       h('small', {}, [`- updated: ${this.date}`])
+                   ]),
+                   h('h2', {}, `nest ${this.nest.a}`),
+                   `x = ${this.x}`,
+                   h('button', {
+                       click: () => {
+                           this.x += 1;
+                       }
+                   }, 'click me'),
+                   () => { return h('div', {}, this.y ? 'y is true' : 'y is false'); },
+
+                   h('ul', {}, Array.from(Array(10)).map((_, i) => {
+                       return h('ol', {}, `${i+this.x}`);
+                   }))
+               ]);
+           }
+       });
+
+
+       setInterval(() => {
+           console.log('poking things');
+           t.date = new Date();
+           t.y = !t.y;
+       }, 1000);
+   }
+  </script>
 </body>
