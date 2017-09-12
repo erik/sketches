@@ -1,12 +1,8 @@
 class Observer {
     constructor (inst, data) {
-        this.dependencies = new Set();
         this.instance = inst;
-
         this.observeTree(data);
     }
-
-    clearDependencies () { this.dependencies = new Set(); }
 
     observeTree (map) {
         for (let k in map) {
@@ -17,10 +13,7 @@ class Observer {
 
     observe(key, value) {
         Object.defineProperty(this.instance, key, {
-            get: () => {
-                this.dependencies.add(key);
-                return this.instance.$data[key];
-            },
+            get: () => { return this.instance.$data[key]; },
 
             set: (value) => {
                 this.instance.$data[key] = value;
@@ -29,6 +22,7 @@ class Observer {
         });
     }
 }
+
 
 class Trash {
     constructor (options) {
@@ -56,13 +50,8 @@ class Trash {
         if (this.$dirty) return;
         this.$dirty = true;
 
-        console.log('queue repaint.')
-
         // microtask
-        Promise.resolve().then(() => {
-            console.log('repaint');
-            this.$render(false);
-        });
+        Promise.resolve().then(() => { this.$render(false); });
     }
 
     $render (initial) {
@@ -80,12 +69,21 @@ class Trash {
             }
         };
 
-        const createElement = (tag, props, children) => {
-            const hooks = props || {};
+        const createElement = (tag, attrs, children) => {
             const el = document.createElement(tag);
 
-            for (let k in props) {
-                el.addEventListener(k, hooks[k].bind(this));
+            for (const k in attrs) {
+                const v = attrs[k];
+
+                if (typeof v === 'function') {
+                    el.addEventListener(k, v.bind(this));
+                } else if (k === 'style') {
+                    for (const prop in v) {
+                        el.style.setProperty(prop, v[prop]);
+                    }
+                } else {
+                    el.setAttribute(k, v);
+                }
             }
 
             if (!Array.isArray(children)) {
@@ -99,10 +97,7 @@ class Trash {
             return el;
         };
 
-        this.$observer.clearDependencies();
-
-        let newElem = this.$renderer(createElement);
-
+        const newElem = this.$renderer(createElement);
         this.$el.replaceChild(newElem, this.$el.firstChild);
         this.$dirty = false;
     }

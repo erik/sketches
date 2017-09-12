@@ -36,9 +36,8 @@
                    h('h2', {}, `nest ${this.nest.a}`),
                    `x = ${this.x}`,
                    h('button', {
-                       click: () => {
-                           this.x += 1;
-                       }
+                       style: { padding: '1em',  border: '1px solid black' },
+                       click: () => { this.x += 1; }
                    }, 'click me'),
                    () => { return h('div', {}, this.y ? 'y is true' : 'y is false'); },
 
