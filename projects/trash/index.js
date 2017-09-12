@@ -42,7 +42,7 @@ class Trash {
         console.log('mounting to el', element);
         this.$el = document.querySelector(element);
 
-        this.$hooks.mounted.bind(this)();
+        this.$hooks.mounted.call(this);
         this.$render();
     }
 
