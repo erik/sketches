@@ -68,6 +68,7 @@ class Trash {
         };
 
         const createElement = (tag, attrs, children) => {
+            let el;
 
             // Special handling for components.
             if (tag in this.$components) {
@@ -77,16 +78,18 @@ class Trash {
                 component.props.forEach(k => {
                     if (!(k in attrs)) {
                         console.warn(`[${tag}]: missing prop: ${k}`);
+                        return;
                     }
 
                     props[k] = attrs[k];
+                    delete attrs[k];
                 });
 
-                const result = component.render.call(props, createElement);
-                return domify(result);
+                const rendered = component.render.call(props, createElement);
+                el = domify(rendered);
+            } else {
+                el = document.createElement(tag);
             }
-
-            const el = document.createElement(tag);
 
             for (const k in attrs) {
                 const v = attrs[k];
