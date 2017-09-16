@@ -18,12 +18,21 @@
                nest: {a: 1}
            },
 
+           components: {
+               foo: {
+                   props: ['bar', 'baz'],
+                   render: function(h) {
+                       return h('div', {style: {border: '1px solid black'}}, [
+                           `bar = ${this.bar}`,
+                           `baz = ${this.baz}`
+                       ]);
+                   }
+               }
+           },
+
            hooks: {
                mounted: function () {
                    console.log('i was mounted', this);
-               },
-               destroyed: function () {
-                   console.log('i was destroyed');
                }
            },
 
@@ -34,6 +43,7 @@
                        h('small', {}, [`- updated: ${this.date}`])
                    ]),
                    h('h2', {}, `nest ${this.nest.a}`),
+                   h('foo', {bar: 1, baz: this.x}, []),
                    `x = ${this.x}`,
                    h('button', {
                        style: { padding: '1em',  border: '1px solid black' },

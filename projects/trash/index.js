@@ -1,19 +1,13 @@
 class Observer {
-    constructor (inst, data) {
+    constructor (inst) {
         this.instance = inst;
-        this.observeTree(data);
-    }
-
-    observeTree (map) {
-        for (let k in map) {
-            let v = map[k];
-            this.observe(k, v);
-        }
     }
 
     observe(key, value) {
         Object.defineProperty(this.instance, key, {
-            get: () => { return this.instance.$data[key]; },
+            get: () => {
+                return this.instance.$data[key];
+            },
 
             set: (value) => {
                 this.instance.$data[key] = value;
@@ -29,9 +23,14 @@ class Trash {
         this.$data = options.data || {};
         this.$hooks = options.hooks || {};
         this.$renderer = options.render;
+        this.$components = options.components || {};
         this.$dirty = true;
+        this.$observer = new Observer(this);
 
-        this.$observer = new Observer(this, this.$data);
+        for (let k in this.$data) {
+            let v = this.$data[k];
+            this.$observer.observe(k, v);
+        }
 
         if (options.el) {
             this.$mount(options.el);
@@ -64,12 +63,29 @@ class Trash {
             } else if (typeof item === 'string') {
                 return document.createTextNode(item);
             } else {
-                window.alert('i dont know what this is');
-                return null;
+                return document.createTextNode(item.toString());
             }
         };
 
         const createElement = (tag, attrs, children) => {
+
+            // Special handling for components.
+            if (tag in this.$components) {
+                const component = this.$components[tag];
+                let props = {};
+
+                component.props.forEach(k => {
+                    if (!(k in attrs)) {
+                        console.warn(`[${tag}]: missing prop: ${k}`);
+                    }
+
+                    props[k] = attrs[k];
+                });
+
+                const result = component.render.call(props, createElement);
+                return domify(result);
+            }
+
             const el = document.createElement(tag);
 
             for (const k in attrs) {
