@@ -1,23 +1,3 @@
-class Observer {
-    constructor (inst) {
-        this.instance = inst;
-    }
-
-    observe(key, value) {
-        Object.defineProperty(this.instance, key, {
-            get: () => {
-                return this.instance.$data[key];
-            },
-
-            set: (value) => {
-                this.instance.$data[key] = value;
-                this.instance.$notify(key);
-            }
-        });
-    }
-}
-
-
 class Trash {
     constructor (options) {
         this.$data = options.data || {};
@@ -25,11 +5,15 @@ class Trash {
         this.$renderer = options.render;
         this.$components = options.components || {};
         this.$dirty = true;
-        this.$observer = new Observer(this);
 
         for (let k in this.$data) {
-            let v = this.$data[k];
-            this.$observer.observe(k, v);
+            Object.defineProperty(this, k, {
+                get: () => this.$data[k],
+                set: (value) => {
+                    this.$notify(k);
+                    this.$data[k] = value;
+                }
+            });
         }
 
         if (options.el) {
