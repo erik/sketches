@@ -2,7 +2,7 @@ const toDomNode = (item) => {
     if (item instanceof Node) {
         return item;
     }
-    // Basic thunk support
+   // Basic thunk support
     else if (typeof item === 'function') {
         return toDomNode(item.call(this));
     }
@@ -12,14 +12,14 @@ const toDomNode = (item) => {
 
 
 function createElement (tag, attrs, children) {
+    attrs = attrs || {};
     let el;
 
     // Special handling for components.
-    if (tag in this.$components) {
-        const component = this.$components[tag];
+    if (tag.render) {
         let props = {};
 
-        component.props.forEach(k => {
+        (tag.props || []).forEach(k => {
             if (!(k in attrs)) {
                 console.warn(`[${tag}]: missing prop: ${k}`);
                 return;
@@ -29,7 +29,7 @@ function createElement (tag, attrs, children) {
             delete attrs[k];
         });
 
-        const rendered = component.render.call(props, createElement.bind(this));
+        const rendered = tag.render.call(props, createElement.bind(this));
         el = toDomNode(rendered);
     } else {
         el = document.createElement(tag);
@@ -49,13 +49,10 @@ function createElement (tag, attrs, children) {
         }
     }
 
-    if (!Array.isArray(children)) {
-        children = [children];
-    }
-
-    children.forEach(child => {
-        el.appendChild(toDomNode(child));
-    });
+    [].concat(children)
+        .map(c => [].concat(c).forEach(child => {
+            el.appendChild(toDomNode(child));
+        }));
 
     return el;
 }
@@ -68,7 +65,7 @@ class Trash {
         this.$components = options.components || {};
         this.$renderQueued = false;
 
-        for (let k in this.$data) {
+        for (const k in this.$data) {
             Object.defineProperty(this, k, {
                 get: () => this.$data[k],
                 set: (value) => {
@@ -98,4 +95,4 @@ class Trash {
             this.$renderQueued = false;
         });
     }
-};
+}

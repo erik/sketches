@@ -49,7 +49,7 @@
                        style: { padding: '1em',  border: '1px solid black' },
                        click: () => { this.x += 1; }
                    }, 'click me'),
-                   () => { return h('div', {}, this.y ? 'y is true' : 'y is false'); },
+                   h('div', {}, this.y ? 'y is true' : 'y is false'),
 
                    h('ul', {}, Array.from(Array(10)).map((_, i) => {
                        return h('ol', {}, `${i+this.x}`);
