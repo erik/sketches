@@ -12,7 +12,7 @@ defmodule Pronk do
       worker(Pronk.Registry, []),
     ]
 
-    Logger.info "Starting..."
+    Logger.info "pronk pronk pronk"
 
     opts = [strategy: :one_for_one, name: Pronk.Supervisor]
     Supervisor.start_link(children, opts)

@@ -24,8 +24,25 @@ defmodule Pronk.ClientConnection do
     accept_loop(socket)
   end
 
+  ## Handle all the stuff before users auth
   defp serve_initial(client) do
-    ## Handle all the stuff before users auth
+    case :gen_tcp.recv(client, 0) do
+      {:ok, line} -> _
+        words = line
+        |> String.trim " "
+        |> String.split " "
+
+        case words do
+          ["PASS", user] ->
+            Logger.info "User trying to authenticate with #{user}"
+
+          :else ->
+            :gen_tcp.send(socket, "You need to authenticate before doing that.\r\n")
+        end
+
+      {:error, :closed} ->
+        Logger.info("client disconnect: #{inspect client}")
+    end
   end
 
   defp serve(client) do
