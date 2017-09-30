@@ -9,6 +9,7 @@ defmodule Pronk do
       Pronk.ServerSupervisor,
       supervisor(Task.Supervisor, [[name: Pronk.TaskSupervisor]]),
       worker(Task, [Pronk.ClientConnection, :listen, [9999]]),
+      worker(Pronk.UserRegistry, []),
       worker(Pronk.Registry, []),
     ]
 

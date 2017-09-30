@@ -27,17 +27,25 @@ defmodule Pronk.ClientConnection do
   ## Handle all the stuff before users auth
   defp serve_initial(client) do
     case :gen_tcp.recv(client, 0) do
-      {:ok, line} -> _
+      {:ok, line} ->
         words = line
-        |> String.trim " "
-        |> String.split " "
+        |> String.trim
+        |> String.split(" ")
 
         case words do
-          ["PASS", user] ->
-            Logger.info "User trying to authenticate with #{user}"
+          ["PASS", login] ->
+            Logger.info "User trying to authenticate with #{login}"
+            case Pronk.UserRegistry.user_from_login(login) do
+              nil ->
+                Pronk.IRC.command(client, 464, [":Password incorrect"])
 
-          :else ->
-            :gen_tcp.send(socket, "You need to authenticate before doing that.\r\n")
+              user ->
+                serve(client, user)
+            end
+
+          _ ->
+            Pronk.IRC.command(client, 451, [":Not registered"])
+            serve_initial(client)
         end
 
       {:error, :closed} ->
@@ -45,7 +53,9 @@ defmodule Pronk.ClientConnection do
     end
   end
 
-  defp serve(client) do
+  defp serve(client, user) do
     ## Handle all the stuff after users auth
+    Logger.info("here: #{inspect client} #{user}")
+    Pronk.IRC.command(client, "001", [":Let's get pronking!"])
   end
 end
