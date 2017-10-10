@@ -5,7 +5,7 @@ defmodule Pronk.IRC do
 
   # message = ["@" tags ] [ ":" prefix SPACE ] command [ params ] crlf
   # prefix  = servername / ( nickname [ [ "!" user ] "@" host ] )
-  def parse(message) when length(message) == 0, do: nil
+  def parse(message) when message == "", do: nil
   def parse(message) do
     # Parse out IRCv3 tags
     [tags, message] =
