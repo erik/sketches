@@ -1,21 +1,13 @@
 defmodule Pronk.IRC do
-  def parse(message) when length(message) == 0, do: {:ok, nil}
+  defmodule Line do
+    defstruct [:tags, :command, :prefix, :params]
+  end
 
-  # message    =  [ ":" prefix SPACE ] command [ params ] crlf
-  # prefix     =  servername / ( nickname [ [ "!" user ] "@" host ] )
-  # command    =  1*letter / 3digit
-  # params     =  *14( SPACE middle ) [ SPACE ":" trailing ]
-  # =/ 14( SPACE middle ) [ SPACE [ ":" ] trailing ]
-
-  # nospcrlfcl =  %x01-09 / %x0B-0C / %x0E-1F / %x21-39 / %x3B-FF
-  # ; any octet except NUL, CR, LF, " " and ":"
-  # middle     =  nospcrlfcl *( ":" / nospcrlfcl )
-  # trailing   =  *( ":" / " " / nospcrlfcl )
-
-  # SPACE      =  %x20        ; space character
-  # crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
-
+  # message = ["@" tags ] [ ":" prefix SPACE ] command [ params ] crlf
+  # prefix  = servername / ( nickname [ [ "!" user ] "@" host ] )
+  def parse(message) when length(message) == 0, do: nil
   def parse(message) do
+    # Parse out IRCv3 tags
     [tags, message] =
       case message |> String.split(" ", parts: 2, trim: true) do
         ["@" <> tags, message] ->
@@ -30,7 +22,8 @@ defmodule Pronk.IRC do
           [Map.new, message]
       end
 
-    [first, last] =
+    # Last param could contain whitespace, and starts with ':'
+    [first, final] =
       case message |> String.trim |> String.split(" :", parts: 2, trim: true) do
         [hd] -> [hd, []]
         [hd, tl] -> [hd, [tl]]
@@ -38,10 +31,10 @@ defmodule Pronk.IRC do
 
     case first |> String.split(" ") do
       [":" <> prefix, command | params] ->
-        [tags, prefix, command, params ++ last]
+        %Line{tags: tags, prefix: prefix, command: command, params: params ++ final}
 
       [command | params] ->
-        [tags, command, params ++ last]
+        %Line{tags: tags, prefix: nil, command: command, params: params ++ final}
     end
   end
 end

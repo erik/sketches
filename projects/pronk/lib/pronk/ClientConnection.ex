@@ -3,25 +3,23 @@ defmodule Pronk.ClientConnection do
 
   defstruct [:socket, user: "unknown-nick", authed: false, caps: MapSet.new()]
 
-  defmodule IRC do
-    def start_connection(client) do
-      command(client, "001", [client.user, "sup yo"])
-    end
+  defp start_connection(client) do
+    command(client, "001", [client.user, "sup yo"])
+  end
 
-    def command(client, cmd, params) when is_list(params) do
-      first_params = Enum.drop(params, -1) |> Enum.join(" ")
-      last_param = List.last(params)
+  defp command(client, cmd, params) when is_list(params) do
+    first_params = Enum.drop(params, -1) |> Enum.join(" ")
+    last_param = List.last(params)
 
-      send_raw(client, ":pronk.irc #{cmd} #{first_params} :#{last_param}")
-    end
+    send_raw(client, ":pronk.irc #{cmd} #{first_params} :#{last_param}")
+  end
 
-    def send_raw(client, text) do
-      :gen_tcp.send(client.socket, "#{text}\r\n")
-    end
+  defp send_raw(client, text) do
+    :gen_tcp.send(client.socket, "#{text}\r\n")
+  end
 
-    def recv_line(client) do
-      :gen_tcp.recv(client.socket, 0)
-    end
+  defp recv_line(client) do
+    :gen_tcp.recv(client.socket, 0)
   end
 
   def listen(port) do
@@ -36,18 +34,18 @@ defmodule Pronk.ClientConnection do
   defp accept_loop(socket) do
     {:ok, client_socket} = :gen_tcp.accept(socket)
 
-    {:ok, pid} = Task.Supervisor.start_child(Pronk.TaskSupervisor, fn ->
+  {:ok, pid} = Task.Supervisor.start_child(Pronk.TaskSupervisor, fn ->
       serve_initial(%Pronk.ClientConnection{socket: client_socket})
     end)
 
-    :ok = :gen_tcp.controlling_process(client_socket, pid)
+  :ok = :gen_tcp.controlling_process(client_socket, pid)
 
-    accept_loop(socket)
+  accept_loop(socket)
   end
 
   ## Handle all the stuff before users auth
   defp serve_initial(client) do
-    case IRC.recv_line(client) do
+    case recv_line(client) do
       {:ok, line} ->
         words = line
         |> String.trim
@@ -59,18 +57,18 @@ defmodule Pronk.ClientConnection do
 
             case Pronk.UserRegistry.try_login(login) do
               nil ->
-                IRC.command(client, 464, ["Password incorrect"])
+                command(client, 464, ["Password incorrect"])
 
               user ->
                 client = %{client | user: user}
                 Logger.debug("here: #{inspect client} #{user}")
 
-                IRC.start_connection(client)
+                start_connection(client)
                 serve(client)
             end
 
           _ ->
-            IRC.command(client, 451, ["Not registered"])
+            command(client, 451, ["Not registered"])
             serve_initial(client)
         end
 
@@ -82,20 +80,16 @@ defmodule Pronk.ClientConnection do
   defp serve(client) do
     ## Handle all the stuff after users auth
 
-    case IRC.recv_line(client) do
+    case recv_line(client) do
       {:ok, line} ->
-        case String.trim(line) |> IRC.parse do
-          {:error, command} ->
-            IRC.command(client, 421, ["Unknown command"])
-
-          {:ok, nil} ->
+        case String.trim(line) |> Pronk.IRC.parse do
+          # If the line is empty, do nothing
+          nil ->
             nil
-        end
 
-
-        if line != "" do
-          Logger.debug(">> line: #{line}")
-          IRC.handle_line(line)
+          line ->
+            Logger.debug(">> #{inspect line}")
+            handle_line(client, line)
         end
 
         serve(client)
@@ -103,5 +97,13 @@ defmodule Pronk.ClientConnection do
       {:error, :closed} ->
         Logger.debug("client connection closed")
     end
+  end
+
+  defp handle_line(client, %Pronk.IRC.Line{command: "PING"}) do
+    send_raw(client, "PONG :pronk.irc")
+  end
+
+  defp handle_line(client, line) do
+    command(client, 421, ["Unknown command: #{line.command}"])
   end
 end
