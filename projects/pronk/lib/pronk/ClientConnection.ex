@@ -3,6 +3,27 @@ defmodule Pronk.ClientConnection do
 
   defstruct [:socket, user: "unknown-nick", authed: false, caps: MapSet.new()]
 
+  defmodule IRC do
+    def start_connection(client) do
+      command(client, "001", [client.user, "sup yo"])
+    end
+
+    def command(client, cmd, params) when is_list(params) do
+      first_params = Enum.drop(params, -1) |> Enum.join(" ")
+      last_param = List.last(params)
+
+      send_raw(client, ":pronk.irc #{cmd} #{first_params} :#{last_param}")
+    end
+
+    def send_raw(client, text) do
+      :gen_tcp.send(client.socket, "#{text}\r\n")
+    end
+
+    def recv_line(client) do
+      :gen_tcp.recv(client.socket, 0)
+    end
+  end
+
   def listen(port) do
     {:ok, socket} = :gen_tcp.listen(port,
       [:binary, packet: :line, active: false, reuseaddr: true])
@@ -26,7 +47,7 @@ defmodule Pronk.ClientConnection do
 
   ## Handle all the stuff before users auth
   defp serve_initial(client) do
-    case Pronk.IRC.recv_line(client) do
+    case IRC.recv_line(client) do
       {:ok, line} ->
         words = line
         |> String.trim
@@ -38,18 +59,18 @@ defmodule Pronk.ClientConnection do
 
             case Pronk.UserRegistry.try_login(login) do
               nil ->
-                Pronk.IRC.command(client, 464, "unknown-nick :Password incorrect")
+                IRC.command(client, 464, ["Password incorrect"])
 
               user ->
                 client = %{client | user: user}
                 Logger.debug("here: #{inspect client} #{user}")
 
-                Pronk.IRC.start_connection(client)
+                IRC.start_connection(client)
                 serve(client)
             end
 
           _ ->
-            Pronk.IRC.command(client, 451, "unknown-nick :Not registered")
+            IRC.command(client, 451, ["Not registered"])
             serve_initial(client)
         end
 
@@ -61,10 +82,21 @@ defmodule Pronk.ClientConnection do
   defp serve(client) do
     ## Handle all the stuff after users auth
 
-    case Pronk.IRC.recv_line(client) do
+    case IRC.recv_line(client) do
       {:ok, line} ->
-        line = String.trim(line)
-        Logger.debug(">> line: #{line}")
+        case String.trim(line) |> IRC.parse do
+          {:error, command} ->
+            IRC.command(client, 421, ["Unknown command"])
+
+          {:ok, nil} ->
+            nil
+        end
+
+
+        if line != "" do
+          Logger.debug(">> line: #{line}")
+          IRC.handle_line(line)
+        end
 
         serve(client)
 

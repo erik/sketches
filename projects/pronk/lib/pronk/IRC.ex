@@ -1,22 +1,47 @@
 defmodule Pronk.IRC do
-  def start_connection(client) do
-    command(client, "001", "sup yo")
-  end
+  def parse(message) when length(message) == 0, do: {:ok, nil}
 
-  def command(client, command, rest) when is_binary(rest) do
-    send_raw(client, "#{command} #{rest}")
-  end
+  # message    =  [ ":" prefix SPACE ] command [ params ] crlf
+  # prefix     =  servername / ( nickname [ [ "!" user ] "@" host ] )
+  # command    =  1*letter / 3digit
+  # params     =  *14( SPACE middle ) [ SPACE ":" trailing ]
+  # =/ 14( SPACE middle ) [ SPACE [ ":" ] trailing ]
 
-  def command(client, command, params) when is_list(params) do
-    params = Enum.join(params, " ")
-    send_raw(client, "#{command} #{params}")
-  end
+  # nospcrlfcl =  %x01-09 / %x0B-0C / %x0E-1F / %x21-39 / %x3B-FF
+  # ; any octet except NUL, CR, LF, " " and ":"
+  # middle     =  nospcrlfcl *( ":" / nospcrlfcl )
+  # trailing   =  *( ":" / " " / nospcrlfcl )
 
-  def send_raw(client, text) do
-    :gen_tcp.send(client.socket, "#{text}\r\n")
-  end
+  # SPACE      =  %x20        ; space character
+  # crlf       =  %x0D %x0A   ; "carriage return" "linefeed"
 
-  def recv_line(client) do
-    :gen_tcp.recv(client.socket, 0)
+  def parse(message) do
+    [tags, message] =
+      case message |> String.split(" ", parts: 2, trim: true) do
+        ["@" <> tags, message] ->
+          tag_map = tags
+          |> String.split(";")
+          |> Enum.map(fn tag -> tag |> String.split("=", parts: 2) end)
+          |> Enum.into(%{}, fn [k, v] -> {k, v} end)
+
+          [tag_map, message]
+
+        _ ->
+          [Map.new, message]
+      end
+
+    [first, last] =
+      case message |> String.trim |> String.split(" :", parts: 2, trim: true) do
+        [hd] -> [hd, []]
+        [hd, tl] -> [hd, [tl]]
+      end
+
+    case first |> String.split(" ") do
+      [":" <> prefix, command | params] ->
+        [tags, prefix, command, params ++ last]
+
+      [command | params] ->
+        [tags, command, params ++ last]
+    end
   end
 end
