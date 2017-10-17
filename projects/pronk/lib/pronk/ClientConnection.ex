@@ -4,7 +4,7 @@ defmodule Pronk.ClientConnection do
   defstruct [:socket, user: "unknown-nick", authed: false, caps: MapSet.new()]
 
   defp start_connection(client) do
-    command(client, "001", [client.user, "sup yo"])
+    command(client, "001", [client.user, "pronk."])
   end
 
   defp command(client, cmd, params) when is_list(params) do
