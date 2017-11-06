@@ -1,3 +1,5 @@
+# TODO: Periodically run through members, purge timeouts...
+
 defmodule Pontoon.Membership do
   require Logger
   use Agent
@@ -5,9 +7,19 @@ defmodule Pontoon.Membership do
   def start_link(_opts \\ []) do
     Logger.info("initializing membership list")
 
-    Agent.start_link(fn -> MapSet.new() end)
+    {:ok, pid} = Agent.start_link(fn -> MapSet.new() end, name: __MODULE__)
   end
 
-  def receive_broadcast(member) do
+  def add_member(member) do
+    Agent.update(__MODULE__, fn state ->
+      # TODO: Update state and stuff
+      state
+    end)
+  end
+
+  def remove_member(member) do
+    Agent.update(__MODULE__, fn state ->
+      # TODO: update the state and stuff
+    end)
   end
 end

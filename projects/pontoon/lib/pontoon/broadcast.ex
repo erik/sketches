@@ -6,6 +6,11 @@ defmodule Pontoon.Broadcast do
 
   @broadcast_port 8213
 
+  defmodule Message do
+    @derive [Poison.Encoder]
+    defstruct [:type, :data]
+  end
+
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, :ok, opts)
   end
@@ -23,8 +28,17 @@ defmodule Pontoon.Broadcast do
     {:ok, %{socket: socket}}
   end
 
-  def handle_info({:udp, _socket, _ip, _port, data}, state) do
-    Logger.info("yo: #{inspect data}")
+  def handle_info({:udp, _socket, ip, port, data}, state) do
+    msg = Poison.decode!(data, as: %Message{})
+
+    Logger.info("Inbound: #{inspect msg} from #{inspect ip}:#{inspect port}")
+
+    case msg.type do
+      "PING" ->
+        Pontoon.Membership.add_member(port)
+      "QUIT" ->
+        Poontoon.Membership.remove_member(port)
+    end
 
     {:noreply, state}
   end
