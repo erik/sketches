@@ -4,7 +4,9 @@ defmodule Pontoon.Broadcast do
   require Logger
   use GenServer
 
-  @broadcast_port 8213
+  @announce_interval_ms 3 * 1000
+  @broadcast_address {255, 255, 255, 255}
+  @broadcast_port (System.get_env("BROADCAST_PORT") || "8213") |> String.to_integer
 
   defmodule Message do
     @derive [Poison.Encoder]
@@ -23,9 +25,22 @@ defmodule Pontoon.Broadcast do
           {:active, true}
         ])
 
-    Logger.info "called it: #{inspect socket}"
+    Process.send_after(self(), :announce_self, @announce_interval_ms)
 
     {:ok, %{socket: socket}}
+  end
+
+
+
+  def handle_info(:announce_self, state) do
+    message = %Message{type: "PING", data: ""}
+    |> Poison.encode!
+
+    :ok = :gen_udp.send(state.socket, @broadcast_address, @broadcast_port, message)
+
+    Process.send_after(self(), :announce_self, @announce_interval_ms)
+
+    {:noreply, state}
   end
 
   def handle_info({:udp, _socket, ip, port, data}, state) do
@@ -49,7 +64,7 @@ defmodule Pontoon.Broadcast do
     {:noreply, state}
   end
 
-  def handle_info(other, state) do
+  def handle_info(other, _state) do
     Logger.info("THE UNEXPECTED: #{inspect other}")
   end
 end
