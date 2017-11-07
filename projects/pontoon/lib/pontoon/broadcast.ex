@@ -33,11 +33,17 @@ defmodule Pontoon.Broadcast do
 
     Logger.info("Inbound: #{inspect msg} from #{inspect ip}:#{inspect port}")
 
+    # Key format is 127.0.0.1:9999
+    key = "#{:inet_parse.ntoa(ip)}:#{port}"
+
     case msg.type do
       "PING" ->
-        Pontoon.Membership.add_member(port)
+        member = %Pontoon.Member{address: ip,
+                                 port: port,
+                                 last_seen: DateTime.utc_now}
+        Pontoon.Membership.add_member(key, member)
       "QUIT" ->
-        Poontoon.Membership.remove_member(port)
+        Pontoon.Membership.remove_member(key)
     end
 
     {:noreply, state}
