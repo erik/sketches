@@ -30,6 +30,10 @@ defmodule Pontoon.Broadcast do
     {:ok, %{socket: socket}}
   end
 
+  def broadcast(message) do
+    Logger.warn("Unimplemented: broadcast message")
+  end
+
   def handle_info(:announce_self, state) do
     message = %Message{type: "PING", data: ""}
     |> Poison.encode!

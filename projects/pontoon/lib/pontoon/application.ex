@@ -6,6 +6,7 @@ defmodule Pontoon.Application do
     import Supervisor.Spec
 
     children = [
+      worker(Pontoon.Raft, []),
       worker(Pontoon.Broadcast, []),
       worker(Pontoon.Membership, [])
     ]
