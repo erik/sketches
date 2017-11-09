@@ -2,7 +2,7 @@ defmodule Pontoon.Membership do
   require Logger
   use Agent
 
-  @max_member_age_ms 20 * 1000
+  @max_member_age_ms 20 * 60 * 1000
   @prune_interval_ms 10 * 1000
 
 
@@ -31,8 +31,15 @@ defmodule Pontoon.Membership do
 
     Agent.update(__MODULE__, fn members ->
       members
-      |> Enum.filter(fn {_k, v} ->
-        DateTime.diff(now, v.last_seen, :milliseconds) < @max_member_age_ms
+      |> Enum.filter(fn {k, v} ->
+        diff = DateTime.diff(now, v.last_seen, :milliseconds)
+        should_keep = diff < @max_member_age_ms
+
+        if not should_keep do
+          Logger.warn("#{k} has timed out... removing!")
+        end
+
+        should_keep
       end)
       |> Enum.into(%{})
     end)

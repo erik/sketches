@@ -30,8 +30,6 @@ defmodule Pontoon.Broadcast do
     {:ok, %{socket: socket}}
   end
 
-
-
   def handle_info(:announce_self, state) do
     message = %Message{type: "PING", data: ""}
     |> Poison.encode!
@@ -45,8 +43,6 @@ defmodule Pontoon.Broadcast do
 
   def handle_info({:udp, _socket, ip, port, data}, state) do
     msg = Poison.decode!(data, as: %Message{})
-
-    Logger.info("Inbound: #{inspect msg} from #{inspect ip}:#{inspect port}")
 
     # Key format is 127.0.0.1:9999
     key = "#{:inet_parse.ntoa(ip)}:#{port}"
