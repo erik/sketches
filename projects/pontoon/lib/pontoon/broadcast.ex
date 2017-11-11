@@ -1,5 +1,3 @@
-# FIXME: Should this be the generic listener for all incoming UDP data, not just broadcasts?
-# FIXME: Pro: single entry point, easier code. Con: tighter coupling of membership + consensus
 defmodule Pontoon.Broadcast do
   require Logger
   use GenServer
@@ -57,6 +55,7 @@ defmodule Pontoon.Broadcast do
                                  port: port,
                                  last_seen: DateTime.utc_now}
         Pontoon.Membership.add_member(key, member)
+
       "QUIT" ->
         Pontoon.Membership.remove_member(key)
     end
