@@ -8,7 +8,7 @@ defmodule Pontoon.Broadcast do
 
   defmodule Message do
     @derive [Poison.Encoder]
-    defstruct [:type, :data]
+    defstruct [:name, :type, :data]
   end
 
   def start_link(opts \\ []) do
@@ -33,7 +33,7 @@ defmodule Pontoon.Broadcast do
   end
 
   def handle_info(:announce_self, state) do
-    message = %Message{type: "PING", data: ""}
+    message = %Message{type: "PING", data: "", name: Pontoon.Membership.get_own_name()}
     |> Poison.encode!
 
     :ok = :gen_udp.send(state.socket, @broadcast_address, @broadcast_port, message)
@@ -46,18 +46,15 @@ defmodule Pontoon.Broadcast do
   def handle_info({:udp, _socket, ip, port, data}, state) do
     msg = Poison.decode!(data, as: %Message{})
 
-    # Key format is 127.0.0.1:9999
-    key = "#{:inet_parse.ntoa(ip)}:#{port}"
-
     case msg.type do
       "PING" ->
         member = %Pontoon.Member{address: ip,
                                  port: port,
                                  last_seen: DateTime.utc_now}
-        Pontoon.Membership.add_member(key, member)
+        Pontoon.Membership.add_member(msg.name, member)
 
       "QUIT" ->
-        Pontoon.Membership.remove_member(key)
+        Pontoon.Membership.remove_member(msg.name)
     end
 
     {:noreply, state}

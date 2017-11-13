@@ -12,7 +12,7 @@ defmodule Pontoon.Membership do
 
 
   def start_link(_opts \\ []) do
-    Logger.info("initializing membership list")
+    Logger.info("Initializing membership list")
 
     {:ok, pid} = Agent.start_link(fn -> %{} end, name: __MODULE__)
 
@@ -21,6 +21,34 @@ defmodule Pontoon.Membership do
     end)
 
     {:ok, pid}
+  end
+
+  def get_own_name() do
+    Kernel.node() |> Atom.to_string()
+  end
+
+  def list() do
+    Agent.get(__MODULE__, &(&1))
+  end
+
+  def broadcast(data) do
+    Pontoon.Membership.list()
+    |> Enum.map(&send_to(&1, data))
+  end
+
+
+  def send_to(%Pontoon.Member{address: addr, port: port} = member, data) do
+    {:ok, sock} = :gen_udp.open(0, :binary)
+    :ok = :gen_udp.send(sock, addr, port, data)
+  end
+
+  def send_to(member, data) do
+    member = Agent.get(__MODULE__, &Map.get(&1, member))
+    send_to(member, data)
+  end
+
+  def get_member(key) do
+    Agent.get(__MODULE__, &Map.get(&1, key))
   end
 
   def add_member(key, member) do

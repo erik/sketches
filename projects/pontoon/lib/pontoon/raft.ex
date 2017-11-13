@@ -2,23 +2,12 @@ defmodule Pontoon.Raft do
   require Logger
   use GenServer
 
-  @rpc_port (System.get_env("RPC_PORT") || "9213") |> String.to_integer
+  @rpc_port "9213"
 
   # Structs defining the format of RPC messages.
   defmodule RPC do
     @derive [Poison.Encoder]
-    defstruct [:type, :data]
-
-    def decode!(raw) do
-      rpc = Poison.decode!(raw, as: %RPC{})
-      case rpc.type do
-        "AppendEntries" -> struct(AppendEntries, rpc.data)
-        "RequestVote"   -> struct(RequestVote, rpc.data)
-        unknown         ->
-          Logger.error("unknown rpc message type: #{inspect unknown}")
-          nil
-      end
-    end
+    defstruct [:type, :name, :data]
 
     defmodule RequestVote do
       @derive [Poison.Encoder]
@@ -29,15 +18,52 @@ defmodule Pontoon.Raft do
       @derive [Poison.Encoder]
       defstruct [:term, :leader, :prev_log_idx, :prev_log_term, :leader_commit, :entries]
     end
+
+    def decode!(raw) do
+      rpc = Poison.decode!(raw, as: %RPC{})
+      member = Pontoon.Membership.get_member(rpc.name)
+
+      msg =
+        case rpc.type do
+          "AppendEntries" -> struct(AppendEntries, rpc.data)
+          "RequestVote"   -> struct(RequestVote, rpc.data)
+          unknown         ->
+            Logger.error("unknown RPC message type: #{inspect unknown}")
+            nil
+        end
+
+      {msg, member}
+    end
+
+    def encode(%AppendEntries{} = message) do
+      encode("AppendEntries", Poison.encode!(message))
+    end
+
+    def encode(%RequestVote{} = message) do
+      encode("RequestVotes", Poison.encode!(message))
+    end
+
+    def encode(type, data) do
+      name = Pontoon.Membership.get_own_name()
+
+      Poison.encode!(%RPC{type: type, data: data, name: name})
+    end
   end
 
   defmodule State do
     @leader_election_interval_ms 400
 
-    defstruct [:leader, :term, :log, :commit_log, :commit_idx, :election_timer]
+    defstruct [
+      :role, :leader, :term, :log, :commit_log, :commit_idx,
+      :election_timer, :leader_state, :voted_for
+    ]
+
+    defmodule Leader do
+      defstruct [:votes, :match_idx, :next_idx]
+    end
 
     def new() do
-      %__MODULE__{leader: nil, term: 0, log: [], commit_log: [], commit_idx: 0}
+      %__MODULE__{role: :candidate, leader: nil, term: 0, log: [], commit_log: [], commit_idx: 0}
     end
 
     def schedule_leader_election(state, pid) do
@@ -52,19 +78,21 @@ defmodule Pontoon.Raft do
     end
 
     # AppendEntries RPC implementation.
-    def handle_rpc(state, %RPC.AppendEntries{} = rpc_message) do
+    def handle_rpc(state, _member, %RPC.AppendEntries{} = rpc_message) do
       # Need to do some checks to see if we should accept this message
       accepted =
         cond do
         rpc_message.term < state.term ->
-          Logger.warn("received message has older term: #{inspect rpc_message} ours: #{inspect state}")
+          Logger.warn("received message has older term: #{inspect rpc_message} \
+ours: #{inspect state}")
 
       end
 
       state
     end
 
-    def handle_rpc(state, %RPC.RequestVote{} = rpc_message) do
+    # RequestVote RPC implementation
+    def handle_rpc(state, _member, %RPC.RequestVote{} = rpc_message) do
       Logger.warn("Not implemented: requestVote")
       state
     end
@@ -75,7 +103,11 @@ defmodule Pontoon.Raft do
   end
 
   def init(:ok) do
-    {:ok, _socket} = :gen_udp.open(@rpc_port, [
+    port = (System.get_env("RPC_PORT") || @rpc_port)
+    |> String.to_integer
+
+    Logger.info("starting with port #{inspect port}")
+    {:ok, _socket} = :gen_udp.open(port, [
           :binary,
           :inet,
           {:active, true}
@@ -87,17 +119,47 @@ defmodule Pontoon.Raft do
   end
 
   def handle_info({:broadcast, message}, state) do
+    data = Poison.encode!(message)
+    Pontoon.Membership.broadcast(data)
 
     {:noreply, state}
   end
 
-  def handle_info({:udp, _socket, _ip, _port, _data}, state) do
+  def handle_info({:udp, _socket, _ip, _port, data}, state) do
+    {msg, member} = RPC.decode!(data)
+    {reply, state} = State.handle_rpc(state, member, msg)
+
+    send self(), {:broadcast, reply}
+
     {:noreply, state}
   end
 
   # TODO: Vote for self, Publish a RequestVote RPC
   def handle_info(:leader_election, state) do
-    Logger.warn("not yet implemented: leader election")
+
+    members = Pontoon.Membership.list()
+
+    state = %{state |
+              role: :candidate,
+              voted_for: Pontoon.Membership.get_own_name(),
+              term: state.term + 1,
+              leader: %State.Leader{
+                votes: MapSet.new,
+                match_idx: members |> Enum.map(&{&1, 0}) |> Enum.into(%{}),
+                next_idx: members |> Enum.map(&{&1, 1}) |> Enum.into(%{})
+              },
+             }
+
+    vote_message = %RPC.RequestVote{
+      term: state.term,
+      candidate: Pontoon.Membership.get_own_name(),
+      last_log_idx: length(state.log), # TODO: fix me
+      last_log_term: length(state.log)
+    }
+
+    Logger.warn("Initiating leadership election, voting for self #{inspect vote_message}...")
+
+    send self(), {:broadcast, vote_message}
 
     {:noreply, state}
   end
