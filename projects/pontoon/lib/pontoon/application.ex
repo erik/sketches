@@ -8,7 +8,7 @@ defmodule Pontoon.Application do
     children = [
       worker(Pontoon.Raft, []),
       worker(Pontoon.Broadcast, []),
-      worker(Pontoon.Membership, [])
+      worker(Pontoon.Membership, []),
     ]
 
     Logger.info("Initializing...")
