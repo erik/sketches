@@ -7,7 +7,7 @@ defmodule Pontoon.Application do
 
     children = [
       worker(Pontoon.Raft, []),
-      worker(Pontoon.Broadcast, []),
+      worker(Pontoon.Multicast, []),
       worker(Pontoon.Membership, []),
     ]
 

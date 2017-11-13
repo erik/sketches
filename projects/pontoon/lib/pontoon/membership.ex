@@ -33,17 +33,16 @@ defmodule Pontoon.Membership do
 
   def broadcast(data) do
     Pontoon.Membership.list()
-    |> Enum.map(&send_to(&1, data))
+    |> Enum.map(fn {_k, v} -> send_to(v, data) end)
   end
 
-
   def send_to(%Pontoon.Member{address: addr, port: port} = member, data) do
-    {:ok, sock} = :gen_udp.open(0, :binary)
+    {:ok, sock} = :gen_udp.open(0, [:binary])
     :ok = :gen_udp.send(sock, addr, port, data)
   end
 
-  def send_to(member, data) do
-    member = Agent.get(__MODULE__, &Map.get(&1, member))
+  def send_to(name, data) when is_binary(name) do
+    member = get_member(name)
     send_to(member, data)
   end
 

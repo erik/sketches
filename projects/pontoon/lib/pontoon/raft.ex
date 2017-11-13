@@ -19,14 +19,20 @@ defmodule Pontoon.Raft do
       defstruct [:term, :leader, :prev_log_idx, :prev_log_term, :leader_commit, :entries]
     end
 
+    defmodule Reply do
+      @derive [Poison.Encoder]
+      defstruct [:ok, :data]
+    end
+
     def decode!(raw) do
       rpc = Poison.decode!(raw, as: %RPC{})
       member = Pontoon.Membership.get_member(rpc.name)
 
       msg =
         case rpc.type do
-          "AppendEntries" -> struct(AppendEntries, rpc.data)
-          "RequestVote"   -> struct(RequestVote, rpc.data)
+          "AppendEntries" -> Poison.decode!(rpc.data, as: %AppendEntries{})
+          "RequestVote"   -> Poison.decode!(rpc.data, as: %RequestVote{})
+          "Reply"         -> Poison.decode!(rpc.data, as: %Reply{})
           unknown         ->
             Logger.error("unknown RPC message type: #{inspect unknown}")
             nil
@@ -35,12 +41,13 @@ defmodule Pontoon.Raft do
       {msg, member}
     end
 
-    def encode(%AppendEntries{} = message) do
-      encode("AppendEntries", Poison.encode!(message))
-    end
+    def encode(message) do
+      # FIXME: this sucks
+      [name] = message.__struct__
+      |> Module.split
+      |> Enum.take(-1)
 
-    def encode(%RequestVote{} = message) do
-      encode("RequestVotes", Poison.encode!(message))
+      encode(name, Poison.encode!(message))
     end
 
     def encode(type, data) do
@@ -51,7 +58,7 @@ defmodule Pontoon.Raft do
   end
 
   defmodule State do
-    @leader_election_interval_ms 400
+    @leader_election_interval_ms 4000
 
     defstruct [
       :role, :leader, :term, :log, :commit_log, :commit_idx,
@@ -88,13 +95,13 @@ ours: #{inspect state}")
 
       end
 
-      state
+      {nil, state}
     end
 
     # RequestVote RPC implementation
     def handle_rpc(state, _member, %RPC.RequestVote{} = rpc_message) do
       Logger.warn("Not implemented: requestVote")
-      state
+      {nil, state}
     end
   end
 
@@ -106,11 +113,12 @@ ours: #{inspect state}")
     port = (System.get_env("RPC_PORT") || @rpc_port)
     |> String.to_integer
 
-    Logger.info("starting with port #{inspect port}")
-    {:ok, _socket} = :gen_udp.open(port, [
+    Logger.info("Starting Raft on port #{inspect port}")
+    {:ok, socket} = :gen_udp.open(port, [
           :binary,
-          :inet,
-          {:active, true}
+          ip: {0, 0, 0, 0},
+          active: true,
+          reuseaddr: true,
         ])
 
     state = State.new() |> State.schedule_leader_election(self())
@@ -119,7 +127,7 @@ ours: #{inspect state}")
   end
 
   def handle_info({:broadcast, message}, state) do
-    data = Poison.encode!(message)
+    data = RPC.encode(message)
     Pontoon.Membership.broadcast(data)
 
     {:noreply, state}
@@ -127,39 +135,52 @@ ours: #{inspect state}")
 
   def handle_info({:udp, _socket, _ip, _port, data}, state) do
     {msg, member} = RPC.decode!(data)
+    Logger.info(">> #{inspect member} said: #{inspect msg}")
     {reply, state} = State.handle_rpc(state, member, msg)
 
-    send self(), {:broadcast, reply}
+    if reply do
+      # FIXME: not a broadcast
+      send self(), {:broadcast, reply}
+    end
 
     {:noreply, state}
   end
 
   # TODO: Vote for self, Publish a RequestVote RPC
   def handle_info(:leader_election, state) do
+    State.schedule_leader_election(state, self())
 
-    members = Pontoon.Membership.list()
+    state = case state.role do
+      # Nothing to do if we're already the leader
+      :leader ->
+       state
+      _ ->
+        members = Pontoon.Membership.list()
 
-    state = %{state |
-              role: :candidate,
-              voted_for: Pontoon.Membership.get_own_name(),
-              term: state.term + 1,
-              leader: %State.Leader{
-                votes: MapSet.new,
-                match_idx: members |> Enum.map(&{&1, 0}) |> Enum.into(%{}),
-                next_idx: members |> Enum.map(&{&1, 1}) |> Enum.into(%{})
-              },
-             }
+        state = %{state |
+                  role: :candidate,
+                  voted_for: Pontoon.Membership.get_own_name(),
+                  term: state.term + 1,
+                  leader: %State.Leader{
+                    votes: MapSet.new,
+                    match_idx: members |> Enum.map(&{&1, 0}) |> Enum.into(%{}),
+                    next_idx: members |> Enum.map(&{&1, 1}) |> Enum.into(%{})
+                  },
+                 }
 
-    vote_message = %RPC.RequestVote{
-      term: state.term,
-      candidate: Pontoon.Membership.get_own_name(),
-      last_log_idx: length(state.log), # TODO: fix me
-      last_log_term: length(state.log)
-    }
+        vote_message = %RPC.RequestVote{
+          term: state.term,
+          candidate: Pontoon.Membership.get_own_name(),
+          last_log_idx: length(state.log), # TODO: fix me
+          last_log_term: length(state.log)
+        }
 
-    Logger.warn("Initiating leadership election, voting for self #{inspect vote_message}...")
+        Logger.warn("Initiating leadership election, voting for self #{inspect vote_message}...")
 
-    send self(), {:broadcast, vote_message}
+        send self(), {:broadcast, vote_message}
+
+        state
+    end
 
     {:noreply, state}
   end
