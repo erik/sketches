@@ -55,9 +55,13 @@ defmodule Pontoon.Membership do
   end
 
   def remove_member(key) do
+    Logger.info("QUIT: #{key}")
     Agent.update(__MODULE__, &Map.delete(&1, key))
   end
 
+  # This goes against the raft spec... We technically shouldn't remove
+  # nodes so easily, but since this is a educational exercise, I'm
+  # going to go the more convenient route.
   def prune_members() do
     now = DateTime.utc_now()
 
@@ -68,7 +72,7 @@ defmodule Pontoon.Membership do
         should_keep = diff < @max_member_age_ms
 
         if not should_keep do
-          Logger.warn("#{k} has timed out... removing!")
+          Logger.error("#{k} has timed out... removing!")
         end
 
         should_keep

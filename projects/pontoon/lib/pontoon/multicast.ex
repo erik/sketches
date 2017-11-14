@@ -32,21 +32,31 @@ defmodule Pontoon.Multicast do
     {:ok, %{socket: socket}}
   end
 
+  # Make sure we send a quit message before we die
+  def terminate(_reason, state) do
+    %Message{type: "QUIT", name: Pontoon.Membership.get_own_name()}
+    |> Poison.encode!
+    |> send_multicast()
+  end
+
+  def send_multicast(message) do
+    {:ok, sock} = :gen_udp.open(0, [:binary])
+    :ok = :gen_udp.send(sock, @multicast_address, @multicast_port, message)
+  end
+
   def handle_info(:announce_self, state) do
     # FIXME: this is defined twice.
     port = (System.get_env("RPC_PORT") || "9213")
     |> String.to_integer
 
-    message = %Message{
+    %Message{
       type: "PING",
       data: "",
       port: port,
       name: Pontoon.Membership.get_own_name()
     }
     |> Poison.encode!
-
-    {:ok, sock} = :gen_udp.open(0, [:binary])
-    :ok = :gen_udp.send(sock, @multicast_address, @multicast_port, message)
+    |> send_multicast()
 
     Process.send_after(self(), :announce_self, @announce_interval_ms)
 
