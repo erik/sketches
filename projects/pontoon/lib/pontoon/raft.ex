@@ -180,11 +180,13 @@ defmodule Pontoon.Raft do
     {:ok, state}
   end
 
-  def handle_info({:broadcast, message}, state) do
-    data = RPC.encode(message)
-    Pontoon.Membership.broadcast(data)
+  def send_broadcast(message) do
+    RPC.encode(message) |> Pontoon.Membership.send_broadcast
+  end
 
-    {:noreply, state}
+  def send_to(%Pontoon.Member{} = member, message) do
+    encoded = RPC.encode(message)
+    Pontoon.Membership.send_to(member, encoded)
   end
 
   def handle_info({:udp, _socket, _ip, _port, data}, state) do
@@ -197,10 +199,7 @@ defmodule Pontoon.Raft do
         Logger.info(">> #{inspect member} said: #{inspect msg}")
         {reply, state} = State.handle_rpc(state, member, msg)
 
-        if reply do
-          # FIXME: not a broadcast
-          send self(), {:broadcast, reply}
-        end
+        if reply, do: send_to(member, reply)
 
         {:noreply, state}
     end
@@ -240,7 +239,7 @@ defmodule Pontoon.Raft do
 
           Logger.warn("Initiating leadership election, voting for self #{inspect vote_message}...")
 
-          send self(), {:broadcast, vote_message}
+          send_broadcast(vote_message)
 
           state
     end
