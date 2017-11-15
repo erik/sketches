@@ -69,7 +69,8 @@ defmodule Pontoon.Raft do
   end
 
   defmodule State do
-    @leader_election_interval_ms 4000
+    @leader_election_interval_ms 1000
+    @append_entries_interval_ms 500
 
     defstruct [
       :role, :leader, :term, :log, :commit_log, :commit_idx,
@@ -84,7 +85,7 @@ defmodule Pontoon.Raft do
       %__MODULE__{role: :follower, leader: nil, term: 0, log: [], commit_log: [], commit_idx: 0}
     end
 
-    def schedule_leader_election(state, pid) do
+    def reset_election_timer(state, pid) do
       timer = Process.send_after(pid, :leader_election, @leader_election_interval_ms)
 
       # Clear any existing timer
@@ -93,6 +94,10 @@ defmodule Pontoon.Raft do
       end
 
       %{state | election_timer: timer}
+    end
+
+    def schedule_append_entries(pid) do
+      Process.send_after(pid, {:append_entries, []}, @append_entries_interval_ms)
     end
 
     def maybe_step_down(state, remote_term) do
@@ -108,6 +113,7 @@ defmodule Pontoon.Raft do
     def handle_rpc(state, _member, %RPC.AppendEntries{} = rpc) do
       # TODO: Need to do some checks to see if we should accept this message
       state = maybe_step_down(state, rpc.term)
+      |> State.reset_election_timer(self())
 
       {nil, state}
     end
@@ -115,17 +121,22 @@ defmodule Pontoon.Raft do
     # RequestVote RPC implementation
     def handle_rpc(state, _member, %RPC.RequestVote{} = rpc) do
       state = maybe_step_down(state, rpc.term)
+      |> State.reset_election_timer(self())
 
       vote_granted =
         cond do
           rpc.term < state.term ->
+          Logger.info("rejecting candidate for lower term #{rpc.term} vs #{state.term}")
             false
 
-          !is_nil(state.voted_for) && state.voted_for != rpc.candidate ->
-            false
+          # FIXME: this one is buggy because i'm not diligent about setting voted_for
+          # !is_nil(state.voted_for) && state.voted_for != rpc.candidate ->
+          #   Logger.info("rejecting candidate because already voted")
+          #   false
 
           # FIXME: idk if commit_idx is correct
           rpc.last_log_idx < state.commit_idx ->
+            Logger.info("rejecting candidate for last_log_idx")
             false
 
           # Everything checks out!
@@ -134,7 +145,7 @@ defmodule Pontoon.Raft do
 
       state =
         if vote_granted do
-          %{state | voted_for: rpc.candidate}
+          %{state | role: :follower, voted_for: rpc.candidate}
         else
           state
         end
@@ -144,19 +155,39 @@ defmodule Pontoon.Raft do
     end
 
     def handle_rpc(state, member, %RPC.ReplyRequestVote{} = rpc) do
-      Logger.info("Got request vote reply: #{inspect rpc}")
-      state = maybe_step_down(state, rpc.term)
+      Logger.info(">> #{member.name} voted #{rpc.granted}")
 
       state =
         case state.role do
           # Vote only matters if we're still a candidate
           :candidate ->
-            votes = state.leader_state.votes
-            |> MapSet.put(member.name)
+            votes =
+              if rpc.granted do
+                MapSet.put(state.leader_state.votes, member.name)
+              else
+                state.leader_state.votes
+              end
 
-            %{state | leader_state: %{ state.leader_state | votes: votes}}
+            vote_count = MapSet.size(votes)
+            majority_votes = div(Map.size(Pontoon.Membership.list()), 2) + 1
 
-          _else -> state
+            {role, term} =
+                if vote_count >= majority_votes do
+                  Logger.info("Received majority #{vote_count}/#{majority_votes}! Seizing power")
+                  {:leader, state.term + 1}
+                else
+                  Logger.info("election not over yet, #{vote_count}/#{majority_votes}")
+                  {:candidate, state.term}
+                end
+
+            %{state |
+              role: role,
+              term: term,
+              leader_state: %{ state.leader_state | votes: votes}}
+
+
+          _else ->
+            state
         end
 
       {nil, state}
@@ -164,6 +195,7 @@ defmodule Pontoon.Raft do
 
     def handle_rpc(state, _member, %RPC.ReplyAppendEntries{} = rpc) do
       Logger.info("Got append entries reply: #{inspect rpc}")
+      state = State.reset_election_timer(state, self())
 
       {nil, state}
     end
@@ -185,7 +217,8 @@ defmodule Pontoon.Raft do
           reuseaddr: true,
         ])
 
-    state = State.new() |> State.schedule_leader_election(self())
+    state = State.new() |> State.reset_election_timer(self())
+    State.schedule_append_entries(self())
 
     {:ok, state}
   end
@@ -206,7 +239,7 @@ defmodule Pontoon.Raft do
         {:noreply, state}
 
       {msg, member} ->
-        Logger.info(">> #{inspect member} said: #{inspect msg}")
+        Logger.info(">> #{member.name}: #{msg.__struct__}")
         {reply, state} = State.handle_rpc(state, member, msg)
 
         if reply, do: send_to(member, reply)
@@ -215,9 +248,31 @@ defmodule Pontoon.Raft do
     end
   end
 
+  def handle_info({:append_entries, entries}, state) do
+    # FIXME: no reason this is attached to State
+    State.schedule_append_entries(self())
+
+    case state.role do
+      :leader ->
+        send_broadcast(%RPC.AppendEntries{
+              term: state.term,
+              leader: Pontoon.Membership.get_own_name(),
+              prev_log_idx: state.commit_idx,
+              prev_log_term: state.term,
+              leader_commit: nil,
+              entries: entries,
+        })
+
+        {:noreply, state}
+
+      _else ->
+        {:noreply, state}
+    end
+  end
+
   # TODO: Vote for self, Publish a RequestVote RPC
   def handle_info(:leader_election, state) do
-    state = State.schedule_leader_election(state, self())
+    state = State.reset_election_timer(state, self())
 
     state =
       case state.role do
@@ -234,17 +289,12 @@ defmodule Pontoon.Raft do
           votes = state.leader_state.votes |> MapSet.size
           majority_votes = div(Map.size(Pontoon.Membership.list()), 2) + 1
 
-          if votes >= majority_votes do
-            Logger.info("Received majority! Seizing power")
-            %{state | role: :leader}
-          else
-            Logger.info("Lost election... #{votes} votes. (needed: #{majority_votes})")
+          Logger.info("Lost election (timeout)... #{votes} votes. (needed: #{majority_votes})")
 
-            # FIXME: This is kind of ugly. I don't think calling the
-            # FIXME: handle_info recursively is good practice
-            {:noreply, state_} = handle_info(:leader_election, %{state | role: :follower})
-            state_
-          end
+          # FIXME: This is kind of ugly. I don't think calling the
+          # FIXME: handle_info recursively is good practice
+          {:noreply, state_} = handle_info(:leader_election, %{state | voted_for: nil, role: :follower})
+          state_
 
         # Initiate possible regime change.
         :follower ->
@@ -268,7 +318,7 @@ defmodule Pontoon.Raft do
             last_log_term: length(state.log)
           }
 
-          Logger.warn("Initiating leadership election, voting for self #{inspect vote_message}...")
+          Logger.warn("No leader detected! Starting election.")
 
           send_broadcast(vote_message)
 
