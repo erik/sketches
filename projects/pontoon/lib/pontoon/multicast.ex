@@ -70,6 +70,7 @@ defmodule Pontoon.Multicast do
       "PING" ->
         member = %Pontoon.Member{address: ip,
                                  port: msg.port,
+                                 name: msg.name,
                                  last_seen: DateTime.utc_now}
 
         if msg.name != Pontoon.Membership.get_own_name()  do

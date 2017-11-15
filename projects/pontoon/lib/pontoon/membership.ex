@@ -1,6 +1,6 @@
 # FIXME: Maybe this is more accurately a node?
 defmodule Pontoon.Member do
-  defstruct [:address, :port, :last_seen]
+  defstruct [:address, :port, :last_seen, :name]
 end
 
 defmodule Pontoon.Membership do

@@ -81,7 +81,7 @@ defmodule Pontoon.Raft do
     end
 
     def new() do
-      %__MODULE__{role: :candidate, leader: nil, term: 0, log: [], commit_log: [], commit_idx: 0}
+      %__MODULE__{role: :follower, leader: nil, term: 0, log: [], commit_log: [], commit_idx: 0}
     end
 
     def schedule_leader_election(state, pid) do
@@ -143,11 +143,21 @@ defmodule Pontoon.Raft do
       {reply, state}
     end
 
-    def handle_rpc(state, _member, %RPC.ReplyRequestVote{} = rpc) do
+    def handle_rpc(state, member, %RPC.ReplyRequestVote{} = rpc) do
       Logger.info("Got request vote reply: #{inspect rpc}")
       state = maybe_step_down(state, rpc.term)
 
-      # TODO: Need to check that the request was actually granted and such
+      state =
+        case state.role do
+          # Vote only matters if we're still a candidate
+          :candidate ->
+            votes = state.leader_state.votes
+            |> MapSet.put(member.name)
+
+            %{state | leader_state: %{ state.leader_state | votes: votes}}
+
+          _else -> state
+        end
 
       {nil, state}
     end
@@ -168,7 +178,7 @@ defmodule Pontoon.Raft do
     |> String.to_integer
 
     Logger.info("Starting Raft on port #{inspect port}")
-    {:ok, socket} = :gen_udp.open(port, [
+    {:ok, _socket} = :gen_udp.open(port, [
           :binary,
           ip: {0, 0, 0, 0},
           active: true,
@@ -207,7 +217,7 @@ defmodule Pontoon.Raft do
 
   # TODO: Vote for self, Publish a RequestVote RPC
   def handle_info(:leader_election, state) do
-    State.schedule_leader_election(state, self())
+    state = State.schedule_leader_election(state, self())
 
     state =
       case state.role do
@@ -216,14 +226,35 @@ defmodule Pontoon.Raft do
           Logger.info("Already leader... staying in power")
           state
 
-        _ ->
+        # If we became a candidate in the previous cycle, use this
+        # cycle to count votes and declare election results
+        #
+        # FIXME: should the vote tallying happen as votes come in?
+        :candidate ->
+          votes = state.leader_state.votes |> MapSet.size
+          majority_votes = div(Map.size(Pontoon.Membership.list()), 2) + 1
+
+          if votes >= majority_votes do
+            Logger.info("Received majority! Seizing power")
+            %{state | role: :leader}
+          else
+            Logger.info("Lost election... #{votes} votes. (needed: #{majority_votes})")
+
+            # FIXME: This is kind of ugly. I don't think calling the
+            # FIXME: handle_info recursively is good practice
+            {:noreply, state_} = handle_info(:leader_election, %{state | role: :follower})
+            state_
+          end
+
+        # Initiate possible regime change.
+        :follower ->
           members = Pontoon.Membership.list()
 
           state = %{state |
                     role: :candidate,
                     voted_for: Pontoon.Membership.get_own_name(),
                     term: state.term + 1,
-                    leader: %State.Leader{
+                    leader_state: %State.Leader{
                       votes: MapSet.new,
                       match_idx: members |> Enum.map(&{&1, 0}) |> Enum.into(%{}),
                       next_idx: members |> Enum.map(&{&1, 1}) |> Enum.into(%{})
