@@ -221,8 +221,10 @@ defmodule Pontoon.Raft do
     end
 
     def handle_rpc(state, _member, %RPC.ReplyAppendEntries{} = rpc) do
-      Logger.info("Got append entries reply: #{inspect rpc}")
+      # Logger.info("Got append entries reply: #{inspect rpc}")
       state = State.reset_election_timer(state, self())
+
+      # TODO: write me
 
       {nil, state}
     end
@@ -266,7 +268,7 @@ defmodule Pontoon.Raft do
         {:noreply, state}
 
       {msg, member} ->
-        Logger.info(">> #{member.name}: #{msg.__struct__}")
+        # Logger.info(">> #{member.name}: #{msg.__struct__}")
         {reply, state} = State.handle_rpc(state, member, msg)
 
         if reply, do: send_to(member, reply)
