@@ -126,13 +126,12 @@ defmodule Pontoon.Raft do
       vote_granted =
         cond do
           rpc.term < state.term ->
-          Logger.info("rejecting candidate for lower term #{rpc.term} vs #{state.term}")
+            Logger.info("rejecting candidate for lower term #{rpc.term} vs #{state.term}")
             false
 
-          # FIXME: this one is buggy because i'm not diligent about setting voted_for
-          # !is_nil(state.voted_for) && state.voted_for != rpc.candidate ->
-          #   Logger.info("rejecting candidate because already voted")
-          #   false
+          state.voted_for && state.voted_for != rpc.candidate ->
+            Logger.info("rejecting candidate because already voted")
+            false
 
           # FIXME: idk if commit_idx is correct
           rpc.last_log_idx < state.commit_idx ->
@@ -184,7 +183,6 @@ defmodule Pontoon.Raft do
               role: role,
               term: term,
               leader_state: %{ state.leader_state | votes: votes}}
-
 
           _else ->
             state
@@ -290,11 +288,7 @@ defmodule Pontoon.Raft do
           majority_votes = div(Map.size(Pontoon.Membership.list()), 2) + 1
 
           Logger.info("Lost election (timeout)... #{votes} votes. (needed: #{majority_votes})")
-
-          # FIXME: This is kind of ugly. I don't think calling the
-          # FIXME: handle_info recursively is good practice
-          {:noreply, state_} = handle_info(:leader_election, %{state | voted_for: nil, role: :follower})
-          state_
+          %{state | voted_for: nil, role: :follower}
 
         # Initiate possible regime change.
         :follower ->
