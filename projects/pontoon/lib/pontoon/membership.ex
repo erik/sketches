@@ -36,9 +36,10 @@ defmodule Pontoon.Membership do
     |> Enum.map(fn {_k, v} -> send_to(v, data) end)
   end
 
-  def send_to(%Pontoon.Member{address: addr, port: port} = member, data) when is_binary(data) do
+  def send_to(%Pontoon.Member{address: addr, port: port}, data) when is_binary(data) do
     {:ok, sock} = :gen_udp.open(0, [:binary])
     :ok = :gen_udp.send(sock, addr, port, data)
+    :ok = :gen_udp.close(sock)
   end
 
   def send_to(name, data) when is_binary(name) do

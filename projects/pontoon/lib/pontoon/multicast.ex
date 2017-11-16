@@ -33,7 +33,7 @@ defmodule Pontoon.Multicast do
   end
 
   # Make sure we send a quit message before we die
-  def terminate(_reason, state) do
+  def terminate(_reason, _state) do
     %Message{type: "QUIT", name: Pontoon.Membership.get_own_name()}
     |> Poison.encode!
     |> send_multicast()
@@ -42,6 +42,7 @@ defmodule Pontoon.Multicast do
   def send_multicast(message) do
     {:ok, sock} = :gen_udp.open(0, [:binary])
     :ok = :gen_udp.send(sock, @multicast_address, @multicast_port, message)
+    :ok = :gen_udp.close(sock)
   end
 
   def handle_info(:announce_self, state) do
