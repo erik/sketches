@@ -103,7 +103,7 @@ defmodule Pontoon.Raft do
     def maybe_step_down(state, remote_term) do
       if state.term < remote_term do
         Logger.info("Remote node has higher term! Stepping down")
-        %{state | term: remote_term, role: :follower, voted_for: nil}
+        %{state | term: remote_term, role: :follower, voted_for: nil, leader: nil}
       else
         state
       end
@@ -115,7 +115,36 @@ defmodule Pontoon.Raft do
       state = maybe_step_down(state, rpc.term)
       |> State.reset_election_timer(self())
 
-      {nil, state}
+      {accept_append, state} =
+        cond do
+          rpc.term < state.term ->
+            {false, state}
+
+          rpc.prev_log_idx >= length(state.log) ->
+            {false, state}
+
+          state.log[rpc.prev_log_idx].term != rpc.prev_log_term ->
+            # Follow the leader, delete mismatched log items.
+            log = state.log |> Enum.take(rpc.prev_log_idx - 1)
+
+            {false, %{state | log: log}}
+
+          # Success! append entries
+          true ->
+            log = state.log ++ rpc.entries
+            commit =
+              if rpc.leader_commit > state.commit_idx do
+                # FIXME: unsure if length(log) is correct
+                min(rpc.leader_commit, length(log) - 1)
+              else
+                state.commit_idx
+              end
+
+            {true, %{state | log: log, commit_idx: commit}}
+        end
+
+      reply = %RPC.ReplyAppendEntries{term: state.term, success: accept_append}
+      {reply, state}
     end
 
     # RequestVote RPC implementation
