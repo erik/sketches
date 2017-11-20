@@ -2,8 +2,6 @@ defmodule Pontoon.Raft do
   require Logger
   use GenServer
 
-  @rpc_port "9213"
-
   # Structs defining the format of RPC messages.
   defmodule RPC do
     @derive [Poison.Encoder]
@@ -125,6 +123,7 @@ defmodule Pontoon.Raft do
 
           state.log[rpc.prev_log_idx].term != rpc.prev_log_term ->
             # Follow the leader, delete mismatched log items.
+            # FIXME: should handle earlier inconsistencies as well.
             log = state.log |> Enum.take(rpc.prev_log_idx - 1)
 
             {false, %{state | log: log}}
@@ -155,16 +154,16 @@ defmodule Pontoon.Raft do
       vote_granted =
         cond do
           rpc.term < state.term ->
-            Logger.info("rejecting candidate for lower term #{rpc.term} vs #{state.term}")
+            Logger.info("rejecting #{member.name} for lower term #{rpc.term} vs #{state.term}")
             false
 
           state.voted_for && state.voted_for != rpc.candidate ->
-            Logger.info("rejecting candidate because already voted")
+            Logger.info("rejecting #{member.name} because already voted")
             false
 
           # FIXME: idk if commit_idx is correct
           rpc.last_log_idx < state.commit_idx ->
-            Logger.info("rejecting candidate for last_log_idx")
+            Logger.info("rejecting #{member.name} for last_log_idx")
             false
 
           # Everything checks out!
@@ -211,7 +210,7 @@ defmodule Pontoon.Raft do
             %{state |
               role: role,
               term: term,
-              leader_state: %{ state.leader_state | votes: votes}}
+              leader_state: %{state.leader_state | votes: votes}}
 
           _else ->
             state
@@ -220,7 +219,7 @@ defmodule Pontoon.Raft do
       {nil, state}
     end
 
-    def handle_rpc(state, _member, %RPC.ReplyAppendEntries{} = rpc) do
+    def handle_rpc(state, _member, %RPC.ReplyAppendEntries{} = _rpc) do
       # Logger.info("Got append entries reply: #{inspect rpc}")
       state = State.reset_election_timer(state, self())
 
@@ -231,15 +230,12 @@ defmodule Pontoon.Raft do
   end
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, :ok, opts)
+    GenServer.start_link(__MODULE__, opts)
   end
 
-  def init(:ok) do
-    port = (System.get_env("RPC_PORT") || @rpc_port)
-    |> String.to_integer
-
-    Logger.info("Starting Raft on port #{inspect port}")
-    {:ok, _socket} = :gen_udp.open(port, [
+  def init(opts) do
+    Logger.info("Starting Raft on port #{inspect opts[:rpc_port]}")
+    {:ok, _socket} = :gen_udp.open(opts[:rpc_port], [
           :binary,
           ip: {0, 0, 0, 0},
           active: true,

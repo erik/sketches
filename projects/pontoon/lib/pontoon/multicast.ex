@@ -3,8 +3,7 @@ defmodule Pontoon.Multicast do
   use GenServer
 
   @announce_interval_ms 3 * 1000
-  @multicast_address {224, 0, 0, 251} # {255, 255, 255, 255}
-  @multicast_port (System.get_env("MULTICAST_PORT") || "8213") |> String.to_integer
+  @multicast_address {224, 0, 0, 251}
 
   defmodule Message do
     @derive [Poison.Encoder]
@@ -12,11 +11,12 @@ defmodule Pontoon.Multicast do
   end
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, :ok, opts)
+    GenServer.start_link(__MODULE__, opts)
   end
 
-  def init(:ok) do
-    {:ok, socket} = :gen_udp.open(@multicast_port, [
+  def init(opts) do
+
+    {:ok, socket} = :gen_udp.open(opts[:multicast_port], [
           :binary,
           ip: @multicast_address,
           multicast_ttl: 4,
@@ -29,35 +29,33 @@ defmodule Pontoon.Multicast do
 
     Process.send_after(self(), :announce_self, @announce_interval_ms)
 
-    {:ok, %{socket: socket}}
+    {:ok, %{socket: socket,
+            rpc_port: opts[:rpc_port],
+            multicast_port: opts[:multicast_port]}}
   end
 
   # Make sure we send a quit message before we die
-  def terminate(_reason, _state) do
+  def terminate(_reason, state) do
     %Message{type: "QUIT", name: Pontoon.Membership.get_own_name()}
     |> Poison.encode!
-    |> send_multicast()
+    |> send_multicast(state)
   end
 
-  def send_multicast(message) do
+  def send_multicast(message, state) do
     {:ok, sock} = :gen_udp.open(0, [:binary])
-    :ok = :gen_udp.send(sock, @multicast_address, @multicast_port, message)
+    :ok = :gen_udp.send(sock, @multicast_address, state[:multicast_port], message)
     :ok = :gen_udp.close(sock)
   end
 
   def handle_info(:announce_self, state) do
-    # FIXME: this is defined twice.
-    port = (System.get_env("RPC_PORT") || "9213")
-    |> String.to_integer
-
     %Message{
       type: "PING",
       data: "",
-      port: port,
+      port: state[:rpc_port],
       name: Pontoon.Membership.get_own_name()
     }
     |> Poison.encode!
-    |> send_multicast()
+    |> send_multicast(state)
 
     Process.send_after(self(), :announce_self, @announce_interval_ms)
 
