@@ -24,7 +24,7 @@ def create_app():
     app.config.update({
         'SQLALCHEMY_DATABASE_URI': config['db_url'],
         'SQLALCHEMY_TRACK_MODIFICATIONS': True,
-        'SECRET_KEY': 'set this to something secure eventually.'
+        'SECRET_KEY': config['flask_secret'],
     })
 
     database.init_app(app)

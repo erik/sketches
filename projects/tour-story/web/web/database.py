@@ -10,17 +10,22 @@ db = SQLAlchemy()
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    api_key = db.Column(db.String(128), unique=True)
+    email = db.Column(db.String(128), unique=True)
     name = db.Column(db.String(128))
-    api_key = db.Column(db.String(128))
-    email = db.Column(db.String(128))
     pw_hash = db.Column(db.String(128))
+
+    @staticmethod
+    def login(email, password):
+        pw_hash = bcrypt.hash(password)
+        return User.query.filter_by(email=email, pw_hash=pw_hash).first()
 
     @staticmethod
     def create(user_schema):
         password = user_schema.pop('password')
 
         # FIXME: real API key.
-        user = User({
+        user = User(**{
             'api_key': pwd.genword(),
             'pw_hash': bcrypt.hash(password),
             **user_schema
