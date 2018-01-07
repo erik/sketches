@@ -81,6 +81,16 @@ class Post(db.Model):
         return post
 
 
+class Image(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    posted_at = db.Column(db.DateTime)
+    url = db.Column(db.String)
+    title = db.Column(db.String)
+    caption = db.Column(db.String)
+
+    author_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+
+
 def init_app(app):
     db.app = app
 

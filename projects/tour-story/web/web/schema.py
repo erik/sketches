@@ -33,13 +33,19 @@ class StorySchema(Schema):
     content = fields.Nested(StoryContentSchema, required=True)
 
 
-class AttachmentSchema(Schema):
-    pass
+class ImageSchema(Schema):
+    id = fields.Int(dump_only=True)
+    url = fields.String(validate=validate.URL())
+    posted_at = fields.DateTime()
+    title = fields.String()
+    caption = fields.String()
 
 
 class PostContentSchema(Schema):
     title = fields.String()
-    attachments = fields.Nested(AttachmentSchema, many=True)
+
+    images = fields.Nested(ImageSchema, many=True)
+    location = fields.Nested(LocationSchema)
 
 
 class PostSchema(Schema):
