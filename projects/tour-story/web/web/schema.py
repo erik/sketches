@@ -1,6 +1,9 @@
 '''API / request schema definitions'''
 
-from marshmallow import Schema, fields, validate
+import json
+
+import marshmallow
+from marshmallow import Schema, fields, validate, post_load
 
 
 class UserSchema(Schema):
@@ -17,7 +20,8 @@ class LocationSchema(Schema):
 
 
 class StoryContentSchema(Schema):
-    description = fields.String()
+    title = fields.String(required=True)
+    description = fields.String(required=True)
 
     start_point = fields.Nested(LocationSchema)
     end_point = fields.Nested(LocationSchema)
@@ -26,9 +30,10 @@ class StoryContentSchema(Schema):
 class StorySchema(Schema):
     id = fields.Int(dump_only=True)
     author_id = fields.Int(dump_only=True)
+
     started_at = fields.DateTime()
-    finished_at = fields.DateTime()
-    updated_at = fields.DateTime()
+    finished_at = fields.DateTime(required=False)
+    updated_at = fields.DateTime(required=False)
 
     content = fields.Nested(StoryContentSchema, required=True)
 

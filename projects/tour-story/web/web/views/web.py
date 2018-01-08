@@ -1,4 +1,5 @@
 import functools
+import json
 
 import flask
 
@@ -27,7 +28,17 @@ def require_auth(f):
 @view.route('/')
 @require_auth
 def index(user):
-    return flask.render_template('index.html', user=user)
+    query = database.Story.query \
+                          .filter_by(author_id=user.id) \
+                          .order_by(database.Story.updated_at.desc()) \
+                          .all()
+
+    stories = []
+    for story in query:
+        story.content = json.loads(story.content)
+        stories.append(schema.story_schema.dump(story).data)
+
+    return flask.render_template('index.html', user=user, stories=stories)
 
 
 @view.route('/register', methods=['POST'])
@@ -41,6 +52,12 @@ def register():
     flask.session['uid'] = user.id
 
     return flask.redirect('/')
+
+
+@view.route('/logout', methods=['GET'])
+def logout():
+    flask.session.pop('uid')
+    return flask.redirect('/login')
 
 
 @view.route('/login', methods=['GET', 'POST'])
@@ -57,3 +74,17 @@ def login():
 
     flask.session['uid'] = user.id
     return flask.redirect('/')
+
+
+@view.route('/story/<story_id>', methods=['GET'])
+def view_story(story_id):
+    query = database.Post.query \
+                         .filter_by(story_id=story_id) \
+                         .order_by(database.Post.posted_at.desc()) \
+                         .all()
+    posts = []
+    for post in query:
+        post.content = json.loads(post.content)
+        posts.append(schema.post_schema.dump(post).data)
+
+    return flask.render_template('view_story.html', posts=posts)

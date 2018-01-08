@@ -59,9 +59,7 @@ def POST_user(data):
 @require_schema(schema.story_schema)
 def POST_story(user, data):
     story = database.Story.create(user, data)
-    return flask.jsonify({
-        'id': story.id
-    })
+    return flask.jsonify({'id': story.id})
 
 
 @view.route('/api/story/<story_id>', methods=['GET'])

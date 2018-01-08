@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 
 from flask_sqlalchemy import SQLAlchemy
@@ -23,13 +24,16 @@ class User(db.Model):
     @staticmethod
     def create(user_schema):
         password = user_schema.pop('password')
+        api_key = pwd.genword()
 
         # FIXME: real API key.
         user = User(**{
-            'api_key': pwd.genword(),
+            'api_key': api_key,
             'pw_hash': bcrypt.hash(password),
             **user_schema
         })
+
+        print('API key: %s' % api_key)
 
         db.session.add(user)
         db.session.commit()
@@ -39,8 +43,8 @@ class User(db.Model):
 class Story(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     started_at = db.Column(db.DateTime)
-    finished_at = db.Column(db.DateTime)
-    updated_at = db.Column(db.DateTime)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
 
     # Serialized JSON
     content = db.Column(db.String)
@@ -49,11 +53,14 @@ class Story(db.Model):
 
     @staticmethod
     def create(user, story_schema):
-        story_schema.update({
+        time = datetime.utcnow()
+
+        story = Story(**{
             'author_id': user.id,
-            'content': json.dumps(story_schema['content'])
+            'started_at': time,
+            'updated_at': time,
+            'content': json.dumps(story_schema['content']),
         })
-        story = database.Story(**data)
 
         db.session.add(story)
         db.session.commit()
@@ -72,12 +79,12 @@ class Post(db.Model):
 
     @staticmethod
     def create(story_id, user, post_schema):
-        post = database.Post({
+        post = Post(**{
             'author_id': user.id,
             'story_id': story_id,
             'posted_at': datetime.utcnow(),
             'content': json.dumps(post_schema),
-            **data
+            **post_schema
         })
 
         db.session.add(post)
