@@ -1,22 +1,42 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+ form { width: 100%; display: flex; flex-direction: column; }
+ .row { width: 100%; display: flex; margin-bottom: 2em; }
+ label { width: 45%; }
+ input, textarea { flex-grow: 1; font-size: 14px; padding: 1ch; }
+</style>
+{% endblock %}
+
 {% block main %}
 <h1>Hello, {{user.name}}</h1>
 
 <div>
-  {% if stories == [] %}
-    <h3>Ready to for your first tour?</h3>
-    <p>TODO: whatever</p>
+  {% if not user.active_story %}
+    <h3>Ready for a tour?</h3>
+    <form action="/story" method="POST">
+        <div class="row">
+            <label>Tour name</label>
+            <input name="title" type="text">
+        </div>
+        <div class="row">
+            <label>Description </label>
+            <textarea name="description"></textarea>
+        </div>
+        <div class="row">
+            <label>Starting point </label>
+            <input name="start_point" type="text">
+        </div>
+        <div class="row">
+            <label>Ending point </label>
+            <input name="end_point">
+        </div>
+
+        <input type="submit" value="Let's go!">
+    </form>
   {% endif %}
 
-  {% for story in stories %}
-    <div class="story">
-      <h3><a href="/story/{{ story.id }}">{{ story.content.title }}</a></h3>
-      <div>
-        {{ story.content.description }}
-      </div>
-    </div>
-  {% endfor %}
 </div>
 
 {% endblock %}

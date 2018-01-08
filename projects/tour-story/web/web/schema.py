@@ -12,6 +12,8 @@ class UserSchema(Schema):
     email = fields.String(required=True, validate=validate.Email())
     password = fields.String(required=True, load_only=True)
 
+    active_story = fields.Nested('StorySchema', dump_only=True)
+
 
 class LocationSchema(Schema):
     lng = fields.Float()

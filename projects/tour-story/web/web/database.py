@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import os
 
 from flask_sqlalchemy import SQLAlchemy
 from passlib import pwd
@@ -15,6 +16,9 @@ class User(db.Model):
     email = db.Column(db.String(128), unique=True)
     name = db.Column(db.String(128))
     pw_hash = db.Column(db.String(128))
+
+    active_story_id = db.Column(db.Integer, db.ForeignKey("story.id"))
+    active_story = db.relationship("Story", foreign_keys=[active_story_id])
 
     @staticmethod
     def login(email, password):
@@ -109,7 +113,9 @@ def init_app(app):
     db.init_app(app)
 
     # For development, nuke the database:
-    # db.drop_all()
+    if os.getenv('NUKE_THE_DBS'):
+        print('DROPPING THE DATABASE')
+        db.drop_all()
 
     db.create_all()
 

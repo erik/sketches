@@ -28,6 +28,7 @@ def require_auth(f):
 @view.route('/')
 @require_auth
 def index(user):
+    print(schema.user_schema.dump(user).data)
     query = database.Story.query \
                           .filter_by(author_id=user.id) \
                           .order_by(database.Story.updated_at.desc()) \
