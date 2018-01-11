@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block main %}
+<h1>{{user.name}}</h1>
+
+<div>
+  {% if stories == [] %}
+    <h3>Haven't written any stories yet!</h3>
+  {% endif %}
+
+  {% for story in stories %}
+    <div class="story">
+      <h3><a href="/story/{{ story.id }}">{{ story.content.title }}</a></h3>
+      <div>
+        {{ story.content.description }}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
