@@ -19,7 +19,6 @@ use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 
 const VERT_SEPARATOR: &'static str = "│";
-const HORIZ_SEPARATOR: &'static str = "─";
 const LIST_WIDTH: u16 = 32;
 
 enum ChanMessage {
@@ -288,6 +287,7 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
                 )?;
             }
 
+            write!(stdout, "{}", termion::cursor::Hide)?;
             stdout.flush()?;
         }
     }
