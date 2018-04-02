@@ -2,9 +2,8 @@ extern crate clap;
 extern crate termion;
 
 use std::collections::HashMap;
-use std::error::Error;
+use std::cmp::min;
 use std::fs::File;
-use std::ffi::OsString;
 use std::io::{stdin, stdout, BufRead, BufReader, Write};
 use std::option::Option;
 use std::path::Path;
@@ -14,15 +13,18 @@ use std::thread;
 use std::vec::Vec;
 
 use clap::{App, Arg};
+use termion::color;
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 
 const VERT_SEPARATOR: &'static str = "│";
 const HORIZ_SEPARATOR: &'static str = "─";
+const LIST_WIDTH: u16 = 32;
 
 enum ChanMessage {
     SearchResult(ListEntry),
+    SearchComplete,
     TerminalEvent(Event),
 }
 
@@ -58,7 +60,7 @@ impl ListEntry {
 #[derive(Debug, Clone)]
 struct FileList {
     entries: Vec<ListEntry>,
-    current_index: Option<u32>,
+    current_index: Option<usize>,
 }
 
 impl FileList {
@@ -89,6 +91,16 @@ impl FileList {
             self.current_index = Some(0);
         }
     }
+
+    fn scroll_down(&mut self) {
+        self.current_index = self.current_index
+            .map(|prev| min(self.entries.len() - 1, prev + 1))
+    }
+
+    fn scroll_up(&mut self) {
+        self.current_index = self.current_index
+            .map(|prev| if prev == 0 { prev } else { prev - 1 })
+    }
 }
 
 #[derive(Debug)]
@@ -113,18 +125,19 @@ fn main() {
                 .help("what to search for")
                 .required(true),
         )
-        .arg(
-            Arg::with_name("directories")
-                .help("where to search for it")
-                .multiple(true)
-                .default_value("."),
-        )
-        .arg(
-            Arg::with_name("options")
-                .help("options to pass directly to search program.")
-                .multiple(true)
-                .last(true),
-        )
+        // .arg(
+        //     Arg::with_name("directories")
+        //         .help("where to search for it")
+        //         .multiple(true)
+        //         .default_value("."),
+        // )
+        // .arg(
+        //     Arg::with_name("options")
+        //         .help("options to pass directly to search program.")
+        //         .multiple(true)
+        //         .default_value("")
+        //         .last(true),
+        // )
         .get_matches();
 
     let (tx, rx) = channel();
@@ -133,7 +146,7 @@ fn main() {
     let term_tx = tx.clone();
 
     thread::spawn(move || {
-        run_command(cmd_tx).expect("failed to run command");
+        run_command(matches, cmd_tx).expect("failed to run command");
     });
 
     thread::spawn(move || {
@@ -146,12 +159,15 @@ fn main() {
         }
     });
 
-    ui_loop(rx);
+    ui_loop(rx).unwrap();
 }
 
-fn run_command(sender: Sender<ChanMessage>) -> Result<(), Box<std::error::Error>> {
+fn run_command(
+    config: clap::ArgMatches,
+    sender: Sender<ChanMessage>,
+) -> Result<(), Box<std::error::Error>> {
     let cmd = Command::new("ag")
-        .args([".", "src"].iter())
+        .arg(config.value_of("query").unwrap())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .spawn()?;
@@ -164,6 +180,8 @@ fn run_command(sender: Sender<ChanMessage>) -> Result<(), Box<std::error::Error>
             sender.send(ChanMessage::SearchResult(entry))?;
         }
     }
+
+    sender.send(ChanMessage::SearchComplete)?;
 
     Ok(())
 }
@@ -183,8 +201,26 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
         let mut redraw = false;
 
         match entry {
+            ChanMessage::SearchComplete => {
+                if file_list.entries.is_empty() {
+                    println!("No matches");
+                    break;
+                }
+            }
+
             ChanMessage::TerminalEvent(evt) => match evt {
                 Event::Key(Key::Ctrl('c')) | Event::Key(Key::Char('q')) => break,
+
+                Event::Key(Key::Char('j')) => {
+                    redraw = true;
+                    file_list.scroll_down();
+                }
+
+                Event::Key(Key::Char('k')) => {
+                    redraw = true;
+                    file_list.scroll_up();
+                }
+
                 Event::Mouse(me) => match me {
                     MouseEvent::Press(_, x, y) => {
                         write!(stdout, "{}x", termion::cursor::Goto(x, y))?;
@@ -200,19 +236,59 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
             ChanMessage::SearchResult(entry) => {
                 redraw = true;
                 file_list.add_entry(entry);
+
+                if file_list.current_index.is_none() {
+                    file_list.current_index = Some(0)
+                }
             }
         }
 
         if redraw {
-            for (i, entry) in file_list.entries.iter().enumerate() {
+            let (width, height) = termion::terminal_size()?;
+            let offset = file_list.current_index.unwrap_or(0);
+
+            for row in 0..height {
+                let index = (offset + row as usize) as usize;
+
+                if index < file_list.entries.len() {
+                    let ref entry = &file_list.entries[index];
+                    let (fg, bg): (&color::Color, &color::Color) =
+                        if Some(index) == file_list.current_index {
+                            (&color::Black, &color::White)
+                        } else {
+                            (&color::Reset, &color::Reset)
+                        };
+
+                    write!(
+                        stdout,
+                        "{}{}{}{}/{}:{}{}{}",
+                        termion::cursor::Goto(1, 1 + row as u16),
+                        color::Fg(fg),
+                        color::Bg(bg),
+                        entry.directory,
+                        entry.file_name,
+                        entry.line_number,
+                        color::Fg(color::Reset),
+                        color::Bg(color::Reset),
+                    )?;
+                } else {
+                    write!(
+                        stdout,
+                        "{}{}",
+                        termion::cursor::Goto(1, 1 + row as u16),
+                        "                     "
+                    )?;
+                }
+
                 write!(
                     stdout,
                     "{}{}",
-                    termion::cursor::Goto(1, 1 + i as u16),
-                    entry.file_name
+                    termion::cursor::Goto(LIST_WIDTH, 1 + row),
+                    VERT_SEPARATOR
                 )?;
-                stdout.flush()?;
             }
+
+            stdout.flush()?;
         }
     }
 
