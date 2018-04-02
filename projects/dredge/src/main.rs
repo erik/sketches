@@ -21,14 +21,18 @@ use termion::raw::IntoRawMode;
 const VERT_SEPARATOR: &'static str = "│";
 const HORIZ_SEPARATOR: &'static str = "─";
 
+enum ChanMessage {
+    SearchResult(ListEntry),
+    TerminalEvent(Event),
+}
+
 #[derive(Debug, Clone)]
 struct ListEntry {
     directory: String,
     file_name: String,
     line_number: u32,
-    text: String
+    text: String,
 }
-
 
 impl ListEntry {
     // format is: path/to/file.rs:123:line of text
@@ -51,7 +55,6 @@ impl ListEntry {
     }
 }
 
-
 #[derive(Debug, Clone)]
 struct FileList {
     entries: Vec<ListEntry>,
@@ -62,7 +65,7 @@ impl FileList {
     fn new() -> FileList {
         FileList {
             entries: vec![],
-            current_index: None
+            current_index: None,
         }
     }
 
@@ -76,7 +79,7 @@ impl FileList {
             });
 
             match result {
-                Ok(pos) | Err(pos) => pos
+                Ok(pos) | Err(pos) => pos,
             }
         };
 
@@ -126,16 +129,29 @@ fn main() {
 
     let (tx, rx) = channel();
 
+    let cmd_tx = tx.clone();
+    let term_tx = tx.clone();
+
     thread::spawn(move || {
-        run_command(tx).expect("failed to run command");
+        run_command(cmd_tx).expect("failed to run command");
+    });
+
+    thread::spawn(move || {
+        let stdin = stdin();
+
+        for c in stdin.events() {
+            term_tx
+                .send(ChanMessage::TerminalEvent(c.unwrap()))
+                .unwrap();
+        }
     });
 
     ui_loop(rx);
 }
 
-fn run_command(sender: Sender<ListEntry>) -> Result<(), Box<std::error::Error>> {
+fn run_command(sender: Sender<ChanMessage>) -> Result<(), Box<std::error::Error>> {
     let cmd = Command::new("ag")
-        .args(["cmd", "src"].iter())
+        .args([".", "src"].iter())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .spawn()?;
@@ -145,42 +161,60 @@ fn run_command(sender: Sender<ListEntry>) -> Result<(), Box<std::error::Error>> 
 
     for line in reader.lines() {
         if let Some(entry) = ListEntry::from_line(&line.unwrap()) {
-            sender.send(entry)?;
+            sender.send(ChanMessage::SearchResult(entry))?;
         }
     }
 
     Ok(())
 }
 
-fn ui_loop(receiver: Receiver<ListEntry>) {
+fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>> {
     let mut file_list = FileList::new();
 
-    // FIXME: This should be mixed in with the event loop somehow.
+    let mut stdout = MouseTerminal::from(stdout().into_raw_mode()?);
+    write!(
+        stdout,
+        "{}{}",
+        termion::clear::All,
+        termion::cursor::Goto(1, 1)
+    )?;
+
     for entry in receiver.iter() {
-        println!("entry => {:?}", entry);
-        file_list.add_entry(entry);
-    }
+        let mut redraw = false;
 
-    let mut stdout = MouseTerminal::from(stdout().into_raw_mode().unwrap());
-    let stdin = stdin();
+        match entry {
+            ChanMessage::TerminalEvent(evt) => match evt {
+                Event::Key(Key::Ctrl('c')) | Event::Key(Key::Char('q')) => break,
+                Event::Mouse(me) => match me {
+                    MouseEvent::Press(_, x, y) => {
+                        write!(stdout, "{}x", termion::cursor::Goto(x, y))?;
+                        stdout.flush()?;
+                    }
 
-    // write!(stdout, "{}{}", termion::clear::All, termion::cursor::Goto(1, 1)).unwrap();
-    // stdout.flush().unwrap();
+                    _ => (),
+                },
 
-    for c in stdin.events() {
-        match c.unwrap() {
-            Event::Key(Key::Ctrl('c')) | Event::Key(Key::Char('q')) => break,
-
-            Event::Mouse(me) => match me {
-                MouseEvent::Press(_, x, y) => {
-                    write!(stdout, "{}x", termion::cursor::Goto(x, y)).unwrap();
-                }
-
-                _ => (),
+                _ => {}
             },
-            _ => {}
+
+            ChanMessage::SearchResult(entry) => {
+                redraw = true;
+                file_list.add_entry(entry);
+            }
         }
 
-        stdout.flush().unwrap();
+        if redraw {
+            for (i, entry) in file_list.entries.iter().enumerate() {
+                write!(
+                    stdout,
+                    "{}{}",
+                    termion::cursor::Goto(1, 1 + i as u16),
+                    entry.file_name
+                )?;
+                stdout.flush()?;
+            }
+        }
     }
+
+    Ok(())
 }
