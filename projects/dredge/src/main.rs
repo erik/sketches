@@ -2,15 +2,16 @@ extern crate clap;
 extern crate termion;
 
 use std::collections::HashMap;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::fs::File;
 use std::io::{stdin, stdout, BufRead, BufReader, Write};
 use std::option::Option;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
 use std::vec::Vec;
+
+use std::thread;
 
 use clap::{App, Arg};
 use termion::color;
@@ -21,6 +22,7 @@ use termion::raw::IntoRawMode;
 const VERT_SEPARATOR: &'static str = "│";
 const LIST_WIDTH: u16 = 32;
 
+// FIXME: Support handling SIGWINCH for rerender on resize.
 enum ChanMessage {
     SearchResult(ListEntry),
     SearchComplete,
@@ -196,8 +198,11 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
         termion::cursor::Goto(1, 1)
     )?;
 
+    let mut min_index = 0;
+
     for entry in receiver.iter() {
-        let mut redraw = false;
+        let (_width, height) = termion::terminal_size()?;
+        let mut redraw = true;
 
         match entry {
             ChanMessage::SearchComplete => {
@@ -211,12 +216,10 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
                 Event::Key(Key::Ctrl('c')) | Event::Key(Key::Char('q')) => break,
 
                 Event::Key(Key::Char('j')) => {
-                    redraw = true;
                     file_list.scroll_down();
                 }
 
                 Event::Key(Key::Char('k')) => {
-                    redraw = true;
                     file_list.scroll_up();
                 }
 
@@ -229,7 +232,9 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
                     _ => (),
                 },
 
-                _ => {}
+                _ => {
+                    redraw = false;
+                }
             },
 
             ChanMessage::SearchResult(entry) => {
@@ -243,11 +248,20 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
         }
 
         if redraw {
-            let (width, height) = termion::terminal_size()?;
-            let offset = file_list.current_index.unwrap_or(0);
+            min_index = file_list.current_index.map_or(0, |cur| {
+                if cur < min_index {
+                    min_index - 1
+                } else if cur >= min_index + height as usize {
+                    cur
+                } else {
+                    min_index
+                }
+            });
 
             for row in 0..height {
-                let index = (offset + row as usize) as usize;
+                write!(stdout, "{}", termion::cursor::Goto(1, 1 + row as u16))?;
+
+                let index = (min_index + row as usize) as usize;
 
                 if index < file_list.entries.len() {
                     let ref entry = &file_list.entries[index];
@@ -258,25 +272,22 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
                             (&color::Reset, &color::Reset)
                         };
 
+                    let entry_fmt = format!(
+                        "{}/{}:{}",
+                        entry.directory, entry.file_name, entry.line_number
+                    );
+
                     write!(
                         stdout,
-                        "{}{}{}{}/{}:{}{}{}",
-                        termion::cursor::Goto(1, 1 + row as u16),
+                        "{}{}{:<32}{}{}",
                         color::Fg(fg),
                         color::Bg(bg),
-                        entry.directory,
-                        entry.file_name,
-                        entry.line_number,
+                        entry_fmt,
                         color::Fg(color::Reset),
                         color::Bg(color::Reset),
                     )?;
                 } else {
-                    write!(
-                        stdout,
-                        "{}{}",
-                        termion::cursor::Goto(1, 1 + row as u16),
-                        "                     "
-                    )?;
+                    write!(stdout, "{:<32}", "")?;
                 }
 
                 write!(
