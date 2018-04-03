@@ -225,8 +225,12 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
 
                 Event::Mouse(me) => match me {
                     MouseEvent::Press(_, x, y) => {
-                        write!(stdout, "{}x", termion::cursor::Goto(x, y))?;
-                        stdout.flush()?;
+                        if x < LIST_WIDTH {
+                            // TODO: have standards.
+                            file_list.current_index = file_list.current_index.map(|_| {
+                                max(1, min(file_list.entries.len(), min_index + y as usize)) - 1
+                            });
+                        }
                     }
 
                     _ => (),
