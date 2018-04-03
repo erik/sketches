@@ -17,6 +17,7 @@ use clap::{App, Arg};
 use termion::color;
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
+use termion::screen::AlternateScreen;
 use termion::raw::IntoRawMode;
 
 const VERT_SEPARATOR: &'static str = "│";
@@ -190,7 +191,8 @@ fn run_command(
 fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>> {
     let mut file_list = FileList::new();
 
-    let mut stdout = MouseTerminal::from(stdout().into_raw_mode()?);
+    let screen = AlternateScreen::from(stdout());
+    let mut stdout = MouseTerminal::from(screen.into_raw_mode()?);
     write!(
         stdout,
         "{}{}",
@@ -215,13 +217,8 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
             ChanMessage::TerminalEvent(evt) => match evt {
                 Event::Key(Key::Ctrl('c')) | Event::Key(Key::Char('q')) => break,
 
-                Event::Key(Key::Char('j')) => {
-                    file_list.scroll_down();
-                }
-
-                Event::Key(Key::Char('k')) => {
-                    file_list.scroll_up();
-                }
+                Event::Key(Key::Char('j')) => file_list.scroll_down(),
+                Event::Key(Key::Char('k')) => file_list.scroll_up(),
 
                 Event::Mouse(me) => match me {
                     MouseEvent::Press(_, x, y) => {
@@ -306,6 +303,14 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
             stdout.flush()?;
         }
     }
+
+    write!(
+        stdout,
+        "{}{}",
+        termion::clear::All,
+        termion::cursor::Show
+    )?;
+    stdout.flush()?;
 
     Ok(())
 }
