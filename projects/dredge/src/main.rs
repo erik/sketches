@@ -304,12 +304,7 @@ fn ui_loop(receiver: Receiver<ChanMessage>) -> Result<(), Box<std::error::Error>
         }
     }
 
-    write!(
-        stdout,
-        "{}{}",
-        termion::clear::All,
-        termion::cursor::Show
-    )?;
+    write!(stdout, "{}{}", termion::clear::All, termion::cursor::Show)?;
     stdout.flush()?;
 
     Ok(())
