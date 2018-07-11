@@ -1,0 +1,38 @@
+<h2>Show Post</h2>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @post.title %>
+  </li>
+
+  <li>
+    <strong>Body:</strong>
+    <%= @post.body %>
+  </li>
+
+  <li>
+    <strong>Location:</strong>
+    <%= @post.location %>
+  </li>
+
+  <li>
+    <strong>Created at:</strong>
+    <%= @post.created_at %>
+  </li>
+
+  <li>
+    <strong>Updated at:</strong>
+    <%= @post.updated_at %>
+  </li>
+
+  <li>
+    <strong>Deleted at:</strong>
+    <%= @post.deleted_at %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: post_path(@conn, :edit, @post) %></span>
+<span><%= link "Back", to: post_path(@conn, :index) %></span>
