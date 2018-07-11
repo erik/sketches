@@ -1,0 +1,28 @@
+<h2>Show Attachment</h2>
+
+<ul>
+
+  <li>
+    <strong>Caption:</strong>
+    <%= @attachment.caption %>
+  </li>
+
+  <li>
+    <strong>Kind:</strong>
+    <%= @attachment.kind %>
+  </li>
+
+  <li>
+    <strong>Url:</strong>
+    <%= @attachment.url %>
+  </li>
+
+  <li>
+    <strong>Body:</strong>
+    <%= @attachment.body %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: attachment_path(@conn, :edit, @attachment) %></span>
+<span><%= link "Back", to: attachment_path(@conn, :index) %></span>

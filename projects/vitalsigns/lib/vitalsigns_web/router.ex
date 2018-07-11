@@ -20,10 +20,10 @@ defmodule VitalsignsWeb.Router do
 
     resources "/users", UserController
     resources "/posts", PostController
+    resources "/attachments", AttachmentController
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", VitalsignsWeb do
-  #   pipe_through :api
-  # end
+   scope "/api", VitalsignsWeb do
+    pipe_through :api
+   end
 end
