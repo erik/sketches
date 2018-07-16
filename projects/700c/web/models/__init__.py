@@ -71,8 +71,7 @@ class Trip(db.Model):
         return Trip                     \
             .query                      \
             .filter_by(user_id=user_id) \
-            .pagination(page, per_page) \
-            .all()
+            .pagination(page, per_page, error_out=False)
 
 
 class Status(db.Model):
@@ -102,8 +101,18 @@ class Status(db.Model):
 
     @staticmethod
     def by_trip_id(trip_id, page=0, per_page=100):
-        return Status                                \
-            .query                                   \
-            .filter_by(trip_id=trip_id)              \
-            .pagination(page, per_page)              \
-            .all()
+        return Status                   \
+            .query                      \
+            .filter_by(trip_id=trip_id) \
+            .paginate(page, per_page, error_out=False)
+
+    @staticmethod
+    def get_recent(user_id=None, page=0, per_page=100):
+        query = Status                   \
+            .query                       \
+            .order_by(Status.created_at) \
+
+        if user_id is not None:
+            query = query.filter_by(Status.user_id == user_id)
+
+        return query.paginate(page, per_page, error_out=False)
