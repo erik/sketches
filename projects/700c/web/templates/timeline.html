@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div>
+  {% include 'status_box.html' %}
+
+  {% for status in statuses.items %}
+  <div>
+    the status is
+    <pre>
+      {{ status }}
+    </pre>
+  {% endfor %}
+</div>
+
+{% endblock %}

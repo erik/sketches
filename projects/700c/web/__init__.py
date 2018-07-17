@@ -16,8 +16,9 @@ def create_app(config_file):
 
     app.config.from_pyfile(config_file)
 
-    app.register_blueprint(views.html)
-    app.register_blueprint(views.api, url_prefix='/api/')
+    app.register_blueprint(views.blueprints.general)
+    app.register_blueprint(views.blueprints.api, url_prefix='/api/')
+    app.register_blueprint(views.blueprints.status, url_prefix='/status/')
 
     with app.app_context():
         db.init_app(app)

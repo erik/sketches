@@ -113,6 +113,6 @@ class Status(db.Model):
             .order_by(Status.created_at) \
 
         if user_id is not None:
-            query = query.filter_by(Status.user_id == user_id)
+            query = query.filter_by(user_id=user_id)
 
         return query.paginate(page, per_page, error_out=False)

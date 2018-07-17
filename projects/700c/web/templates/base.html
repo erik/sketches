@@ -1,0 +1,35 @@
+<!doctype html>
+
+<title>{% block title %}{% endblock %}</title>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="//writ.cmcenroe.me/1.0.4/writ.min.css">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<header>
+    <nav>
+        <ul>
+            <li><b>700c</b>
+            </li>
+            {% if g.logged_in %}
+            <li><span>{{ g.user['name'] }}</span></li>
+            <li><a href="{{ url_for('general.logout') }}">Log Out</a></li>
+            {% else %}
+            <li><a href="{{ url_for('general.register') }}">Register</a></li>
+            <li><a href="{{ url_for('general.login') }}">Log In</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+</header>
+
+<main>
+    {% block header %}{% endblock %}
+
+    {% for message in get_flashed_messages() %}
+    <div class="flash">{{ message }}</div>
+    {% endfor %}
+
+    {% block content %}{% endblock %}
+</main>
