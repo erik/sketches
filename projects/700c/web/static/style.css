@@ -12,3 +12,14 @@ html {
     padding: 1em;
     color: white;
 }
+
+.status-box {
+    width: 100%;
+}
+
+.status-box input, textarea {
+    font-size: 1em;
+    padding: 1em;
+    width: 100%;
+    border: none;
+}

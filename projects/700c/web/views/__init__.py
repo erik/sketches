@@ -10,7 +10,7 @@ def requires_login(f):
     def decorated(*args, **kwargs):
         if not flask.g.logged_in:
             flask.flash('Must be logged in for that!')
-            return flask.redirect(flask.url_for('html.login'))
+            return flask.redirect(flask.url_for('general.login'))
 
         return f(*args, **kwargs)
     return decorated

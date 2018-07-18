@@ -39,7 +39,7 @@ def login():
 def logout():
     flask.session.pop('uid')
     flask.flash('Logged out!')
-    return flask.redirect(flask.url_for('html.login'))
+    return flask.redirect(flask.url_for('general.login'))
 
 
 @mod.route('/register', methods=['GET'])
