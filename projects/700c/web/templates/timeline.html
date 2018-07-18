@@ -1,16 +1,14 @@
-{% extends 'base.html' %}
+{% extends 'layout/base.html' %}
 
 {% block content %}
-<div>
-  {% include 'status_box.html' %}
-
-  {% for status in statuses.items %}
   <div>
-    the status is
-    <pre>
-      {{ status }}
-    </pre>
-  {% endfor %}
-</div>
+    {% include 'partials/status_box.html' %}
+
+    {% for status in statuses.items %}
+      {% with status=status %}
+        {% include 'partials/status.html' %}
+      {% endwith %}
+    {% endfor %}
+  </div>
 
 {% endblock %}

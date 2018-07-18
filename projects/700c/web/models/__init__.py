@@ -108,9 +108,9 @@ class Status(db.Model):
 
     @staticmethod
     def get_recent(user_id=None, page=0, per_page=100):
-        query = Status                   \
-            .query                       \
-            .order_by(Status.created_at) \
+        query = Status                          \
+            .query                              \
+            .order_by(Status.created_at.desc()) \
 
         if user_id is not None:
             query = query.filter_by(user_id=user_id)
