@@ -3,6 +3,11 @@
 {% block content %}
   <div>
     {% include 'partials/status_box.html' %}
+    {% if active_trip is not none %}
+      <p>Part of {{ active_trip.title }}</p>
+    {% else %}
+      <p>Part of some unknown trip</p>
+    {% endif %}
 
     {% for status in statuses.items %}
       {% with status=status %}

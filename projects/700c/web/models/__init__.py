@@ -69,9 +69,16 @@ class Trip(CommonMixin, db.Model):
         return super().create(
             title=title, description=description, user_id=user_id)
 
-    @staticmethod
-    def by_user_id(user_id, page=0, per_page=100):
-        return Trip                     \
+    @classmethod
+    def get_active(cls, user_id):
+        return cls                                     \
+            .query                                     \
+            .filter_by(user_id=user_id, ended_at=None) \
+            .first()
+
+    @classmethod
+    def by_user_id(cls, user_id, page=0, per_page=100):
+        return cls                      \
             .query                      \
             .filter_by(user_id=user_id) \
             .pagination(page, per_page, error_out=False)

@@ -1,6 +1,6 @@
 import flask
 
-from web.models import User, Status
+from web.models import User, Status, Trip
 from web.views import requires_login, lookup_request_user
 
 
@@ -12,8 +12,10 @@ mod.before_request(lookup_request_user)
 @mod.route('/', methods=['GET'])
 @requires_login
 def index():
-    statuses = Status.get_recent(flask.g.user.id)
-    return flask.render_template('timeline.html', statuses=statuses)
+    return flask.render_template('timeline.html', **{
+        'active_trip': Trip.get_active(flask.g.user.id),
+        'statuses': Status.get_recent(flask.g.user.id)
+    })
 
 
 @mod.route('/login', methods=['POST'])
