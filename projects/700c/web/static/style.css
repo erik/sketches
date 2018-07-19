@@ -6,7 +6,6 @@ html {
   box-sizing: inherit;
 }
 
-
 .flash {
     background: green;
     padding: 1em;
@@ -18,6 +17,13 @@ html {
 }
 
 .status-box input, textarea {
+    font-size: 1em;
+    padding: 1em;
+    width: 100%;
+    border: none;
+}
+
+.login--form input {
     font-size: 1em;
     padding: 1em;
     width: 100%;
