@@ -12,7 +12,7 @@ mod.before_request(lookup_request_user)
 @mod.route('/', methods=['GET'])
 @requires_login
 def index():
-    return flask.render_template('timeline.html', **{
+    return flask.render_template('views/timeline.html', **{
         'active_trip': Trip.get_active(flask.g.user.id),
         'statuses': Status.get_recent(flask.g.user.id)
     })
@@ -32,7 +32,7 @@ def try_login():
 
 @mod.route('/login', methods=['GET'])
 def login():
-    return flask.render_template('login.html')
+    return flask.render_template('views/login.html')
 
 
 @mod.route('/logout', methods=['GET'])
