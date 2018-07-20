@@ -2,8 +2,8 @@
 
 {% block content %}
   <div>
-    {% include 'partials/status_box.html' %}
     {% if active_trip is not none %}
+      {% include 'partials/create_status.html' %}
       <p>Part of {{ active_trip.title }}</p>
     {% else %}
       <p>Part of some unknown trip</p>

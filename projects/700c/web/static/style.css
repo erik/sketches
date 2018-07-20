@@ -12,20 +12,14 @@ html {
     color: white;
 }
 
-.status-box {
+.form {
     width: 100%;
 }
 
-.status-box input, textarea {
+.form input, textarea {
     font-size: 1em;
     padding: 1em;
     width: 100%;
     border: none;
 }
 
-.login--form input {
-    font-size: 1em;
-    padding: 1em;
-    width: 100%;
-    border: none;
-}

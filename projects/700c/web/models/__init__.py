@@ -21,6 +21,13 @@ class CommonMixin(Model):
         return inst
 
     @classmethod
+    def update(cls, where, values):
+        return cls.update     \
+            .where(where)     \
+            .values(**values) \
+            .get()
+
+    @classmethod
     def by_id(cls, pk_id):
         return cls.query.get(pk_id)
 

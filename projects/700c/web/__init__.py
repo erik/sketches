@@ -19,6 +19,7 @@ def create_app(config_file):
     app.register_blueprint(views.blueprints.general)
     app.register_blueprint(views.blueprints.api, url_prefix='/api/')
     app.register_blueprint(views.blueprints.status, url_prefix='/status/')
+    app.register_blueprint(views.blueprints.trip, url_prefix='/trip/')
 
     with app.app_context():
         db.init_app(app)

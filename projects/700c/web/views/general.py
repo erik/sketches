@@ -12,8 +12,13 @@ mod.before_request(lookup_request_user)
 @mod.route('/', methods=['GET'])
 @requires_login
 def index():
+    active_trip = Trip.get_active(flask.g.user.id)
+
+    if active_trip is None:
+        return flask.redirect(flask.url_for('trip.index'))
+
     return flask.render_template('views/timeline.html', **{
-        'active_trip': Trip.get_active(flask.g.user.id),
+        'active_trip': active_trip,
         'statuses': Status.get_recent(flask.g.user.id)
     })
 
