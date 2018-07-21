@@ -1,0 +1,43 @@
+{% extends 'layouts/base.html' %}
+
+{% block content %}
+  <div class="user">
+    <h1>{{ user.name }}</h1>
+    <p>
+      {% if user.bio is not none %}
+        {{ user.bio }}
+      {% endif %}
+    </p>
+
+    <h2>Trips</h2>
+    <div class="user__trips">
+      {% if trips.items|length == 0 %}
+        <p>
+          Looks like {{user.name}} hasn't started any trips yet!
+        </p>
+        {% if user.id == g.user.id %}
+          <p>
+            <a href="{{ url_for('trip.index') }}">Start a trip</a>
+          </p>
+        {% endif %}
+      {% endif %}
+
+      <ul>
+        {% for trip in trips.items %}
+          <li class="user__trips__trip">
+            <h3>
+              <a href="{{ url_for('trip.view', id=trip.id) }}">
+                {{ trip.title }}
+              </a>
+            </h3>
+            <p>{{trip.description}}</p>
+          </li>
+        {% endfor %}
+
+        {# TODO: handle pagination #}
+      </ul>
+
+    </div>
+
+  </div>
+{% endblock %}

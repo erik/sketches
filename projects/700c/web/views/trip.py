@@ -30,9 +30,8 @@ def create():
 
 @mod.route('/<int:id>', methods=['GET'])
 def view(id):
-    trip = Trip.update(where=(Trip.ended_at is None), )
-
-    return flask.redirect(flask.url_for('general.index'))
+    trip = Trip.by_id(id)
+    return flask.render_template('views/trip.html', trip=trip)
 
 
 @mod.route('/<int:id>/edit', methods=['POST'])

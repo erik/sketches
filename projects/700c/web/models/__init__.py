@@ -37,8 +37,9 @@ class User(CommonMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    name = db.Column(db.String())
+    name = db.Column(db.String)
     password_hash = db.Column(db.String(128))
+    bio = db.Column(db.String)
 
     created_at = db.Column(db.DateTime, default=dt.utcnow)
     deleted_at = db.Column(db.DateTime())
@@ -64,6 +65,7 @@ class Trip(CommonMixin, db.Model):
 
     title = db.Column(db.String)
     description = db.Column(db.String)
+    active = db.Column(db.Boolean, default=False)
 
     created_at = db.Column(db.DateTime, default=dt.utcnow)
     updated_at = db.Column(db.DateTime())
@@ -74,13 +76,13 @@ class Trip(CommonMixin, db.Model):
     @classmethod
     def create(cls, title, description, user_id):
         return super().create(
-            title=title, description=description, user_id=user_id)
+            title=title, description=description, user_id=user_id, active=True)
 
     @classmethod
     def get_active(cls, user_id):
-        return cls                                     \
-            .query                                     \
-            .filter_by(user_id=user_id, ended_at=None) \
+        return cls                                   \
+            .query                                   \
+            .filter_by(user_id=user_id, active=True) \
             .first()
 
     @classmethod
@@ -88,7 +90,7 @@ class Trip(CommonMixin, db.Model):
         return cls                      \
             .query                      \
             .filter_by(user_id=user_id) \
-            .pagination(page, per_page, error_out=False)
+            .paginate(page, per_page, error_out=False)
 
 
 class Status(CommonMixin, db.Model):

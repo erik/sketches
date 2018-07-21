@@ -1,5 +1,17 @@
+:root {
+    --font-stack: Helvetica Neue, Helvetica, Arial, sans-serif;
+    --base-font-size: 1em;
+    --base-text-color: #444;
+}
+
 html {
   box-sizing: border-box;
+  color: var(--base-text-color);
+}
+
+a, a:visited {
+  color: var(--base-text-color);
+  text-decoration: none;
 }
 
 *, *:before, *:after {
@@ -17,9 +29,23 @@ html {
 }
 
 .form input, textarea {
-    font-size: 1em;
+    font-size: var(--base-font-size);
+    font-family: var(--font-stack);
     padding: 1em;
     width: 100%;
-    border: none;
+    border: 1px solid #dcdcdc;
 }
 
+.header, .main {
+    max-width: 500px;
+    margin: 0 auto;
+    font-family: var(--font-stack);
+}
+
+.header__nav {
+    float: right;
+}
+
+.header__nav ul li {
+    display: inline-block;
+}

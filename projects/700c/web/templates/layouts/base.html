@@ -4,32 +4,38 @@
 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="//writ.cmcenroe.me/1.0.4/writ.min.css">
 
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-<header>
-    <nav>
-        <ul>
-            <li><b>700c</b>
-            </li>
-            {% if g.logged_in %}
-            <li><span>{{ g.user['name'] }}</span></li>
-            <li><a href="{{ url_for('general.logout') }}">Log Out</a></li>
-            {% else %}
-            <li><a href="{{ url_for('general.register') }}">Register</a></li>
-            <li><a href="{{ url_for('general.login') }}">Log In</a></li>
-            {% endif %}
-        </ul>
-    </nav>
+<header class="header">
+  <nav class="header__nav">
+    <ul>
+      <li>
+        <a href="{{ url_for('general.index') }}">
+          <b>700c</b>
+        </a>
+      </li>
+      {% if g.logged_in %}
+      <li>
+        <a href="{{ url_for('user.view', id=g.user.id) }}">
+          <span>{{ g.user.name }}</span>
+        </a>
+      </li>
+      <li><a href="{{ url_for('general.logout') }}">Log Out</a></li>
+      {% else %}
+      <li><a href="{{ url_for('general.register') }}">Register</a></li>
+      <li><a href="{{ url_for('general.login') }}">Log In</a></li>
+      {% endif %}
+    </ul>
+  </nav>
 </header>
 
-<main>
-    {% block header %}{% endblock %}
+<main class="main">
+  {% block header %}{% endblock %}
 
-    {% for message in get_flashed_messages() %}
-    <div class="flash">{{ message }}</div>
-    {% endfor %}
+  {% for message in get_flashed_messages() %}
+  <div class="flash">{{ message }}</div>
+  {% endfor %}
 
-    {% block content %}{% endblock %}
+  {% block content %}{% endblock %}
 </main>
