@@ -9,11 +9,7 @@
       <p>Part of some unknown trip</p>
     {% endif %}
 
-    {% for status in statuses.items %}
-      {% with status=status %}
-        {% include 'partials/status.html' %}
-      {% endwith %}
-    {% endfor %}
+    {% include 'partials/status_list.html' %}
   </div>
 
 {% endblock %}

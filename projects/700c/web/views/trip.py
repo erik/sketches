@@ -1,7 +1,7 @@
 import flask
 from flask import request
 
-from web.models import Trip
+from web.models import Status, Trip
 from web.views import requires_login, lookup_request_user
 
 
@@ -30,8 +30,11 @@ def create():
 
 @mod.route('/<int:id>', methods=['GET'])
 def view(id):
-    trip = Trip.by_id(id)
-    return flask.render_template('views/trip.html', trip=trip)
+    trip = Trip.by_id(id, raise_on_not_found=True)
+    return flask.render_template('views/trip.html', **{
+        'trip': trip,
+        'statuses': Status.by_trip_id(trip.id)
+    })
 
 
 @mod.route('/<int:id>/edit', methods=['POST'])

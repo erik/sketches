@@ -36,6 +36,14 @@ a, a:visited {
     border: 1px solid #dcdcdc;
 }
 
+.form textarea {
+    resize: vertical;
+}
+
+.form input[type="submit"] {
+    background-color: #dfdfdf;
+}
+
 .header, .main {
     max-width: 500px;
     margin: 0 auto;

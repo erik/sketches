@@ -3,9 +3,14 @@
 {% block content %}
   <div class="trip">
     <div class="form form--trip trip__create">
-      <form action="/trip/create" method="post">
-        <input type="text" name="title"        placeholder="Start a new trip">
-        <textarea          name="description"  placeholder="Description..."></textarea>
+      <form action="/trip/create" method="post" autocomplete="off">
+        <input type="text"
+               name="title"
+               placeholder="Start a new trip"
+               required>
+        <textarea name="description"
+                  placeholder="Description..."
+                  required></textarea>
         <input type="submit" value="Embark">
       </form>
     </div>

@@ -1,5 +1,6 @@
 from datetime import datetime as dt
 
+import flask
 from flask_sqlalchemy import SQLAlchemy, Model
 from werkzeug.security import generate_password_hash, \
     check_password_hash
@@ -28,8 +29,13 @@ class CommonMixin(Model):
             .get()
 
     @classmethod
-    def by_id(cls, pk_id):
-        return cls.query.get(pk_id)
+    def by_id(cls, pk_id, raise_on_not_found=False):
+        record = cls.query.get(pk_id)
+
+        if raise_on_not_found and record is None:
+            flask.abort(404)
+
+        return record
 
 
 class User(CommonMixin, db.Model):
@@ -42,7 +48,7 @@ class User(CommonMixin, db.Model):
     bio = db.Column(db.String)
 
     created_at = db.Column(db.DateTime, default=dt.utcnow)
-    deleted_at = db.Column(db.DateTime())
+    deleted_at = db.Column(db.DateTime)
 
     @classmethod
     def create(cls, name, password):
