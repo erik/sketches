@@ -1,7 +1,7 @@
 import flask
 
 from web.models import User, Status, Trip
-from web.views import requires_login, lookup_request_user
+from web.views.util import requires_login, lookup_request_user
 
 
 mod = flask.Blueprint('general', __name__)

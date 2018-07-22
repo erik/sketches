@@ -4,7 +4,7 @@ import flask
 from flask import request
 
 from web.models import Location, Status
-from web.views import requires_login, lookup_request_user
+from web.views.util import requires_login, lookup_request_user
 
 
 mod = flask.Blueprint('status', __name__)

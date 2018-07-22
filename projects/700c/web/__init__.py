@@ -16,11 +16,11 @@ def create_app(config_file):
 
     app.config.from_pyfile(config_file)
 
-    app.register_blueprint(views.blueprints.general)
-    app.register_blueprint(views.blueprints.api, url_prefix='/api/')
-    app.register_blueprint(views.blueprints.status, url_prefix='/status/')
-    app.register_blueprint(views.blueprints.trip, url_prefix='/trip/')
-    app.register_blueprint(views.blueprints.user, url_prefix='/user/')
+    app.register_blueprint(views.general)
+    app.register_blueprint(views.api, url_prefix='/api/')
+    app.register_blueprint(views.status, url_prefix='/status/')
+    app.register_blueprint(views.trip, url_prefix='/trip/')
+    app.register_blueprint(views.user, url_prefix='/user/')
 
     with app.app_context():
         db.init_app(app)
