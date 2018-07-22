@@ -28,7 +28,7 @@ a, a:visited {
     width: 100%;
 }
 
-.form input, textarea {
+.form input, .form textarea, .form__button {
     font-size: var(--base-font-size);
     font-family: var(--font-stack);
     padding: 1em;
@@ -42,6 +42,15 @@ a, a:visited {
 
 .form input[type="submit"] {
     background-color: #dfdfdf;
+}
+
+.form__button {
+    cursor: pointer;
+}
+
+.form__button--active {
+    background-color: blue;
+    color: white;
 }
 
 .header, .main {

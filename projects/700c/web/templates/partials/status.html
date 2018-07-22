@@ -1,6 +1,10 @@
 <div class="status">
   <h3 class="status__title">{{ status.title }}</h3>
   <div class="status__body">
+    {% if status.location is not none %}
+      {# TODO: pull this out into a filter #}
+      <img src="{{status.location.get_map_url()}}"></img>
+    {% endif %}
     {{ status.body }}
   </div>
 </div>

@@ -1,7 +1,37 @@
 <div class="form form--status status__create">
-    <form action="/status/create" method="post">
-        <input type="text" name="title" placeholder="Title your update">
-        <textarea          name="body"  placeholder="Go on..."></textarea>
+    <form action="/status/create" method="post" autocomplete="off">
+        <input type="text"
+               name="title"
+               placeholder="Title your update"
+               required>
+        <textarea name="body"
+                  placeholder="Go on..."
+                  required></textarea>
+        <div class="form__button form__button--location">Include location?</div>
+        <input name="location" type="hidden" id="status__create__location">
         <input type="submit" value="Post">
     </form>
 </div>
+
+<script type="text/javascript">
+ let locationField = document.querySelector('#status__create__location');
+ let locationButton = document.querySelector('.form__button--location');
+
+ locationButton.addEventListener('click', (e) => {
+     if (!navigator.geolocation) return alert("can't locate")
+
+     navigator.geolocation.getCurrentPosition(
+         (position) => {
+             console.log('position:', position)
+             locationButton.classList.add('form__button--active')
+             locationField.value = JSON.stringify({
+                 lat: position.coords.latitude,
+                 lng: position.coords.longitude
+             });
+             console.log('val:', locationField.value)
+
+         },
+         () => { alert('Failed to get location') }
+     )
+ });
+</script>
