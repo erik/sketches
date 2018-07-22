@@ -42,6 +42,7 @@ a, a:visited {
 
 .form input[type="submit"] {
     background-color: #dfdfdf;
+    cursor: pointer;
 }
 
 .form__button {

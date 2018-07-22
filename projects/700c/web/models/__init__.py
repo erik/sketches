@@ -15,12 +15,12 @@ db = SQLAlchemy()
 # TODO: this doesn't belong in models
 class Location:
     MAP_URL_TEMPLATE = \
-        'https://maps.googleapis.com/maps/api/staticmap' \
+        'http://staticmap.openstreetmap.de/staticmap.php'\
         '?center={lat},{lng}'\
         '&zoom=13'\
         '&size=500x300'\
-        '&sensor=false'\
-        '&markers=color:blue|{lat},{lng}'
+        '&markers={lat},{lng},red-pushpin'\
+        '&maptype=mapnik'
 
     def __init__(self, lat, lng):
         self.lat = lat
