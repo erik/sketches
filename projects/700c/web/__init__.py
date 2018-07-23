@@ -1,11 +1,16 @@
+import arrow
 import flask
 
 from web import views
+from web.views import util
 from web.models import db, User
 
 
-def setup_app():
+def setup_app(app):
+    db.init_app(app)
     db.create_all()
+
+    app.template_filter('humanize_date')(util.humanize_date)
 
     # FIXME: for dev only
     User.create('dev', 'dev')
@@ -23,7 +28,6 @@ def create_app(config_file):
     app.register_blueprint(views.user, url_prefix='/user/')
 
     with app.app_context():
-        db.init_app(app)
-        setup_app()
+        setup_app(app)
 
     return app

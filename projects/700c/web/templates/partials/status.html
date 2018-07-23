@@ -1,10 +1,10 @@
 <div class="status">
   <h3 class="status__title">{{ status.title }}</h3>
-  <div class="status__body">
-    {% if status.location is not none %}
-      {# TODO: pull this out into a filter #}
-      <img src="{{status.location.get_map_url()}}"></img>
-    {% endif %}
-    {{ status.body }}
-  </div>
+  <div class="status__timestamp">{{ status.created_at|humanize_date }}</div>
+  {% if status.location is not none %}
+    {# TODO: pull this out into a filter #}
+    <img src="{{status.location.get_map_url()}}"></img>
+  {% endif %}
+
+   <div class="status__body">{{ status.body }}</div>
 </div>

@@ -1,5 +1,6 @@
 import functools
 
+import arrow
 import flask
 
 from web.models import User
@@ -27,3 +28,7 @@ def lookup_request_user():
 
     flask.g.logged_in = user is not None
     flask.g.user = user
+
+
+def humanize_date(date):
+    return arrow.get(date).humanize()

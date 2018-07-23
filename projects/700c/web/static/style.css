@@ -2,6 +2,8 @@
     --font-stack: Helvetica Neue, Helvetica, Arial, sans-serif;
     --base-font-size: 1em;
     --base-text-color: #444;
+    --accent-text-color: deeppink;
+    --line-height: 1.6;
 }
 
 html {
@@ -66,4 +68,13 @@ a, a:visited {
 
 .header__nav ul li {
     display: inline-block;
+}
+
+.status__body {
+    white-space: pre-wrap;
+    line-height: var(--line-height);
+}
+
+.status__timestamp {
+    color: var(--accent-text-color);
 }
