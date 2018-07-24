@@ -4,14 +4,18 @@
   <div class="trip">
     <div class="form form--trip trip__create">
       <form action="/trip/create" method="post" autocomplete="off">
-        <input type="text"
+        <input class="form__input"
+               type="text"
                name="title"
                placeholder="Start a new trip"
                required>
-        <textarea name="description"
+        <textarea class="form__input form__input--textarea"
+                  name="description"
                   placeholder="Description..."
                   required></textarea>
-        <input type="submit" value="Embark">
+        <input class="form__input form__input--submit"
+               type="submit"
+               value="Embark">
       </form>
     </div>
   </div>

@@ -4,9 +4,8 @@
   <div>
     {% if active_trip is not none %}
       {% include 'partials/create_status.html' %}
-      <p>Part of {{ active_trip.title }}</p>
-    {% else %}
-      <p>Part of some unknown trip</p>
+      <h2 class="trip__title">{{ active_trip.title }}</h2>
+
     {% endif %}
 
     {% include 'partials/status_list.html' %}

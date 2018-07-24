@@ -1,6 +1,6 @@
-import collections
 from datetime import datetime as dt
 import json
+import re
 
 import flask
 import sqlalchemy
@@ -119,7 +119,10 @@ class Trip(CommonMixin, db.Model):
     @classmethod
     def create(cls, title, description, user_id):
         return super().create(
-            title=title, description=description, user_id=user_id, active=True)
+            title=title,
+            description=description,
+            user_id=user_id,
+            active=True)
 
     @classmethod
     def get_active(cls, user_id):
@@ -134,6 +137,14 @@ class Trip(CommonMixin, db.Model):
             .query                      \
             .filter_by(user_id=user_id) \
             .paginate(page, per_page, error_out=False)
+
+    @property
+    def slug(self):
+        ''' Really simply URL slugify.
+        "Some great title!" -> "some-great-title"
+        '''
+        stripped = re.sub('\\W', '-', self.title.lower())
+        return re.sub('-+', '-', stripped)
 
 
 class Status(CommonMixin, db.Model):

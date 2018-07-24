@@ -1,5 +1,5 @@
 import flask
-from flask import request
+from flask import request, url_for
 
 from web.models import Status, Trip
 from web.views.util import requires_login, lookup_request_user
@@ -25,11 +25,12 @@ def create():
         description=request.form['description'],
         user_id=flask.g.user.id)
 
-    return flask.redirect(flask.url_for('general.index'))
+    return flask.redirect(url_for('general.index'))
 
 
 @mod.route('/<int:id>', methods=['GET'])
-def view(id):
+@mod.route('/<int:id>-<string:slug>', methods=['GET'])
+def view(id, slug):
     trip = Trip.by_id(id, raise_on_not_found=True)
     return flask.render_template('views/trip.html', **{
         'trip': trip,
@@ -45,6 +46,6 @@ def edit(id):
         if k in request.form
     }
 
-    Trip.update(where=(Trip.ended_at is None), values=values)
+    trip = Trip.update(where=(Trip.ended_at is None), values=values)
 
-    return flask.redirect(flask.url_for('trip.view', id))
+    return flask.redirect(url_for('trip.view', id, trip.slug))

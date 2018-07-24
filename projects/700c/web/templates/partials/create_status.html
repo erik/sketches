@@ -1,35 +1,53 @@
 <div class="form form--status status__create">
     <form action="/status/create" method="post" autocomplete="off">
-        <input type="text"
+        <input class="form__input"
+               type="text"
                name="title"
                placeholder="Title your update"
                required>
-        <textarea name="body"
+        <textarea class="form__input form__input--textarea"
+                  name="body"
                   placeholder="Go on..."
                   required></textarea>
-        <div class="form__button form__button--location">Include location?</div>
-        <input name="location" type="hidden" id="status__create__location">
-        <input type="submit" value="Post">
+        <div class="form__input form__input--location">Include location?</div>
+        <input name="location"
+               type="hidden"
+               id="status__create__location">
+        <input class="form__input form__input--submit"
+               type="submit"
+               value="Post">
     </form>
 </div>
 
 <script type="text/javascript">
+ const PENDING = 'form__input--location--pending';
+ const ACTIVE = 'form__input--location--active';
+
  let locationField = document.querySelector('#status__create__location');
- let locationButton = document.querySelector('.form__button--location');
+ let locationButton = document.querySelector('.form__input--location');
 
  locationButton.addEventListener('click', (e) => {
-     if (!navigator.geolocation) return alert("can't locate")
+     if (!navigator.geolocation) {
+         return alert("Location not available on this device");
+     }
+
+     if (locationField.value !== '') {
+         locationField.value = '';
+         locationButton.classList.remove(ACTIVE);
+         return;
+     }
+
+     locationButton.classList.add(PENDING);
 
      navigator.geolocation.getCurrentPosition(
          (position) => {
-             console.log('position:', position)
-             locationButton.classList.add('form__button--active')
+             locationButton.classList.add(ACTIVE);
+             locationButton.classList.remove(PENDING);
+
              locationField.value = JSON.stringify({
                  lat: position.coords.latitude,
                  lng: position.coords.longitude
              });
-             console.log('val:', locationField.value)
-
          },
          () => { alert('Failed to get location') }
      )
