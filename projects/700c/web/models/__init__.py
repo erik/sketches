@@ -4,6 +4,7 @@ import re
 
 import flask
 import sqlalchemy
+from sqlalchemy.orm import relationship
 from flask_sqlalchemy import SQLAlchemy, Model
 from werkzeug.security import generate_password_hash, \
     check_password_hash
@@ -116,6 +117,8 @@ class Trip(CommonMixin, db.Model):
 
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
+    user = relationship('User')
+
     @classmethod
     def create(cls, title, description, user_id):
         return super().create(
@@ -162,6 +165,9 @@ class Status(CommonMixin, db.Model):
 
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     trip_id = db.Column(db.Integer, db.ForeignKey('trips.id'))
+
+    user = relationship('User')
+    trip = relationship('Trip')
 
     @classmethod
     def create(cls, title, body, user_id, trip_id, location):

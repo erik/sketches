@@ -2,7 +2,7 @@
     --font-stack: Helvetica Neue, Helvetica, Arial, sans-serif;
     --base-font-size: 1em;
     --base-text-color: #444;
-    --accent-text-color: deeppink;
+    --accent-color: deeppink;
     --line-height: 1.6;
 }
 
@@ -41,17 +41,17 @@ a:visited {
     border: 1px solid #dcdcdc;
 }
 
+.form__input--button {
+    background-color: #dfdfdf;
+    cursor: pointer;
+}
+
 .form__input--button:hover {
-    background-color: #fcfcfc;
+    background-color: var(--accent-color);
 }
 
 .form__input--textarea {
     resize: vertical;
-}
-
-.form__input--submit {
-    background-color: #dfdfdf;
-    cursor: pointer;
 }
 
 .form__input--location {
@@ -68,7 +68,8 @@ a:visited {
     color: white;
 }
 
-.header, .main {
+.header,
+.main {
     max-width: 500px;
     margin: 0 auto;
     font-family: var(--font-stack);
@@ -88,7 +89,7 @@ a:visited {
 }
 
 .status__timestamp {
-    color: var(--accent-text-color);
+    color: var(--accent-color);
 
 .trip__title {
     text-align: center;
