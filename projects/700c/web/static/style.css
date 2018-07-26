@@ -2,7 +2,7 @@
     --font-stack: Helvetica Neue, Helvetica, Arial, sans-serif;
     --base-font-size: 1em;
     --base-text-color: #444;
-    --accent-color: deeppink;
+    --accent-color: violet;
     --line-height: 1.6;
 }
 
@@ -83,6 +83,10 @@ a:visited {
     display: inline-block;
 }
 
+.status {
+    margin-bottom: 1em;
+}
+
 .status__body {
     white-space: pre-wrap;
     line-height: var(--line-height);
@@ -90,7 +94,17 @@ a:visited {
 
 .status__timestamp {
     color: var(--accent-color);
+}
+
+.status__title {
+  border-bottom: 0.3em solid var(--accent-color);
+  font-size: 1em;
+  font-weight: bold;
+  font-style: oblique;
+}
 
 .trip__title {
     text-align: center;
+    padding: 1em;
+    background: var(--accent-color);
 }
