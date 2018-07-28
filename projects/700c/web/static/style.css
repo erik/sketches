@@ -3,6 +3,7 @@
     --base-font-size: 1em;
     --base-text-color: #444;
     --accent-color: violet;
+    --light-grey: #dfdfdf;
     --line-height: 1.6;
 }
 
@@ -38,11 +39,11 @@ a:visited {
     font-family: var(--font-stack);
     padding: 1em;
     width: 100%;
-    border: 1px solid #dcdcdc;
+    border: 1px solid var(--light-grey);
 }
 
 .form__input--button {
-    background-color: #dfdfdf;
+    background-color: var(--light-grey);
     cursor: pointer;
 }
 
@@ -59,7 +60,7 @@ a:visited {
 }
 
 .form__input--location--active {
-    background-color: blue;
+    background-color: var(--accent-color);
     color: white;
 }
 
