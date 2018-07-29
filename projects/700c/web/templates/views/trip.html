@@ -1,8 +1,10 @@
 {% extends 'layouts/base.html' %}
 
 {% block content %}
-<h1>{{ trip.title }}</h1>
+  <div class="trip">
+    <h1 class="trip__title">{{ trip.title }}</h1>
+    <p class="trip__description">{{trip.description}}</p>
 
-<p>{{trip.description}}</p>
-
+    {% include 'partials/status_list.html' %}
+  </div>
 {% endblock %}

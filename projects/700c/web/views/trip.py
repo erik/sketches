@@ -12,7 +12,7 @@ mod.before_request(lookup_request_user)
 @mod.route('/')
 @requires_login
 def index(methods=['GET']):
-    return flask.render_template('views/create_trip.html')
+    return flask.render_template('views/create_trip.html', **{})
 
 
 @mod.route('/create', methods=['POST'])
@@ -30,11 +30,12 @@ def create():
 
 @mod.route('/<int:id>', methods=['GET'])
 @mod.route('/<int:id>-<string:slug>', methods=['GET'])
-def view(id, slug):
+def view(id, slug=''):
     trip = Trip.by_id(id, raise_on_not_found=True)
+
     return flask.render_template('views/trip.html', **{
         'trip': trip,
-        'statuses': Status.by_trip_id(trip.id)
+        'statuses': Status.by_trip_id(id)
     })
 
 
