@@ -77,7 +77,7 @@ a:visited {
 }
 
 .header__nav {
-    float: right;
+    text-align: right;
 }
 
 .header__nav ul li {
