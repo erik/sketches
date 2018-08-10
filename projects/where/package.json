@@ -1,0 +1,23 @@
+{
+  "name": "where",
+  "version": "1.0.0",
+  "description": "where are you",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "dotenv": "^6.0.0",
+    "express": "^4.16.3",
+    "express-session": "^1.15.6",
+    "hyperapp": "^1.2.8",
+    "passport": "^0.4.0",
+    "passport-google-oauth": "^1.0.0",
+    "redis": "^2.8.0"
+  },
+  "devDependencies": {
+    "rollup": "^0.64.1"
+  }
+}
