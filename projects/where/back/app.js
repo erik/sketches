@@ -57,8 +57,15 @@ app.get('/auth/google/callback',
         });
 
 app.get('/', (req, res) => {
-    res.send('hi');
+    res.sendFile('/front/index.html', {root: './'});
 });
+
+app.use('/static', express.static('front/build/', {
+    root: './',
+    dotfiles: 'ignore',
+    etag: false,
+    redirect: false
+}));
 
 app.get('/api/where', (req, res) => {
     redis.lrange('where', 0, -1, (err, data) => {

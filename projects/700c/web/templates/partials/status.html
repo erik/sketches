@@ -1,5 +1,12 @@
 <div class="status">
-  <div class="status__title">{{ status.title }}</div>
+
+  <div class="status__header">
+    <div class="status__title"> {{ status.title }} </div>
+
+    {% if g.logged_in %}
+      <div class="status__action">...</div>
+    {% endif %}
+  </div>
   <div class="status__meta">
     by {{ status.user.name }}
     <span class="status__timestamp">{{ status.created_at|humanize_date }}</span>

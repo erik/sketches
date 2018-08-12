@@ -98,10 +98,20 @@ a:visited {
 }
 
 .status__title {
-  border-bottom: 0.3em solid var(--accent-color);
-  font-size: 1em;
-  font-weight: bold;
-  font-style: oblique;
+    font-size: 1em;
+    font-weight: bold;
+    font-style: oblique;
+}
+
+.status__header {
+    width: 100%;
+    display: inline-block;
+    border-bottom: 0.3em solid var(--accent-color);
+}
+
+.status__action {
+    display: inline-block;
+    text-align: right;
 }
 
 .trip__title {
