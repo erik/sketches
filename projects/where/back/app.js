@@ -4,6 +4,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
 const express = require('express');
 const session = require('express-session');
+const bodyParser = require('body-parser');
 
 require('dotenv').config();
 
@@ -31,9 +32,11 @@ passport.deserializeUser((user, done) => done(null, user));
 
 const app = express();
 
+app.use(bodyParser.urlencoded({extended: true}));
+
 app.use(session({
     secret: process.env.SESSION_SECRET,
-    saveUnitialized: true,
+    saveUninitialized: true,
     resave: true
 }));
 
@@ -67,11 +70,11 @@ app.use('/static', express.static('front/build/', {
     redirect: false
 }));
 
-app.get('/api/where', (req, res) => {
+app.get('/where', (req, res) => {
     redis.lrange('where', 0, -1, (err, data) => {
         if (err !== null) {
             console.error('lrange failed', err);
-            return res.abort(500);
+            return res.sendStatus(500);
         }
 
         return res.send({
@@ -80,8 +83,14 @@ app.get('/api/where', (req, res) => {
     });
 });
 
-app.post('/api/here', (req, res) => {
-    if (!res.session.loggedIn) return res.abort(403);
+app.get('/here', (req, res) => {
+    if (!req.session.loggedIn) return res.redirect('/login');
+
+    return res.sendFile('/front/here.html', {root: './'});
+});
+
+app.post('/here', (req, res) => {
+    if (!req.session.loggedIn) return res.sendStatus(403);
 
     const point = JSON.stringify({
         lat: req.body.lat,
@@ -93,9 +102,9 @@ app.post('/api/here', (req, res) => {
     return redis.lpush('where', point, (err) => {
         if (err !== null) {
             console.error('lpush failed', err);
-            res.abort(500);
+            res.sendStatus(500);
         } else {
-            res.send({});
+            res.redirect('/');
         }
     });
 });
