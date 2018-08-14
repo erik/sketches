@@ -1,0 +1,35 @@
+<!doctype html>
+
+<head>
+  <title>Where are you?</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+      body { max-width: 400px; margin: 0 auto; font-family: sans-serif; }
+      form { width: 100%; }
+      input { width: 100%; box-sizing: border-box; margin-bottom: 1em; padding: 1em; }
+  </style>
+</head>
+
+<h1>You are here.</h1>
+
+<form action="/here" method="post" autocomplete="off">
+    <input name="comment" type="text" placeholder="leave a note">
+    <input name="lat" type="hidden" required>
+    <input name="lng" type="hidden" required>
+    <input type="hidden" value="post">
+</form>
+
+<script type="text/javascript">
+ (function() {
+   if (!navigator.geolocation) return alert("geolocation not available");
+
+   navigator.geolocation.getCurrentPosition(
+     pos => {
+       document.querySelector('input[name="lat"]').value = pos.coords.latitude;
+       document.querySelector('input[name="lng"]').value = pos.coords.longitude;
+       document.querySelector('input[value="post"]').type = 'submit';
+     },
+     err => { console.error(err); alert(`geolocation failed`); }
+   );
+ })()
+</script>

@@ -5,23 +5,21 @@ const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
 const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
+const redis = require('redis').createClient();
+const escapeHtml = require('escape-html');
 
 require('dotenv').config();
 
-const redis = require('redis').createClient();
 
-// TODO: Probably some kind of error handling here.
 redis.on('error', (err) => console.error(`redis error: ${err}`));
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_SECRET_ID,
-    callbackURL: process.env.BASE_URL + '/auth/google/callback'
-}, (_1, _2, profile, done) => {
-    console.log('received profile: ', profile);
-
-    if (profile.emails.some(e => e.value === process.env.GOOGLE_EMAIL)) {
-        return done(null, profile.id);
+    callbackURL: process.env.BASE_URL + '/who/google/callback'
+}, (_1, _2, {emails, id}, done) => {
+    if (emails.some(e => e.value === process.env.GOOGLE_EMAIL)) {
+        return done(null, id);
     }
 
     return done('who are you');
@@ -43,32 +41,18 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get('/login', (req, res) => {
-    res.contentType('text/html');
-    res.send(`<a href="/auth/google">log in</a>`);
-});
-
-app.get('/auth/google', passport.authenticate('google', {
+app.get('/who', passport.authenticate('google', {
     scope: ['email']
 }));
 
-app.get('/auth/google/callback',
-        passport.authenticate('google', { failureRedirect: '/login' }),
+app.get('/who/google/callback',
+        passport.authenticate('google', { failureRedirect: '/who' }),
         (req, res) => {
             req.session.loggedIn = true;
-            res.redirect('/');
+            res.redirect('/here');
         });
 
-app.get('/', (req, res) => {
-    res.sendFile('/front/index.html', {root: './'});
-});
-
-app.use('/static', express.static('front/build/', {
-    root: './',
-    dotfiles: 'ignore',
-    etag: false,
-    redirect: false
-}));
+app.get('/', (req, res) => { res.sendFile(__dirname + '/where.html'); });
 
 app.get('/where', (req, res) => {
     redis.lrange('where', 0, -1, (err, data) => {
@@ -84,9 +68,8 @@ app.get('/where', (req, res) => {
 });
 
 app.get('/here', (req, res) => {
-    if (!req.session.loggedIn) return res.redirect('/login');
-
-    return res.sendFile('/front/here.html', {root: './'});
+    if (!req.session.loggedIn) return res.redirect('/who');
+    return res.sendFile(__dirname + '/here.html');
 });
 
 app.post('/here', (req, res) => {
@@ -95,7 +78,7 @@ app.post('/here', (req, res) => {
     const point = JSON.stringify({
         lat: req.body.lat,
         lng: req.body.lng,
-        comment: req.body.comment,
+        comment: escapeHtml(req.body.comment),
         ts: new Date()
     });
 
