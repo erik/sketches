@@ -1,19 +1,19 @@
 /* jshint esversion: 6 */
 
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
-const express = require('express');
-const session = require('express-session');
 const bodyParser = require('body-parser');
-const redis = require('redis').createClient();
 const escapeHtml = require('escape-html');
+const express = require('express');
+const moment = require('moment');
+const passport = require('passport');
+const passportGoogle = require('passport-google-oauth');
+const redis = require('redis').createClient();
+const session = require('express-session');
 
 require('dotenv').config();
 
-
 redis.on('error', (err) => console.error(`redis error: ${err}`));
 
-passport.use(new GoogleStrategy({
+passport.use(new passportGoogle.OAuth2Strategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_SECRET_ID,
     callbackURL: process.env.BASE_URL + '/who/google/callback'
