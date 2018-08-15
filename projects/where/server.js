@@ -3,6 +3,7 @@
 const bodyParser = require('body-parser');
 const escapeHtml = require('escape-html');
 const express = require('express');
+const morgan = require('morgan');
 const passport = require('passport');
 const passportGoogle = require('passport-google-oauth');
 const redis = require('redis').createClient();
@@ -29,6 +30,7 @@ passport.deserializeUser((user, done) => done(null, user));
 
 const app = express();
 
+app.use(morgan('tiny'));
 app.use(bodyParser.urlencoded({extended: true}));
 
 app.use(session({
