@@ -3,7 +3,6 @@
 const bodyParser = require('body-parser');
 const escapeHtml = require('escape-html');
 const express = require('express');
-const moment = require('moment');
 const passport = require('passport');
 const passportGoogle = require('passport-google-oauth');
 const redis = require('redis').createClient();
