@@ -18,8 +18,13 @@
 <script type="text/javascript">
  const map = L.map('map').setView([34, -118], 10);
 
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
-  .addTo(map);
+ L.tileLayer(
+   'https://stamen-tiles-{s}.a.ssl.fastly.net/toner-lite/{z}/{x}/{y}{r}.png', {
+     attribution: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+     subdomains: 'abcd',
+     minZoom: 0,
+     maxZoom: 20
+   }).addTo(map);
 
  fetch('/where')
    .then(data => data.json())
@@ -44,5 +49,5 @@
 
 <style>
  body { padding: 0; margin: 0; }
- #map { width: 100vw; height: 100vh;}
+ #map { width: 100vw; height: 100vh; }
 </style>
