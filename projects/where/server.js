@@ -64,7 +64,6 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 function requireAuth(req, res, next) {
-  return next();
   if (!req.session.loggedIn) {
     return res.redirect('/who');
   }
@@ -121,16 +120,18 @@ app.get('/', (req, res) => {
     .catch(() => res.sendStatus(500));
 });
 
-app.get('/who', passport.authenticate('google', { scope: ['email'] }));
+const passportAuthenticate = passport.authenticate('google', {
+  scope: ['email'],
+  failureRedirect: '/who'
+});
 
-app.get(
-  '/who/google/callback',
-  passport.authenticate('google', { failureRedirect: '/who' }),
-  (req, res) => {
-    req.session.loggedIn = true;
-    res.redirect('/here');
-  }
-);
+app.get('/who', passportAuthenticate);
+
+app.get('/who/google/callback', passportAuthenticate, (req, res) => {
+  req.session.loggedIn = true;
+  res.redirect('/here');
+});
+
 app.get('/here', requireAuth, (req, res) => {
   where()
     .then(points => res.render('here.html', { points }))
