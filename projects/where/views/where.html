@@ -1,7 +1,7 @@
 <!doctype html>
 
 <head>
-    <title>Where is Erik?</title>
+    <title>Where is {{ who }}?</title>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.3/dist/leaflet.css"
@@ -30,10 +30,7 @@
    maxZoom: 19
  }).addTo(map);
 
- fetch('/where')
-   .then(data => data.json())
-   .then(json => json.where)
-   .then(points => {
+ function addPoints (points) {
      if (points.length === 0) return;
 
      L.polyline(points.map(it => [it.lat, it.lng])).addTo(map);
@@ -49,6 +46,10 @@
 
      const last = points.shift()
      map.setView([last.lat, last.lng], 10);
-   })
-   .catch(err => { alert(`Failed to get coordinates: ${err}`); });
+   }
+</script>
+
+
+<script>
+ addPoints({{ json points }});
 </script>

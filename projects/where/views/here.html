@@ -31,6 +31,22 @@
     <input class="hidden" type="submit" value="post">
 </form>
 
+{{#if points.length}}
+<h2>Previously...</h2>
+
+<ul style="list-style: none;">
+  {{#each points }}
+  <li>
+    <em>{{ humanize ts }}</em> -
+    {{ withDefault comment "no comment" }}
+    <a class="delete" data-key="{{ key }}" href="#" onclick="return false;">
+        delete
+    </a>
+  </li>
+  {{/each}}
+</ul>
+{{/if}}
+
 <script type="text/javascript">
  (function() {
    if (!navigator.geolocation) return alert("geolocation not available");
@@ -52,5 +68,13 @@
      },
      err => { console.error(err); alert(`geolocation failed`); }
    );
+
+   for (const link of document.querySelectorAll('.delete')) {
+     link.addEventListener('click', (e) => {
+       fetch(`/here/${e.target.dataset.key}/delete`, { method: 'POST' })
+         .then(() => window.location.reload())
+         .catch(err => alert(err.toString()));
+     })
+   }
  })()
 </script>

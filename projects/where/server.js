@@ -3,7 +3,10 @@
 const bodyParser = require('body-parser');
 const escapeHtml = require('escape-html');
 const express = require('express');
+const expressHandlebars = require('express-handlebars');
+const handlebars = require('handlebars');
 const morgan = require('morgan');
+const moment = require('moment');
 const passport = require('passport');
 const passportGoogle = require('passport-google-oauth');
 const redis = require('redis').createClient();
@@ -12,6 +15,25 @@ const session = require('express-session');
 require('dotenv').config();
 
 redis.on('error', (err) => console.error(`redis error: ${err}`));
+
+const app = express();
+
+app.use(morgan('common'));
+app.use(bodyParser.urlencoded({extended: true}));
+app.engine('html', expressHandlebars({
+    helpers: {
+        withDefault: (a, b) => a || b,
+        humanize: (ts) => moment(ts).fromNow(),
+        json: (val) => new handlebars.SafeString(JSON.stringify(val))
+    }
+}));
+app.set('view engine', 'handlebars');
+
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    saveUninitialized: true,
+    resave: true
+}));
 
 passport.use(new passportGoogle.OAuth2Strategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -28,23 +50,69 @@ passport.use(new passportGoogle.OAuth2Strategy({
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
-const app = express();
-
-app.use(morgan('common'));
-app.use(bodyParser.urlencoded({extended: true}));
-
-app.use(session({
-    secret: process.env.SESSION_SECRET,
-    saveUninitialized: true,
-    resave: true
-}));
-
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get('/who', passport.authenticate('google', {
-    scope: ['email']
-}));
+
+function requireAuth (req, res, next) {
+    return next();
+    if (!req.session.loggedIn) {
+        return res.redirect('/who');
+    }
+
+    return next();
+}
+
+function where () {
+    return new Promise((resolve, reject) => {
+        redis.hgetall('where', (err, data) => {
+            if (err !== null) {
+                console.error('hgetall failed', err);
+                return reject(err);
+            }
+
+            return resolve(
+                Object.values(data || {})
+                    .map(d => JSON.parse(d))
+                    .sort((a, b) => -a.ts.localeCompare(b.ts)));
+        });
+    });
+}
+
+function here (lat, lng, comment) {
+    const createdAt = new Date();
+    const redisKey = createdAt.toISOString();
+
+    const point = JSON.stringify({
+        lat,
+        lng,
+        comment: escapeHtml(comment),
+        ts: createdAt,
+        key: redisKey
+    });
+
+
+    return new Promise((resolve, reject) => {
+        redis.hset('where', redisKey, point, (err) => {
+            if (err !== null) {
+                console.error('hset failed', err);
+                return reject(err);
+            }
+
+            return resolve(null);
+        });
+    });
+}
+
+app.get('/', (req, res) => {
+    where()
+        .then((points) => {
+            res.render('where.html', { who: process.env.WHO, points });
+        })
+        .catch(() => res.sendStatus(500));
+});
+
+app.get('/who', passport.authenticate('google', { scope: ['email'] }));
 
 app.get('/who/google/callback',
         passport.authenticate('google', { failureRedirect: '/who' }),
@@ -52,44 +120,28 @@ app.get('/who/google/callback',
             req.session.loggedIn = true;
             res.redirect('/here');
         });
+app.get('/here', requireAuth, (req, res) => {
+    where()
+        .then((points) => res.render('here.html', { points }))
+        .catch(() => res.sendStatus(500));
+});
 
-app.get('/', (req, res) => { res.sendFile(__dirname + '/where.html'); });
+app.post('/here', requireAuth, (req, res) => {
+    here(req.body.lat, req.body.lng, req.body.comment)
+        .then(() => res.redirect('/'))
+        .catch(() => res.sendStatus(500));
+});
 
-app.get('/where', (req, res) => {
-    redis.lrange('where', 0, -1, (err, data) => {
+app.post('/here/:id/delete', requireAuth, (req, res) => {
+    if (!req.params.id) return res.sendStatus(400);
+
+    redis.hdel('where', req.params.id, (err) => {
         if (err !== null) {
-            console.error('lrange failed', err);
+            console.error('hdel failed', err);
             return res.sendStatus(500);
         }
 
-        return res.send({
-            where: data.map(d => JSON.parse(d))
-        });
-    });
-});
-
-app.get('/here', (req, res) => {
-    if (!req.session.loggedIn) return res.redirect('/who');
-    return res.sendFile(__dirname + '/here.html');
-});
-
-app.post('/here', (req, res) => {
-    if (!req.session.loggedIn) return res.sendStatus(403);
-
-    const point = JSON.stringify({
-        lat: req.body.lat,
-        lng: req.body.lng,
-        comment: escapeHtml(req.body.comment),
-        ts: new Date()
-    });
-
-    return redis.lpush('where', point, (err) => {
-        if (err !== null) {
-            console.error('lpush failed', err);
-            res.sendStatus(500);
-        } else {
-            res.redirect('/');
-        }
+        return res.redirect('/here');
     });
 });
 
