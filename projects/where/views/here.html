@@ -13,8 +13,9 @@
 
   <style>
       body { padding: 1em; max-width: 400px; margin: 0 auto; font-family: sans-serif; }
-      form { width: 100%; }
+      form { margin-top: 1em; width: 100%; }
       input { width: 100%; box-sizing: border-box; margin-bottom: 1em; padding: 1em; }
+      input[type="submit"] { padding: 1em; background: #94d2ff; border: none; }
       .hidden { visibility: hidden; }
       #map { width: 100%; height: 30vh; }
   </style>
@@ -28,7 +29,7 @@
     <input name="comment" type="text" placeholder="leave a note">
     <input name="lat" type="hidden" required>
     <input name="lng" type="hidden" required>
-    <input class="hidden" type="submit" value="post">
+    <input class="hidden" type="submit" value="post location">
 </form>
 
 {{#if points.length}}
