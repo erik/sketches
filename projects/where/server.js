@@ -30,7 +30,7 @@ passport.deserializeUser((user, done) => done(null, user));
 
 const app = express();
 
-app.use(morgan('tiny'));
+app.use(morgan('common'));
 app.use(bodyParser.urlencoded({extended: true}));
 
 app.use(session({
