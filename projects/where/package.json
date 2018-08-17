@@ -19,5 +19,8 @@
     "passport-google-oauth": "^1.0.0",
     "redis": "^2.8.0"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "prettier": {
+    "singleQuote": true
+  }
 }
