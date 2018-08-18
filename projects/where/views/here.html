@@ -39,7 +39,7 @@
   {{#each points }}
   <li>
     <em>{{ humanize ts }}</em> -
-    {{ withDefault comment "no comment" }}
+    {{#if comment.length }} {{ unsafe comment }} {{ else }} "no comment" {{/if}}
     <a class="delete" data-key="{{ key }}" href="#" onclick="return false;">
         delete
     </a>

@@ -24,9 +24,9 @@ app.engine(
   'html',
   expressHandlebars({
     helpers: {
-      withDefault: (a, b) => a || b,
       humanize: ts => moment(ts).fromNow(),
-      json: val => new handlebars.SafeString(JSON.stringify(val))
+      json: val => new handlebars.SafeString(JSON.stringify(val)),
+      unsafe: val => new handlebars.SafeString(val)
     }
   })
 );
