@@ -36,7 +36,8 @@ app.use(
   session({
     secret: process.env.SESSION_SECRET,
     saveUninitialized: true,
-    resave: true
+    resave: false,
+    maxAge: 365 * 24 * 60 * 60 * 1000  // ~1 year
   })
 );
 
