@@ -17,6 +17,7 @@
       input { width: 100%; box-sizing: border-box; margin-bottom: 1em; padding: 1em; }
       input[type="submit"] { padding: 1em; background: #94d2ff; border: none; cursor: pointer; -webkit-appearance: none; }
       .hidden { visibility: hidden; }
+      .comment { margin: 1em 0; }
       #map { width: 100%; height: 30vh; }
   </style>
 </head>
@@ -35,17 +36,21 @@
 {{#if points.length}}
 <h2>Previously...</h2>
 
-<ul style="list-style: none;">
-  {{#each points }}
-  <li>
+{{#each points }}
+<div class="comment">
+  <div>
     <em>{{ humanize ts }}</em> -
-    {{#if comment.length }} {{ unsafe comment }} {{ else }} "no comment" {{/if}}
     <a class="delete" data-key="{{ key }}" href="#" onclick="return false;">
-        delete
+      delete
     </a>
-  </li>
-  {{/each}}
-</ul>
+  </div>
+
+  <div>
+    {{#if comment.length }} {{ unsafe comment }} {{ else }} "no comment" {{/if}}
+  </div>
+</div>
+{{/each}}
+
 {{/if}}
 
 <script type="text/javascript">
