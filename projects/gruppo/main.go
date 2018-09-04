@@ -38,4 +38,10 @@ func main() {
 
 	fmt.Printf("The config value is: %v\n", config)
 	fmt.Printf("This provider is: %v\n", provider)
+
+	files, _ := provider.List()
+
+	for f := range files {
+		fmt.Printf("File: %s\n", f)
+	}
 }

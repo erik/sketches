@@ -3,10 +3,10 @@ package providers
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"io/ioutil"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -40,6 +40,40 @@ func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
 	return provider
 }
 
+func (p GoogleDriveProvider) List() (<-chan string, <-chan error) {
+	files := make(chan string, 1)
+	errors := make(chan error, 1)
+
+	go func() {
+		defer close(files)
+		defer close(errors)
+
+		pageToken := ""
+		query := p.service.Files.List().PageSize(1000).Fields("nextPageToken, files(id, name)")
+
+		for {
+			if res, err := query.Do(); err != nil {
+				errors <- err
+				break
+			} else {
+				for _, f := range res.Files {
+					files <- f.Name
+				}
+
+				pageToken = res.NextPageToken
+			}
+
+			if pageToken == "" {
+				break
+			}
+
+			query = query.PageToken(pageToken)
+		}
+	}()
+
+	return files, errors
+}
+
 func readConfigFile(filePath string) (*oauth2.Config, error) {
 	data, err := ioutil.ReadFile(filePath)
 
@@ -67,7 +101,6 @@ func getClient(config *oauth2.Config) *http.Client {
 
 	return config.Client(context.Background(), tok)
 }
-
 
 // Request a token from the web, then returns the retrieved token.
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
