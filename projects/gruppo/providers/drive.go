@@ -12,6 +12,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"io"
 )
 
 type GoogleDriveProvider struct {
@@ -20,6 +21,7 @@ type GoogleDriveProvider struct {
 }
 
 const (
+	MIME_TYPE_DOCX         = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	MIME_TYPE_DRIVE_FOLDER = "application/vnd.google-apps.folder"
 	MIME_TYPE_DRIVE_DOC    = "application/vnd.google-apps.document"
 )
@@ -44,9 +46,24 @@ func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
 	return provider
 }
 
-// Recursively list all Google Doc files nested under `folderId`. Implemented as breadth first search.
-func (p GoogleDriveProvider) List(folderId string) (<-chan string, <-chan error) {
-	files := make(chan string, 1)
+func (p GoogleDriveProvider) ExportAsDocx(file ProviderFile) (io.Reader, error) {
+	log.Printf("[INFO] exporting %s as .docx", file.Name)
+
+	res, err := p.service.Files.
+		Export(file.Id, MIME_TYPE_DOCX).
+		Download()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return res.Body, nil
+}
+
+// Recursively list all Google Doc files nested under `folderId`.
+// Implemented as breadth first search.
+func (p GoogleDriveProvider) List(folderId string) (<-chan ProviderFile, <-chan error) {
+	files := make(chan ProviderFile, 1)
 	errors := make(chan error, 1)
 
 	go func() {
@@ -84,7 +101,7 @@ func (p GoogleDriveProvider) List(folderId string) (<-chan string, <-chan error)
 						folders = append(folders, f.Id)
 
 					case MIME_TYPE_DRIVE_DOC:
-						files <- f.Name
+						files <- ProviderFile{f.Name, f.Id}
 
 					default:
 						log.Printf("[INFO] skipping object of unknown type (%s): %v\n", f.MimeType, f)

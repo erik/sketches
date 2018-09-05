@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"io/ioutil"
 	"log"
+	"os"
 
 	"github.com/BurntSushi/toml"
 
@@ -49,6 +49,6 @@ func main() {
 	files, _ := provider.List(directory)
 
 	for f := range files {
-		fmt.Printf("File: %s\n", f)
+		fmt.Printf("File: %s %s \n", f.Id, f.Name)
 	}
 }
