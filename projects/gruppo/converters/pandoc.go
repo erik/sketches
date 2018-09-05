@@ -5,7 +5,7 @@ import (
 	"os/exec"
 )
 
-var PandocArgs []string = []string{
+var PandocArgs = []string{
 	"-f", "docx", // from docx
 	"-t", "markdown", // to markdown
 	"-s", // standalone

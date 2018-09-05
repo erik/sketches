@@ -21,9 +21,9 @@ type GoogleDriveProvider struct {
 }
 
 const (
-	MIME_TYPE_DOCX         = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	MIME_TYPE_DRIVE_FOLDER = "application/vnd.google-apps.folder"
-	MIME_TYPE_DRIVE_DOC    = "application/vnd.google-apps.document"
+	MimeTypeDocx        = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	MimeTypeDriveFolder = "application/vnd.google-apps.folder"
+	MimeTypeDriveDoc    = "application/vnd.google-apps.document"
 )
 
 func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
@@ -50,7 +50,7 @@ func (p GoogleDriveProvider) ExportAsDocx(file ProviderFile) (io.Reader, error) 
 	log.Printf("[INFO] exporting %s as .docx", file.Name)
 
 	res, err := p.service.Files.
-		Export(file.Id, MIME_TYPE_DOCX).
+		Export(file.Id, MimeTypeDocx).
 		Download()
 
 	if err != nil {
@@ -70,7 +70,7 @@ func (p GoogleDriveProvider) List(folderId string) (<-chan ProviderFile, <-chan 
 		defer close(files)
 		defer close(errors)
 
-		var currentFolder string = ""
+		var currentFolder string
 
 		// Ids of folders that we haven't explored yet
 		folders := []string{folderId}
@@ -96,11 +96,11 @@ func (p GoogleDriveProvider) List(folderId string) (<-chan ProviderFile, <-chan 
 
 				for _, f := range result.Files {
 					switch f.MimeType {
-					case MIME_TYPE_DRIVE_FOLDER:
+					case MimeTypeDriveFolder:
 						log.Printf("[INFO] queuing directory: %s\n", f.Name)
 						folders = append(folders, f.Id)
 
-					case MIME_TYPE_DRIVE_DOC:
+					case MimeTypeDriveDoc:
 						files <- ProviderFile{f.Name, f.Id}
 
 					default:
