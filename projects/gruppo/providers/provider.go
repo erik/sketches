@@ -6,6 +6,6 @@ import (
 
 // TODO: Should be named something else
 type Provider interface {
-	List() (<-chan string, <-chan error)
-	FetchFile(name string) (*io.Reader, error)
+	List(directory string) (<-chan string, <-chan error)
+	ExportFile(name string) (*io.Reader, error)
 }

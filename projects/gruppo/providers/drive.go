@@ -11,7 +11,6 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-
 	"google.golang.org/api/drive/v3"
 )
 
@@ -19,6 +18,11 @@ type GoogleDriveProvider struct {
 	token   *oauth2.Token
 	service *drive.Service
 }
+
+const (
+	MIME_TYPE_DRIVE_FOLDER = "application/vnd.google-apps.folder"
+	MIME_TYPE_DRIVE_DOC    = "application/vnd.google-apps.document"
+)
 
 func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
 	config, err := readConfigFile(filePath)
@@ -40,7 +44,8 @@ func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
 	return provider
 }
 
-func (p GoogleDriveProvider) List() (<-chan string, <-chan error) {
+// Recursively list all Google Doc files nested under `folderId`. Implemented as breadth first search.
+func (p GoogleDriveProvider) List(folderId string) (<-chan string, <-chan error) {
 	files := make(chan string, 1)
 	errors := make(chan error, 1)
 
@@ -48,26 +53,50 @@ func (p GoogleDriveProvider) List() (<-chan string, <-chan error) {
 		defer close(files)
 		defer close(errors)
 
-		pageToken := ""
-		query := p.service.Files.List().PageSize(1000).Fields("nextPageToken, files(id, name)")
+		var currentFolder string = ""
 
-		for {
-			if res, err := query.Do(); err != nil {
-				errors <- err
-				break
-			} else {
-				for _, f := range res.Files {
-					files <- f.Name
+		// Ids of folders that we haven't explored yet
+		folders := []string{folderId}
+
+		for len(folders) > 0 {
+			currentFolder, folders = folders[0], folders[1:]
+			log.Printf("[INFO] exploring folder: %s\n", currentFolder)
+
+			pageToken := ""
+
+			query := p.service.Files.
+				List().
+				PageSize(1000).
+				Fields("nextPageToken, files(id, name, mimeType)").
+				Q(fmt.Sprintf("parents in \"%s\"", currentFolder))
+
+			for {
+				result, err := query.Do()
+				if err != nil {
+					errors <- err
+					return
 				}
 
-				pageToken = res.NextPageToken
-			}
+				for _, f := range result.Files {
+					switch f.MimeType {
+					case MIME_TYPE_DRIVE_FOLDER:
+						log.Printf("[INFO] queuing directory: %s\n", f.Name)
+						folders = append(folders, f.Id)
 
-			if pageToken == "" {
-				break
-			}
+					case MIME_TYPE_DRIVE_DOC:
+						files <- f.Name
 
-			query = query.PageToken(pageToken)
+					default:
+						log.Printf("[INFO] skipping object of unknown type (%s): %v\n", f.MimeType, f)
+					}
+				}
+
+				if pageToken = result.NextPageToken; pageToken == "" {
+					break
+				}
+
+				query = query.PageToken(pageToken)
+			}
 		}
 	}()
 

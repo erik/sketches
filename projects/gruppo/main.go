@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"io/ioutil"
 	"log"
 
@@ -33,13 +34,19 @@ func readConfiguration() Configuration {
 }
 
 func main() {
+	if len(os.Args) != 2 {
+		log.Fatal("usage: gruppo [dir]")
+	}
+
+	directory := os.Args[1]
+
 	config := readConfiguration()
 	provider := providers.NewGoogleDriveProvider("secrets/credentials.json")
 
 	fmt.Printf("The config value is: %v\n", config)
 	fmt.Printf("This provider is: %v\n", provider)
 
-	files, _ := provider.List()
+	files, _ := provider.List(directory)
 
 	for f := range files {
 		fmt.Printf("File: %s\n", f)
