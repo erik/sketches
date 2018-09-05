@@ -44,13 +44,17 @@ func main() {
 
 	directory := os.Args[1]
 
-	config := readConfiguration()
 	provider := providers.NewGoogleDriveProvider("secrets/credentials.json")
 
-	fmt.Printf("The config value is: %v\n", config)
-	fmt.Printf("This provider is: %v\n", provider)
-
 	files, _ := provider.List(directory)
+
+	tempDir, err := ioutil.TempDir("/tmp", "exported-media")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer os.RemoveAll(tempDir)
+	log.Printf("temp directory is: %v\n", tempDir)
 
 	for f := range files {
 		fmt.Printf("File: %s %s \n", f.Id, f.Name)
@@ -60,17 +64,16 @@ func main() {
 			log.Fatal(err)
 		}
 
-		tempDir, err := ioutil.TempDir("/tmp", "exported-media")
-		if err != nil {
+		path := filepath.Join(tempDir, f.Id)
+		if err := os.Mkdir(path, os.ModePerm); err != nil {
 			log.Fatal(err)
 		}
 
-		defer os.RemoveAll(tempDir)
-		log.Printf("temp directory is: %v\n", tempDir)
+		inputFileName := filepath.Join(path, "input.docx")
+		outputFileName := filepath.Join(path, "output.md")
+		mediaPath := filepath.Join(path, "media")
 
-		baseFile := filepath.Join(tempDir, f.Name)
-
-		inputFile, err := os.Create(baseFile + ".docx")
+		inputFile, err := os.Create(inputFileName)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -79,10 +82,16 @@ func main() {
 		io.Copy(writer, reader)
 		writer.Flush()
 
-		if err := converters.ConvertDocx(baseFile+".docx", baseFile+".md", tempDir); err != nil {
+		err = converters.ConvertDocx(inputFileName, outputFileName, mediaPath)
+		if err != nil {
 			log.Fatal(err)
 		}
 
 		writer.Flush()
 	}
+
+	log.Printf("Hit enter to clean up")
+
+	var ignored string
+	fmt.Scanln(&ignored)
 }

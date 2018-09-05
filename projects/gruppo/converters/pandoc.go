@@ -3,22 +3,24 @@ package converters
 import (
 	"log"
 	"os/exec"
+	"strings"
 )
-
-var PandocArgs = []string{
-	"-f", "docx", // from docx
-	"-t", "markdown", // to markdown
-	"-s", // standalone
-}
 
 // Suckily, pandoc can't read .docx from streams, so we have to use a file
 // interface.
 func ConvertDocx(inputFile string, outputFile string, mediaDir string) error {
-	args := append(PandocArgs,
+	args := []string{
+		// from docx
+		"-f", "docx",
+		// to markdown
+		"-t", "markdown",
+		// standalone file (include frontmatter)
+		"-s",
 		"--extract-media", mediaDir,
 		"-i", inputFile,
 		"-o", outputFile,
-	)
+	}
+
 	cmd := exec.Command("pandoc", args...)
 
 	out, err := cmd.CombinedOutput()
@@ -27,7 +29,12 @@ func ConvertDocx(inputFile string, outputFile string, mediaDir string) error {
 		return err
 	}
 
-	log.Printf("pandoc: %s\n", out)
+	// Show pandoc output
+	if len(out) > 0 {
+		for _, line := range strings.Split(string(out), "\n") {
+			log.Printf("%s\n", line)
+		}
+	}
 
 	return nil
 }
