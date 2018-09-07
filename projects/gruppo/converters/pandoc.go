@@ -32,7 +32,7 @@ func ConvertDocx(inputFile string, outputFile string, mediaDir string) error {
 	// Show pandoc output
 	if len(out) > 0 {
 		for _, line := range strings.Split(string(out), "\n") {
-			log.Printf("%s\n", line)
+			log.Println(line)
 		}
 	}
 

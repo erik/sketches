@@ -49,6 +49,7 @@ func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
 func (p GoogleDriveProvider) ExportAsDocx(file ProviderFile) (io.Reader, error) {
 	log.Printf("[INFO] exporting %s as .docx", file.Name)
 
+	// TODO: Support large file download via chunked transfer.
 	res, err := p.service.Files.
 		Export(file.Id, MimeTypeDocx).
 		Download()
