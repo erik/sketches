@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+type PostData struct {
+	Meta struct {
+		Title    string
+		Subtitle string
+		Author   string
+		Date     string
+	}
+
+	Content string
+}
+
 // Suckily, pandoc can't read .docx from streams, so we have to use a file
 // interface.
 func ConvertDocx(inputFile string, outputFile string, mediaDir string) error {
@@ -14,7 +25,7 @@ func ConvertDocx(inputFile string, outputFile string, mediaDir string) error {
 		"-f", "docx",
 		// to markdown
 		"-t", "markdown",
-		// standalone file (include frontmatter)
+		// standalone file (including meta)
 		"-s",
 		"--extract-media", mediaDir,
 		"-i", inputFile,

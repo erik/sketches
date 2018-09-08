@@ -5,8 +5,10 @@ import (
 )
 
 type ProviderFile struct {
-	Name string
-	Id   string
+	Id     string
+	Name   string
+	Path   string
+	Author string
 }
 
 // TODO: Should be named something else

@@ -3,16 +3,17 @@ package providers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
-	"io"
 )
 
 type GoogleDriveProvider struct {
@@ -61,62 +62,81 @@ func (p GoogleDriveProvider) ExportAsDocx(file ProviderFile) (io.Reader, error) 
 	return res.Body, nil
 }
 
+type driveFolder struct {
+	path string
+	id   string
+}
+
+func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, errors chan error) {
+	defer close(files)
+	defer close(errors)
+
+	var currentFolder driveFolder
+
+	// Ids of folders that we haven't explored yet
+	folders := []driveFolder{driveFolder{
+		id:   rootId,
+		path: "",
+	}}
+
+	for len(folders) > 0 {
+		currentFolder, folders = folders[0], folders[1:]
+
+		log.Printf("[INFO] exploring folder: %v\n", currentFolder)
+
+		tok := ""
+
+		query := p.service.Files.
+			List().
+			PageSize(1000).
+			Fields("nextPageToken, files(id, name, mimeType, lastModifyingUser(displayName))").
+			Q(fmt.Sprintf("parents in \"%s\"", currentFolder.id))
+
+		for {
+			result, err := query.Do()
+			if err != nil {
+				errors <- err
+				return
+			}
+
+			for _, f := range result.Files {
+				switch f.MimeType {
+				case MimeTypeDriveFolder:
+					log.Printf("[INFO] queuing directory: %s\n", f.Name)
+					folders = append(folders, driveFolder{
+						id:   f.Id,
+						path: filepath.Join(currentFolder.path, f.Name),
+					})
+
+				case MimeTypeDriveDoc:
+					files <- ProviderFile{
+						Id:     f.Id,
+						Name:   f.Name,
+						Author: f.LastModifyingUser.DisplayName,
+						Path:   currentFolder.path,
+					}
+
+				default:
+					log.Printf("[INFO] skipping object of unknown type (%s): %v\n", f.MimeType, f)
+				}
+			}
+
+			if tok = result.NextPageToken; tok == "" {
+				break
+			}
+
+			query = query.PageToken(tok)
+		}
+	}
+}
+
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
 func (p GoogleDriveProvider) List(folderId string) (<-chan ProviderFile, <-chan error) {
 	files := make(chan ProviderFile, 1)
 	errors := make(chan error, 1)
 
-	go func() {
-		defer close(files)
-		defer close(errors)
-
-		var currentFolder string
-
-		// Ids of folders that we haven't explored yet
-		folders := []string{folderId}
-
-		for len(folders) > 0 {
-			currentFolder, folders = folders[0], folders[1:]
-			log.Printf("[INFO] exploring folder: %s\n", currentFolder)
-
-			pageToken := ""
-
-			query := p.service.Files.
-				List().
-				PageSize(1000).
-				Fields("nextPageToken, files(id, name, mimeType)").
-				Q(fmt.Sprintf("parents in \"%s\"", currentFolder))
-
-			for {
-				result, err := query.Do()
-				if err != nil {
-					errors <- err
-					return
-				}
-
-				for _, f := range result.Files {
-					switch f.MimeType {
-					case MimeTypeDriveFolder:
-						log.Printf("[INFO] queuing directory: %s\n", f.Name)
-						folders = append(folders, f.Id)
-
-					case MimeTypeDriveDoc:
-						files <- ProviderFile{f.Name, f.Id}
-
-					default:
-						log.Printf("[INFO] skipping object of unknown type (%s): %v\n", f.MimeType, f)
-					}
-				}
-
-				if pageToken = result.NextPageToken; pageToken == "" {
-					break
-				}
-
-				query = query.PageToken(pageToken)
-			}
-		}
-	}()
+	go p.listFolder(folderId, files, errors)
 
 	return files, errors
 }

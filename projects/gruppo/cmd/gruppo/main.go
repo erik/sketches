@@ -57,7 +57,7 @@ func main() {
 	log.Printf("temp directory is: %v\n", tempDir)
 
 	for f := range files {
-		fmt.Printf("File: %s %s \n", f.Id, f.Name)
+		fmt.Printf("File: %s '%s/%s' (author=%s) \n", f.Id, f.Path, f.Name, f.Author)
 		reader, err := provider.ExportAsDocx(f)
 
 		if err != nil {
@@ -71,7 +71,6 @@ func main() {
 
 		inputFileName := filepath.Join(path, "input.docx")
 		outputFileName := filepath.Join(path, "output.md")
-		mediaPath := filepath.Join(path, "media")
 
 		inputFile, err := os.Create(inputFileName)
 		if err != nil {
@@ -82,7 +81,7 @@ func main() {
 		io.Copy(writer, reader)
 		writer.Flush()
 
-		err = converters.ConvertDocx(inputFileName, outputFileName, mediaPath)
+		err = converters.ConvertDocx(inputFileName, outputFileName, path)
 		if err != nil {
 			log.Fatal(err)
 		}
