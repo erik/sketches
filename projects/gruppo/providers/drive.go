@@ -84,15 +84,14 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 
 		log.Printf("[INFO] exploring folder: %v\n", currentFolder)
 
-		tok := ""
-
 		query := p.service.Files.
 			List().
 			PageSize(1000).
 			Fields("nextPageToken, files(id, name, mimeType, lastModifyingUser(displayName))").
 			Q(fmt.Sprintf("parents in \"%s\"", currentFolder.id))
 
-		for {
+		// Page through results
+		for tok := "."; tok != ""; {
 			result, err := query.Do()
 			if err != nil {
 				errors <- err
@@ -121,10 +120,7 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 				}
 			}
 
-			if tok = result.NextPageToken; tok == "" {
-				break
-			}
-
+			tok = result.NextPageToken
 			query = query.PageToken(tok)
 		}
 	}
