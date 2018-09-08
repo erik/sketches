@@ -58,7 +58,7 @@ func main() {
 
 	for f := range files {
 		fmt.Printf("File: %s '%s/%s' (author=%s) \n", f.Id, f.Path, f.Name, f.Author)
-		reader, err := provider.ExportAsDocx(f)
+		docx, err := provider.ExportAsDocx(f)
 
 		if err != nil {
 			log.Fatal(err)
@@ -70,7 +70,6 @@ func main() {
 		}
 
 		inputFileName := filepath.Join(path, "input.docx")
-		outputFileName := filepath.Join(path, "output.md")
 
 		inputFile, err := os.Create(inputFileName)
 		if err != nil {
@@ -78,13 +77,16 @@ func main() {
 		}
 
 		writer := bufio.NewWriter(inputFile)
-		io.Copy(writer, reader)
+		io.Copy(writer, docx)
 		writer.Flush()
 
-		err = converters.ConvertDocx(inputFileName, outputFileName, path)
+		md, err := converters.ConvertDocx(inputFileName, path)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		postData := converters.ExtractPostData(md)
+		log.Printf("postdata => %v", postData)
 
 		writer.Flush()
 	}

@@ -113,6 +113,7 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 						Name:   f.Name,
 						Author: f.LastModifyingUser.DisplayName,
 						Path:   currentFolder.path,
+						// TODO: Publish time (maybe from content?)
 					}
 
 				default:
