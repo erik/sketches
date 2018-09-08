@@ -33,6 +33,18 @@ func cleanTitle(in string) string {
 	return re.ReplaceAllString(in, "${1}")
 }
 
+func extractImagePaths(content string) []string {
+	re := regexp.MustCompile(`!\[.*?\]\((.*?)\)`)
+
+	matches := []string{}
+
+	for _, match := range re.FindAllStringSubmatch(content, -1) {
+		matches = append(matches, match[1])
+	}
+
+	return matches
+}
+
 // ExtractPostData converts a markdown string into PostData
 func ExtractPostData(markdown string) PostData {
 	var postData PostData
@@ -76,6 +88,7 @@ func ExtractPostData(markdown string) PostData {
 	}
 
 	postData.Content = strings.Join(lines[contentIdx:], "\n")
+	postData.ImagePaths = extractImagePaths(postData.Content)
 
 	return postData
 }

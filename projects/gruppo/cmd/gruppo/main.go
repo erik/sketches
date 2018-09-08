@@ -45,7 +45,6 @@ func main() {
 	directory := os.Args[1]
 
 	provider := providers.NewGoogleDriveProvider("secrets/credentials.json")
-
 	files, _ := provider.List(directory)
 
 	tempDir, err := ioutil.TempDir("/tmp", "exported-media")
@@ -70,7 +69,6 @@ func main() {
 		}
 
 		inputFileName := filepath.Join(path, "input.docx")
-
 		inputFile, err := os.Create(inputFileName)
 		if err != nil {
 			log.Fatal(err)
