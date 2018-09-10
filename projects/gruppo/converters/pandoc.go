@@ -23,7 +23,7 @@ type PostData struct {
 
 // <span id="_cswwk72is3z0" class="anchor"></span>Title => Title
 func stripAnchorSpans(in string) string {
-	re := regexp.MustCompile("<span [^>]+></span>(.*)")
+	re := regexp.MustCompile("<span [^>]+?></span>(.*)")
 	return re.ReplaceAllString(in, "${1}")
 }
 
@@ -51,16 +51,16 @@ func ExtractPostData(markdown string) PostData {
 
 	lines := strings.Split(markdown, "\n")
 	for i := range lines {
-		line := strings.TrimSpace(lines[i])
-		lines[i] = stripAnchorSpans(line)
+		lines[i] = stripAnchorSpans(lines[i])
 	}
 
-	contentIdx := 0
+	// Where does the metadata end and content start?
+	idx := 0
 
 	// Grab and parse the metadata block, if it exists
 	if lines[0] == "---" {
-		for _, line := range lines {
-			contentIdx += 1
+		for ; idx < len(lines); idx += 1 {
+			line := lines[idx]
 
 			// End of block
 			if line == "..." {
@@ -68,13 +68,22 @@ func ExtractPostData(markdown string) PostData {
 			}
 
 			kv := strings.SplitN(line, ": ", 2)
-			switch {
-			case kv == nil:
+			if len(kv) < 2 {
+				continue
+			} else if kv[1] == "|" {
+				kv[1] = ""
 
-			case kv[0] == "title":
+				// Roll up multiline values
+				for idx += 1; lines[idx] == "" || strings.HasPrefix(lines[idx], " "); idx += 1 {
+					kv[1] += strings.TrimSpace(lines[idx])
+				}
+			}
+			log.Printf("LINE: '%s'\n", line)
+			switch kv[0] {
+			case "title":
 				postData.Meta.Title = cleanTitle(kv[1])
 
-			case kv[0] == "subtitle":
+			case "subtitle":
 				postData.Meta.Subtitle = cleanTitle(kv[1])
 			}
 		}
@@ -87,7 +96,7 @@ func ExtractPostData(markdown string) PostData {
 		}
 	}
 
-	postData.Content = strings.Join(lines[contentIdx:], "\n")
+	postData.Content = strings.Join(lines[idx:], "\n")
 	postData.ImagePaths = extractImagePaths(postData.Content)
 
 	return postData

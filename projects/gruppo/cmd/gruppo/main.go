@@ -84,7 +84,7 @@ func main() {
 		}
 
 		postData := converters.ExtractPostData(md)
-		log.Printf("postdata => %v", postData)
+		log.Printf("postdata => %+v", postData)
 
 		writer.Flush()
 	}
