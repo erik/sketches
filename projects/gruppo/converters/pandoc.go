@@ -78,7 +78,7 @@ func ExtractPostData(markdown string) PostData {
 					kv[1] += strings.TrimSpace(lines[idx])
 				}
 			}
-			log.Printf("LINE: '%s'\n", line)
+
 			switch kv[0] {
 			case "title":
 				postData.Meta.Title = cleanTitle(kv[1])
