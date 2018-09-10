@@ -1,0 +1,15 @@
+<!doctype html>
+
+{{> _head }}
+
+<body>
+  <header>
+    <h1> {{ Post.Title }} </h1>
+    <h2> {{ Post.Subtitle }} </h2>
+    <span>by {{ Post.Author }} </span>
+  </header>
+
+  <main>
+    {{{ Post.Content }}}
+  </main>
+</body>

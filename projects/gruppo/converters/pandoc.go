@@ -7,19 +7,9 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/erik/gruppo/model"
 )
-
-type PostData struct {
-	Meta struct {
-		Title    string
-		Subtitle string
-		Author   string
-		Date     string
-	}
-
-	Content    string
-	ImagePaths []string
-}
 
 // <span id="_cswwk72is3z0" class="anchor"></span>Title => Title
 func stripAnchorSpans(in string) string {
@@ -46,8 +36,8 @@ func extractImagePaths(content string) []string {
 }
 
 // ExtractPostData converts a markdown string into PostData
-func ExtractPostData(markdown string) PostData {
-	var postData PostData
+func ExtractPostData(markdown string) model.PostData {
+	var postData model.PostData
 
 	lines := strings.Split(markdown, "\n")
 	for i := range lines {
@@ -62,8 +52,9 @@ func ExtractPostData(markdown string) PostData {
 		for ; idx < len(lines); idx += 1 {
 			line := lines[idx]
 
-			// End of block
+			// End of block, skip the line and move on to content
 			if line == "..." {
+				idx += 1
 				break
 			}
 
@@ -81,17 +72,17 @@ func ExtractPostData(markdown string) PostData {
 
 			switch kv[0] {
 			case "title":
-				postData.Meta.Title = cleanTitle(kv[1])
+				postData.Title = cleanTitle(kv[1])
 
 			case "subtitle":
-				postData.Meta.Subtitle = cleanTitle(kv[1])
+				postData.Subtitle = cleanTitle(kv[1])
 			}
 		}
 	} else {
 		// If we don't have a real title, take the first non blank line.
 		for _, line := range lines {
 			if line != "" {
-				postData.Meta.Title = line
+				postData.Title = line
 			}
 		}
 	}

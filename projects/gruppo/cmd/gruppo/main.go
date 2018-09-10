@@ -13,6 +13,7 @@ import (
 
 	"github.com/erik/gruppo/converters"
 	"github.com/erik/gruppo/providers"
+	"github.com/erik/gruppo/render"
 )
 
 type Configuration struct {
@@ -84,9 +85,20 @@ func main() {
 		}
 
 		postData := converters.ExtractPostData(md)
+		postData.Author = f.Author
+
 		log.Printf("postdata => %+v", postData)
 
-		writer.Flush()
+		r, err := render.Render("post", "vanilla", &render.Context{
+			Title: "Great Title",
+			Post:  postData,
+		})
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("rendered => %s", r)
 	}
 
 	log.Printf("Hit enter to clean up")
