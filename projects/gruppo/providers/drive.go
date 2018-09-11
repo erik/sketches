@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -16,42 +14,56 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
-type GoogleDriveProvider struct {
-	token   *oauth2.Token
-	service *drive.Service
-}
-
 const (
 	MimeTypeDocx        = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	MimeTypeDriveFolder = "application/vnd.google-apps.folder"
 	MimeTypeDriveDoc    = "application/vnd.google-apps.document"
 )
 
-func NewGoogleDriveProvider(filePath string) GoogleDriveProvider {
-	config, err := readConfigFile(filePath)
-	if err != nil {
-		log.Fatalf("Failed to read config file: %v", err)
-	}
-
-	client := getClient(config)
-
-	service, err := drive.New(client)
-	if err != nil {
-		log.Fatalf("Could not retrieve Drive client: %v", err)
-	}
-
-	provider := GoogleDriveProvider{
-		service: service,
-	}
-
-	return provider
+type DriveConfiguration struct {
+	ClientId     string
+	ClientSecret string
+	RedirectURI  string
 }
 
-func (p GoogleDriveProvider) ExportAsDocx(file ProviderFile) (io.Reader, error) {
+type GoogleDriveProvider struct {
+	oauth *oauth2.Config
+}
+
+type DriveClient struct {
+	service *drive.Service
+}
+
+func NewGoogleDriveProvider(conf DriveConfiguration) GoogleDriveProvider {
+	config := &oauth2.Config{
+		ClientID:     conf.ClientId,
+		ClientSecret: conf.ClientSecret,
+		RedirectURL:  conf.RedirectURI,
+
+		Scopes:   []string{drive.DriveReadonlyScope},
+		Endpoint: google.Endpoint,
+	}
+
+	return GoogleDriveProvider{config}
+}
+
+func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*DriveClient, error) {
+	client := p.oauth.Client(context.TODO(), tok)
+
+	svc, err := drive.New(client)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DriveClient{svc}, nil
+
+}
+
+func (c DriveClient) ExportAsDocx(file DriveFile) (io.Reader, error) {
 	log.Printf("[INFO] exporting %s as .docx", file.Name)
 
 	// TODO: Support large file download via chunked transfer.
-	res, err := p.service.Files.
+	res, err := c.service.Files.
 		Export(file.Id, MimeTypeDocx).
 		Download()
 
@@ -67,9 +79,18 @@ type driveFolder struct {
 	id   string
 }
 
-func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, errors chan error) {
+type DriveFile struct {
+	Id     string
+	Name   string
+	Path   string
+	Author string
+}
+
+// Either `DriveFile` or an error. It's like a union type, but fucking stupid.
+type DriveFileResult interface{}
+
+func (c DriveClient) listFolder(rootId string, files chan DriveFileResult) {
 	defer close(files)
-	defer close(errors)
 
 	var currentFolder driveFolder
 
@@ -84,7 +105,7 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 
 		log.Printf("[INFO] exploring folder: %v\n", currentFolder)
 
-		query := p.service.Files.
+		query := c.service.Files.
 			List().
 			PageSize(1000).
 			Fields("nextPageToken, files(id, name, mimeType, lastModifyingUser(displayName))").
@@ -94,7 +115,7 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 		for tok := "."; tok != ""; {
 			result, err := query.Do()
 			if err != nil {
-				errors <- err
+				files <- err
 				return
 			}
 
@@ -108,7 +129,7 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 					})
 
 				case MimeTypeDriveDoc:
-					files <- ProviderFile{
+					files <- DriveFile{
 						Id:     f.Id,
 						Name:   f.Name,
 						Author: f.LastModifyingUser.DisplayName,
@@ -129,41 +150,12 @@ func (p GoogleDriveProvider) listFolder(rootId string, files chan ProviderFile, 
 
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
-func (p GoogleDriveProvider) List(folderId string) (<-chan ProviderFile, <-chan error) {
-	files := make(chan ProviderFile, 1)
-	errors := make(chan error, 1)
+func (c DriveClient) List(folderId string) <-chan DriveFileResult {
+	files := make(chan DriveFileResult, 1)
 
-	go p.listFolder(folderId, files, errors)
+	go c.listFolder(folderId, files)
 
-	return files, errors
-}
-
-func readConfigFile(filePath string) (*oauth2.Config, error) {
-	data, err := ioutil.ReadFile(filePath)
-
-	if err != nil {
-		return nil, err
-	}
-
-	config, err := google.ConfigFromJSON(data, drive.DriveReadonlyScope)
-	if err != nil {
-		return nil, err
-	}
-
-	return config, nil
-}
-
-// Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config) *http.Client {
-	tokenFile := "secrets/token.json"
-	tok, err := tokenFromFile(tokenFile)
-
-	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokenFile, tok)
-	}
-
-	return config.Client(context.Background(), tok)
+	return files
 }
 
 // Request a token from the web, then returns the retrieved token.
@@ -186,7 +178,8 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 }
 
 // Retrieves a token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
+// TODO: Remove this, store token somewhere sensible
+func TokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	defer f.Close()
 	if err != nil {

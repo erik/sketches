@@ -17,13 +17,17 @@ import (
 )
 
 type Configuration struct {
-	Drive struct {
-		ClientId     string
-		ClientSecret string
+	Drive  providers.DriveConfiguration
+	Server struct {
+		Host         string
+		Port         int
+		TemplatePath string
 	}
+
+	Sites struct{}
 }
 
-func readConfiguration() Configuration {
+func loadConfiguration() Configuration {
 	var conf Configuration
 
 	data, err := ioutil.ReadFile("secrets/config.toml")
@@ -43,12 +47,23 @@ func main() {
 		log.Fatal("usage: gruppo [dir]")
 	}
 
+	conf := loadConfiguration()
+
 	directory := os.Args[1]
 
-	provider := providers.NewGoogleDriveProvider("secrets/credentials.json")
-	files, _ := provider.List(directory)
+	provider := providers.NewGoogleDriveProvider(conf.Drive)
 
-	tempDir, err := ioutil.TempDir("/tmp", "exported-media")
+	tok, err := providers.TokenFromFile("secrets/token.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := provider.ClientForToken(tok)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tempDir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,10 +71,15 @@ func main() {
 	defer os.RemoveAll(tempDir)
 	log.Printf("temp directory is: %v\n", tempDir)
 
-	for f := range files {
-		fmt.Printf("File: %s '%s/%s' (author=%s) \n", f.Id, f.Path, f.Name, f.Author)
-		docx, err := provider.ExportAsDocx(f)
+	for r := range client.List(directory) {
+		f, ok := r.(providers.DriveFile)
+		if !ok {
+			log.Fatalf("something went wrong listing directory: %+v", r)
+		}
 
+		fmt.Printf("File: %s '%s/%s' (author=%s) \n", f.Id, f.Path, f.Name, f.Author)
+
+		docx, err := client.ExportAsDocx(f)
 		if err != nil {
 			log.Fatal(err)
 		}
