@@ -35,6 +35,48 @@ func extractImagePaths(content string) []string {
 	return matches
 }
 
+// Handle pandoc generated markdown blocks, e.g.
+//
+// ---
+// title: 'foobar'
+// xyz: 'baz'
+// ...
+func extractMetadata(lines []string, post *model.PostData) int {
+	idx := 0
+
+	for ; idx < len(lines); idx++ {
+		line := lines[idx]
+
+		// End of block, skip the line and move on to content
+		if line == "..." {
+			idx++
+			break
+		}
+
+		kv := strings.SplitN(line, ": ", 2)
+		if len(kv) < 2 {
+			continue
+		} else if kv[1] == "|" {
+			kv[1] = ""
+
+			// Roll up multiline values
+			for idx++; lines[idx] == "" || strings.HasPrefix(lines[idx], " "); idx++ {
+				kv[1] += strings.TrimSpace(lines[idx])
+			}
+		}
+
+		switch kv[0] {
+		case "title":
+			post.Title = cleanTitle(kv[1])
+
+		case "subtitle":
+			post.Subtitle = cleanTitle(kv[1])
+		}
+	}
+
+	return idx
+}
+
 // ExtractPostData converts a markdown string into PostData
 func ExtractPostData(markdown string) model.PostData {
 	var postData model.PostData
@@ -49,35 +91,7 @@ func ExtractPostData(markdown string) model.PostData {
 
 	// Grab and parse the metadata block, if it exists
 	if lines[0] == "---" {
-		for ; idx < len(lines); idx += 1 {
-			line := lines[idx]
-
-			// End of block, skip the line and move on to content
-			if line == "..." {
-				idx += 1
-				break
-			}
-
-			kv := strings.SplitN(line, ": ", 2)
-			if len(kv) < 2 {
-				continue
-			} else if kv[1] == "|" {
-				kv[1] = ""
-
-				// Roll up multiline values
-				for idx += 1; lines[idx] == "" || strings.HasPrefix(lines[idx], " "); idx += 1 {
-					kv[1] += strings.TrimSpace(lines[idx])
-				}
-			}
-
-			switch kv[0] {
-			case "title":
-				postData.Title = cleanTitle(kv[1])
-
-			case "subtitle":
-				postData.Subtitle = cleanTitle(kv[1])
-			}
-		}
+		idx = extractMetadata(lines, &postData)
 	} else {
 		// If we don't have a real title, take the first non blank line.
 		for _, line := range lines {
