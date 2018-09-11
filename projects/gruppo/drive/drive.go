@@ -1,4 +1,4 @@
-package providers
+package drive
 
 import (
 	"encoding/json"
@@ -20,7 +20,7 @@ const (
 	MimeTypeDriveDoc    = "application/vnd.google-apps.document"
 )
 
-type DriveConfiguration struct {
+type Configuration struct {
 	ClientId     string
 	ClientSecret string
 	RedirectURI  string
@@ -30,11 +30,11 @@ type GoogleDriveProvider struct {
 	oauth *oauth2.Config
 }
 
-type DriveClient struct {
+type Client struct {
 	service *drive.Service
 }
 
-func NewGoogleDriveProvider(conf DriveConfiguration) GoogleDriveProvider {
+func NewGoogleDriveProvider(conf Configuration) GoogleDriveProvider {
 	config := &oauth2.Config{
 		ClientID:     conf.ClientId,
 		ClientSecret: conf.ClientSecret,
@@ -47,7 +47,7 @@ func NewGoogleDriveProvider(conf DriveConfiguration) GoogleDriveProvider {
 	return GoogleDriveProvider{config}
 }
 
-func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*DriveClient, error) {
+func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) {
 	client := p.oauth.Client(context.TODO(), tok)
 
 	svc, err := drive.New(client)
@@ -55,11 +55,11 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*DriveClient, er
 		return nil, err
 	}
 
-	return &DriveClient{svc}, nil
+	return &Client{svc}, nil
 
 }
 
-func (c DriveClient) ExportAsDocx(file DriveFile) (io.Reader, error) {
+func (c Client) ExportAsDocx(file File) (io.Reader, error) {
 	log.Printf("[INFO] exporting %s as .docx", file.Name)
 
 	// TODO: Support large file download via chunked transfer.
@@ -74,42 +74,41 @@ func (c DriveClient) ExportAsDocx(file DriveFile) (io.Reader, error) {
 	return res.Body, nil
 }
 
-type driveFolder struct {
+type folder struct {
 	path string
 	id   string
 }
 
-type DriveFile struct {
+type File struct {
 	Id     string
 	Name   string
 	Path   string
 	Author string
 }
 
-// Either `DriveFile` or an error. It's like a union type, but fucking stupid.
-type DriveFileResult interface{}
+// Either `File` or an error. It's like a union type, but fucking stupid.
+type FileResult interface{}
 
-func (c DriveClient) listFolder(rootId string, files chan DriveFileResult) {
+func (c Client) listFolder(rootId string, files chan FileResult) {
 	defer close(files)
 
-	var currentFolder driveFolder
+	var current folder
 
 	// Ids of folders that we haven't explored yet
-	folders := []driveFolder{driveFolder{
-		id:   rootId,
-		path: "",
-	}}
+	folders := []folder{
+		folder{id: rootId},
+	}
 
 	for len(folders) > 0 {
-		currentFolder, folders = folders[0], folders[1:]
+		current, folders = folders[0], folders[1:]
 
-		log.Printf("[INFO] exploring folder: %v\n", currentFolder)
+		log.Printf("[INFO] exploring folder: %v\n", current)
 
 		query := c.service.Files.
 			List().
 			PageSize(1000).
 			Fields("nextPageToken, files(id, name, mimeType, lastModifyingUser(displayName))").
-			Q(fmt.Sprintf("parents in \"%s\"", currentFolder.id))
+			Q(fmt.Sprintf("parents in \"%s\"", current.id))
 
 		// Page through results
 		for tok := "."; tok != ""; {
@@ -123,17 +122,17 @@ func (c DriveClient) listFolder(rootId string, files chan DriveFileResult) {
 				switch f.MimeType {
 				case MimeTypeDriveFolder:
 					log.Printf("[INFO] queuing directory: %s\n", f.Name)
-					folders = append(folders, driveFolder{
+					folders = append(folders, folder{
 						id:   f.Id,
-						path: filepath.Join(currentFolder.path, f.Name),
+						path: filepath.Join(current.path, f.Name),
 					})
 
 				case MimeTypeDriveDoc:
-					files <- DriveFile{
+					files <- File{
 						Id:     f.Id,
 						Name:   f.Name,
 						Author: f.LastModifyingUser.DisplayName,
-						Path:   currentFolder.path,
+						Path:   current.path,
 						// TODO: Publish time (maybe from content?)
 					}
 
@@ -150,8 +149,8 @@ func (c DriveClient) listFolder(rootId string, files chan DriveFileResult) {
 
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
-func (c DriveClient) List(folderId string) <-chan DriveFileResult {
-	files := make(chan DriveFileResult, 1)
+func (c Client) List(folderId string) <-chan FileResult {
+	files := make(chan FileResult, 1)
 
 	go c.listFolder(folderId, files)
 

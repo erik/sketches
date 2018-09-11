@@ -12,12 +12,12 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/erik/gruppo/converters"
-	"github.com/erik/gruppo/providers"
+	"github.com/erik/gruppo/drive"
 	"github.com/erik/gruppo/render"
 )
 
 type Configuration struct {
-	Drive  providers.DriveConfiguration
+	Drive  drive.Configuration
 	Server struct {
 		Host         string
 		Port         int
@@ -51,9 +51,9 @@ func main() {
 
 	directory := os.Args[1]
 
-	provider := providers.NewGoogleDriveProvider(conf.Drive)
+	provider := drive.NewGoogleDriveProvider(conf.Drive)
 
-	tok, err := providers.TokenFromFile("secrets/token.json")
+	tok, err := drive.TokenFromFile("secrets/token.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func main() {
 	log.Printf("temp directory is: %v\n", tempDir)
 
 	for r := range client.List(directory) {
-		f, ok := r.(providers.DriveFile)
+		f, ok := r.(drive.File)
 		if !ok {
 			log.Fatalf("something went wrong listing directory: %+v", r)
 		}
