@@ -107,9 +107,10 @@ func (c Client) ForceSync(folderId string) error {
 			return err
 		}
 
-		postData := converters.ExtractPostData(md)
-		postData.Author = file.Author
+		post := converters.ExtractPost(md)
+		post.Author = file.Author
 
+		log.Printf("[INFO] extracted post: %+v", post)
 		// TODO: Store somewhere. Redis? Disk?
 	}
 

@@ -1,6 +1,6 @@
 package model
 
-type PostData struct {
+type Post struct {
 	Title    string
 	Subtitle string
 	Author   string

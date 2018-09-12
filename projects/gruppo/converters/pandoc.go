@@ -41,7 +41,7 @@ func extractImagePaths(content string) []string {
 // title: 'foobar'
 // xyz: 'baz'
 // ...
-func extractMetadata(lines []string, post *model.PostData) int {
+func extractMetadata(lines []string, post *model.Post) int {
 	idx := 0
 
 	for ; idx < len(lines); idx++ {
@@ -77,9 +77,9 @@ func extractMetadata(lines []string, post *model.PostData) int {
 	return idx
 }
 
-// ExtractPostData converts a markdown string into PostData
-func ExtractPostData(markdown string) model.PostData {
-	var postData model.PostData
+// ExtractPost converts a markdown string into Post
+func ExtractPost(markdown string) model.Post {
+	var post model.Post
 
 	lines := strings.Split(markdown, "\n")
 	for i := range lines {
@@ -91,20 +91,20 @@ func ExtractPostData(markdown string) model.PostData {
 
 	// Grab and parse the metadata block, if it exists
 	if lines[0] == "---" {
-		idx = extractMetadata(lines, &postData)
+		idx = extractMetadata(lines, &post)
 	} else {
 		// If we don't have a real title, take the first non blank line.
 		for _, line := range lines {
 			if line != "" {
-				postData.Title = line
+				post.Title = line
 			}
 		}
 	}
 
-	postData.Content = strings.Join(lines[idx:], "\n")
-	postData.ImagePaths = extractImagePaths(postData.Content)
+	post.Content = strings.Join(lines[idx:], "\n")
+	post.ImagePaths = extractImagePaths(post.Content)
 
-	return postData
+	return post
 }
 
 // Suckily, pandoc can't read .docx from streams, so we have to use a file
