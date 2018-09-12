@@ -1,12 +1,16 @@
 package drive
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/erik/gruppo/converters"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -57,6 +61,59 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 
 	return &Client{svc}, nil
 
+}
+
+// ForceSync ...
+func (c Client) ForceSync(folderId string) error {
+	dir, err := ioutil.TempDir("/tmp", "exported-media-")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer os.RemoveAll(dir)
+
+	for res := range c.List(folderId) {
+		file, ok := res.(File)
+		if !ok {
+			return res.(error)
+		}
+
+		docx, err := c.ExportAsDocx(file)
+		if err != nil {
+			return err
+		}
+
+		path := filepath.Join(dir, file.Id)
+		if err := os.Mkdir(path, os.ModePerm); err != nil {
+			return err
+		}
+
+		inputFileName := filepath.Join(path, "input.docx")
+		inputFile, err := os.Create(inputFileName)
+		if err != nil {
+			return err
+		}
+
+		w := bufio.NewWriter(inputFile)
+		if _, err := io.Copy(w, docx); err != nil {
+			return err
+		}
+		if err := w.Flush(); err != nil {
+			return err
+		}
+
+		md, err := converters.ConvertDocx(inputFileName, path)
+		if err != nil {
+			return err
+		}
+
+		postData := converters.ExtractPostData(md)
+		postData.Author = file.Author
+
+		// TODO: Store somewhere. Redis? Disk?
+	}
+
+	return nil
 }
 
 func (c Client) ExportAsDocx(file File) (io.Reader, error) {
