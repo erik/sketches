@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -9,15 +8,12 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/erik/gruppo/drive"
+	"github.com/erik/gruppo/web"
 )
 
 type Configuration struct {
-	Drive  drive.Configuration
-	Server struct {
-		Host         string
-		Port         int
-		TemplatePath string
-	}
+	Drive drive.Configuration
+	Web   web.Configuration
 
 	Sites struct{}
 }
@@ -63,8 +59,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("Hit enter to clean up")
-
-	var ignored string
-	fmt.Scanln(&ignored)
+	web.New(conf.Web).Serve()
 }

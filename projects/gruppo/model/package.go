@@ -12,9 +12,6 @@ type Post struct {
 	ImagePaths []string
 }
 
-type User struct {
-}
-
 type SiteDriveConfig struct {
 	FolderId string `json:"folder_id"`
 	Token    string `json:"token"` // serialized oauth token
