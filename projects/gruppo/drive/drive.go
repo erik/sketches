@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/erik/gruppo/converters"
+	"github.com/erik/gruppo/store"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -60,11 +61,10 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 	}
 
 	return &Client{svc}, nil
-
 }
 
 // ForceSync ...
-func (c Client) ForceSync(folderId string) error {
+func (c Client) ForceSync(folderId string, store store.RedisStore) error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
