@@ -1,8 +1,16 @@
 // Various structs that are serialized into the database.
 package model
 
+import (
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"golang.org/x/oauth2"
+)
+
 type Post struct {
-	Id       string
+	Slug     string
 	Title    string
 	Subtitle string
 	Author   string
@@ -12,22 +20,41 @@ type Post struct {
 	ImagePaths []string
 }
 
+var (
+	NonAlnumChars     = regexp.MustCompile("[^a-z0-9]")
+	NonAlnumPathChars = regexp.MustCompile("[^/a-z0-9]")
+)
+
+func (p Post) GenerateSlug(path string) string {
+	path = strings.ToLower(path)
+	title := strings.ToLower(p.Title)
+
+	path = NonAlnumPathChars.ReplaceAllString(path, "-")
+	title = NonAlnumChars.ReplaceAllString(title, "-")
+
+	return filepath.Join(path, title)
+}
+
 type SiteDriveConfig struct {
-	FolderId string `json:"folder_id"`
-	Token    string `json:"token"` // serialized oauth token
+	FolderId string        `json:"folder_id"`
+	Token    *oauth2.Token `json:"token"`
 }
 
 type PageConfig struct {
-	URL    string `json:"url"`
-	Title  string `json:"title"`
-	PostId string `json:"post_id"`
+	URL      string `json:"url"`
+	Template string `json:"template"`
+	Title    string `json:"title"`
+	Post     string `json:"post_slug"`
 }
 
 type Site struct {
-	Host     string       `json:"host"`
-	BasePath string       `json:"base_url"`
-	Pages    []PageConfig `json:"pages"`
-	SiteDir  string       `json:"content_dir"`
+	BasePath   string       `json:"base_path"`
+	Host       string       `json:"host"`
+	Pages      []PageConfig `json:"pages"`
+	ContentDir string       `json:"content_dir"`
+	Theme      string       `json:"theme"`
 
 	Drive *SiteDriveConfig `json:"drive"`
 }
+
+func (s Site) HostPathPrefix() string { return s.Host + s.BasePath }

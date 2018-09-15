@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/erik/gruppo/converters"
+	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/store"
 
 	"golang.org/x/net/context"
@@ -64,7 +65,7 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 }
 
 // ForceSync ...
-func (c Client) ForceSync(folderId string, store store.RedisStore) error {
+func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
@@ -72,7 +73,10 @@ func (c Client) ForceSync(folderId string, store store.RedisStore) error {
 
 	defer os.RemoveAll(dir)
 
-	for res := range c.List(folderId) {
+	// Generated List of posts
+	slugs := []string{}
+
+	for res := range c.List(site.Drive.FolderId) {
 		file, ok := res.(File)
 		if !ok {
 			return res.(error)
@@ -109,9 +113,19 @@ func (c Client) ForceSync(folderId string, store store.RedisStore) error {
 
 		post := converters.ExtractPost(md)
 		post.Author = file.Author
+		post.Slug = post.GenerateSlug(file.Path)
 
-		log.Printf("[INFO] extracted post: %+v", post)
-		// TODO: Store somewhere. Redis? Disk?
+		slugs = append(slugs, post.Slug)
+
+		log.Printf("[INFO] extracted post: %+v", post.Slug)
+
+		if err := db.AddPost(site, post); err != nil {
+			return err
+		}
+	}
+
+	if err := db.SetPostSlugs(slugs); err != nil {
+		return err
 	}
 
 	return nil

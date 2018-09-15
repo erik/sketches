@@ -1,13 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"log"
-	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/erik/gruppo/drive"
+	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/store"
 	"github.com/erik/gruppo/web"
 )
@@ -17,7 +19,8 @@ type Configuration struct {
 	Web   web.Configuration
 	Store store.Configuration
 
-	Sites struct{}
+	// Temporary, eventually should be in redis
+	Site string
 }
 
 func loadConfiguration() Configuration {
@@ -35,42 +38,34 @@ func loadConfiguration() Configuration {
 	return conf
 }
 
-func syncDrive(folderId string, store store.RedisStore, conf Configuration) {
+func syncSite(s model.Site, store store.RedisStore, conf Configuration) {
 	provider := drive.NewGoogleDriveProvider(conf.Drive)
 
-	// TODO: Pull this out, redis or something?
-	tok, err := drive.TokenFromFile("secrets/token.json")
+	client, err := provider.ClientForToken(s.Drive.Token)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	client, err := provider.ClientForToken(tok)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := client.ForceSync(folderId, store); err != nil {
+	if err := client.ForceSync(s, store); err != nil {
 		log.Fatal(err)
 	}
 
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("usage: gruppo [dir]")
-	}
-
 	conf := loadConfiguration()
 	log.Printf("conf, %+v", conf)
-
-	folderId := os.Args[1]
 
 	store, err := store.New(conf.Store)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	go syncDrive(folderId, *store, conf)
+	var site model.Site
+	json.NewDecoder(strings.NewReader(conf.Site)).Decode(&site)
 
-	web.New(conf.Web).Serve()
+	log.Printf("[INFO] starting sync for site: %s", site.HostPathPrefix())
+	go syncSite(site, *store, conf)
+
+	web.New([]model.Site{site}, conf.Web, store).Serve()
 }
