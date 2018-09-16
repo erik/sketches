@@ -73,8 +73,13 @@ func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 
 	defer os.RemoveAll(dir)
 
+	// Start with a clean slate
+	if err := db.ClearSiteData(site); err != nil {
+		return err
+	}
+
 	// Generated List of posts
-	slugs := []string{}
+	overview := []model.PostOverview{}
 
 	for res := range c.List(site.Drive.FolderId) {
 		file, ok := res.(File)
@@ -119,7 +124,7 @@ func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 			return err
 		}
 
-		slugs = append(slugs, post.Slug)
+		overview = append(overview, post.Overview())
 
 		log.Printf("[INFO] extracted post: %+v", post.Slug)
 
@@ -128,7 +133,7 @@ func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 		}
 	}
 
-	if err := db.SetPostSlugs(slugs); err != nil {
+	if err := db.SetPostOverviews(site, overview); err != nil {
 		return err
 	}
 

@@ -26,12 +26,12 @@ func cleanTitle(in string) string {
 	return re.ReplaceAllString(in, "${1}")
 }
 
-func extractImagePaths(content string) []string {
-	re := regexp.MustCompile(`!\[.*?\]\((.*?)\)`)
+var markdownImageRe = regexp.MustCompile(`!\[.*?\]\((.*?)\)`)
 
+func extractImagePaths(content string) []string {
 	matches := []string{}
 
-	for _, match := range re.FindAllStringSubmatch(content, -1) {
+	for _, match := range markdownImageRe.FindAllStringSubmatch(content, -1) {
 		matches = append(matches, match[1])
 	}
 
@@ -115,6 +115,24 @@ func ExtractPost(markdown string) model.Post {
 	}
 
 	post.Content = html
+
+	introEnd := idx + 5
+	if introEnd >= len(lines) {
+		introEnd = len(lines) - 1
+	}
+
+	content = strings.Join(lines[idx:introEnd], "\n")
+
+	// strip all the images out of the intro
+	content = markdownImageRe.ReplaceAllString(content, "")
+
+	intro, err := markdownToHtml(content)
+	if err != nil {
+		log.Printf("Failed to render intro markdown to html: %+v\n", err)
+		intro = ""
+	}
+
+	post.Intro = intro
 
 	return post
 }

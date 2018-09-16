@@ -34,12 +34,56 @@ func New(conf Configuration) (*RedisStore, error) {
 	return &RedisStore{redis}, nil
 }
 
-func (r RedisStore) ListPostSlugs(offset, limit uint) ([]model.Post, error) {
-	return []model.Post{}, nil
+func (r RedisStore) ClearSiteData(s model.Site) error {
+	keys, err := r.db.Keys(s.HostPathPrefix() + ":*").Result()
+	if err != nil {
+		return err
+	}
+
+	if len(keys) == 0 {
+		return nil
+	}
+
+	if _, err := r.db.Del(keys...).Result(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (r RedisStore) SetPostSlugs(s []string) error {
-	return nil
+func (r RedisStore) ListPostOverviews(site model.Site, offset, limit int64) ([]model.PostOverview, error) {
+	k := fmt.Sprintf("%s:slugs", site.HostPathPrefix())
+
+	objs, err := r.db.ZRange(k, offset, offset+limit).Result()
+	if err != nil {
+		return []model.PostOverview{}, err
+	}
+
+	posts := make([]model.PostOverview, len(objs))
+	for i, p := range objs {
+		dec := json.NewDecoder(strings.NewReader(p))
+		dec.Decode(&posts[i])
+	}
+
+	return posts, nil
+}
+
+func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview) error {
+	k := fmt.Sprintf("%s:slugs", site.HostPathPrefix())
+
+	values := make([]redis.Z, len(posts))
+	for i, p := range posts {
+		s, err := json.Marshal(p)
+
+		if err != nil {
+			return err
+		}
+
+		values[i] = redis.Z{float64(i), s}
+	}
+
+	_, err := r.db.ZAdd(k, values...).Result()
+	return err
 }
 
 func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
@@ -61,6 +105,7 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 func (r RedisStore) AddPost(site model.Site, p model.Post) error {
 	k := keyForSlug(site, p.Slug)
 	log.Printf("Adding post: %s\n", k)
+
 	return r.SetJSON(k, p)
 }
 
@@ -95,7 +140,7 @@ func (r RedisStore) SetSite(*model.Site) error {
 }
 
 func keyForSlug(site model.Site, slug string) string {
-	return fmt.Sprintf("post:%s/%s", site.HostPathPrefix(), slug)
+	return fmt.Sprintf("%s:post:%s", site.HostPathPrefix(), slug)
 }
 
-func keyForSite(s model.Site) string { return "site:" + s.HostPathPrefix() }
+func keyForSite(s model.Site) string { return s.HostPathPrefix() + ":site" }

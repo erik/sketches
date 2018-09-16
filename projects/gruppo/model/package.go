@@ -10,11 +10,7 @@ import (
 )
 
 type Post struct {
-	Slug     string
-	Title    string
-	Subtitle string
-	Author   string
-	Date     string
+	PostOverview
 
 	Content    string
 	ImagePaths []string
@@ -33,6 +29,20 @@ func (p Post) GenerateSlug(path string) string {
 	title = NonAlnumChars.ReplaceAllString(title, "-")
 
 	return filepath.Join(path, title)
+}
+
+func (p Post) Overview() PostOverview {
+	return p.PostOverview
+}
+
+type PostOverview struct {
+	Slug     string
+	Title    string
+	Subtitle string
+	Author   string
+	Date     string
+
+	Intro string
 }
 
 type SiteDriveConfig struct {

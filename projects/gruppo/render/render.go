@@ -16,6 +16,8 @@ const (
 type Context struct {
 	Title string
 	Post  *model.Post
+	Site  *model.Site
+	Posts []model.PostOverview
 }
 
 func Render(page string, theme string, ctx *Context) (string, error) {

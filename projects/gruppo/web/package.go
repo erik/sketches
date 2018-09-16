@@ -99,8 +99,15 @@ func assetForSlug(site *model.Site, slug string) string {
 }
 
 func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context) error {
+	posts, err := w.db.ListPostOverviews(*site, 0, 10)
+	if err != nil {
+		return err
+	}
+
 	html, err := render.Render(pg.Template, site.Theme, &render.Context{
 		Title: pg.Title,
+		Site:  site,
+		Posts: posts,
 	})
 
 	if err != nil {
