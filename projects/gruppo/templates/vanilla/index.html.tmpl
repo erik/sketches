@@ -1,0 +1,29 @@
+<!doctype html>
+
+{{> _head }}
+
+<body>
+    <style>
+     .post-title { color: #555; }
+     .post-list { list-style: none; margin: 0; padding: 0; }
+     .post-item { margin-bottom: 2em; }
+
+    </style>
+
+    <header>
+        <h1> {{ Title }} </h1>
+    </header>
+
+    <main>
+        <ul class="post-list">
+            {{#Posts}}
+            <li class="post-item">
+                <a href="{{Site.BasePath}}/{{Slug}}">
+                    <h2 class="post-title">{{Title}}</h2>
+                </a>
+                <p> {{{Intro}}} </p>
+            </li>
+            {{/Posts}}
+        </ul>
+    </main>
+</body>
