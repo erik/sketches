@@ -48,11 +48,12 @@ type PageConfig struct {
 }
 
 type Site struct {
-	BasePath   string       `json:"base_path"`
-	Host       string       `json:"host"`
-	Pages      []PageConfig `json:"pages"`
-	ContentDir string       `json:"content_dir"`
-	Theme      string       `json:"theme"`
+	BasePath  string       `json:"base_path"`
+	AssetPath string       `json:"asset_path"`
+	Host      string       `json:"host"`
+	Pages     []PageConfig `json:"pages"`
+	SiteDir   string       `json:"site_dir"`
+	Theme     string       `json:"theme"`
 
 	Drive *SiteDriveConfig `json:"drive"`
 }

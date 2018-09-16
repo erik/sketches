@@ -44,6 +44,7 @@ func (r RedisStore) SetPostSlugs(s []string) error {
 
 func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 	k := keyForSlug(site, slug)
+	log.Printf("Looking up post: %s\n", k)
 	var post model.Post
 
 	if err := r.GetJSON(k, &post); err != nil {
@@ -59,6 +60,7 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 
 func (r RedisStore) AddPost(site model.Site, p model.Post) error {
 	k := keyForSlug(site, p.Slug)
+	log.Printf("Adding post: %s\n", k)
 	return r.SetJSON(k, p)
 }
 
@@ -93,7 +95,7 @@ func (r RedisStore) SetSite(*model.Site) error {
 }
 
 func keyForSlug(site model.Site, slug string) string {
-	return fmt.Sprintf("post:%s%s", site.HostPathPrefix(), slug)
+	return fmt.Sprintf("post:%s/%s", site.HostPathPrefix(), slug)
 }
 
 func keyForSite(s model.Site) string { return "site:" + s.HostPathPrefix() }

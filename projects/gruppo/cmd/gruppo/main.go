@@ -49,7 +49,6 @@ func syncSite(s model.Site, store store.RedisStore, conf Configuration) {
 	if err := client.ForceSync(s, store); err != nil {
 		log.Fatal(err)
 	}
-
 }
 
 func main() {

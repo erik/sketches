@@ -115,6 +115,10 @@ func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 		post.Author = file.Author
 		post.Slug = post.GenerateSlug(file.Path)
 
+		if err := converters.HandlePostMedia(&site, &post); err != nil {
+			return err
+		}
+
 		slugs = append(slugs, post.Slug)
 
 		log.Printf("[INFO] extracted post: %+v", post.Slug)

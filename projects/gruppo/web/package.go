@@ -1,10 +1,10 @@
 package web
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -71,10 +71,10 @@ func (w *web) registerRoutes(e *echo.Echo) {
 
 	// Site-specific
 	e.GET("/*", func(c echo.Context) error {
-		site, err := w.siteFromContext(c)
+		site := w.siteFromContext(c)
 
-		if err != nil {
-			return err
+		if site == nil {
+			return c.String(http.StatusNotFound, "unknown site")
 		}
 
 		return w.handleSiteRequest(site, c)
@@ -87,8 +87,15 @@ func pageForSlug(site *model.Site, slug string) *model.PageConfig {
 			return &pg
 		}
 	}
-
 	return nil
+}
+
+func assetForSlug(site *model.Site, slug string) string {
+	if strings.HasPrefix(slug, site.AssetPath) {
+		return strings.TrimPrefix(slug, site.AssetPath)
+	}
+
+	return ""
 }
 
 func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context) error {
@@ -106,9 +113,12 @@ func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context)
 
 func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
 	post, err := w.db.GetPost(*site, slug)
-	if err != nil || post == nil {
-		log.Printf("failed with error: %+v\n", err)
+	if post == nil {
 		return c.String(http.StatusNotFound, "404.")
+	}
+
+	if err != nil {
+		return err
 	}
 
 	html, err := render.Render("post", site.Theme, &render.Context{
@@ -119,11 +129,31 @@ func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
+func (w *web) handleAsset(site *model.Site, slug string, c echo.Context) error {
+	// FIXME: this might be vulnerable to directory traversal
+	slug = filepath.Clean(slug)
+
+	path := filepath.Join(site.SiteDir, "assets", slug)
+
+	return c.File(path)
+}
+
 func (w *web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
 
+	// Slugs should be relative
+	if slug != "/" && strings.HasPrefix(slug, "/") {
+		slug = slug[1:]
+	} else if slug == "" {
+		slug = "/"
+	}
+
 	if pg := pageForSlug(site, slug); pg != nil {
 		return w.handlePage(site, pg, c)
+	}
+
+	if asset := assetForSlug(site, slug); asset != "" {
+		return w.handleAsset(site, asset, c)
 	}
 
 	return w.handlePost(site, slug, c)
@@ -134,7 +164,7 @@ func (w *web) registerMiddleware(e *echo.Echo) {
 	e.Use(middleware.Recover())
 }
 
-func (w *web) siteFromContext(c echo.Context) (*model.Site, error) {
+func (w *web) siteFromContext(c echo.Context) *model.Site {
 	for host, sites := range w.sites {
 		if host != c.Request().Host {
 			continue
@@ -143,12 +173,12 @@ func (w *web) siteFromContext(c echo.Context) (*model.Site, error) {
 		for _, site := range sites {
 			path := c.Request().URL.String()
 			if strings.HasPrefix(path, site.BasePath) {
-				return &site, nil
+				return &site
 			}
 		}
 	}
 
-	return nil, errors.New("unknown site mapping")
+	return nil
 }
 
 func New(sites []model.Site, conf Configuration, db *store.RedisStore) web {

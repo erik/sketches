@@ -2,9 +2,12 @@ package converters
 
 import (
 	"bufio"
+	"io"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -101,10 +104,81 @@ func ExtractPost(markdown string) model.Post {
 		}
 	}
 
-	post.Content = strings.Join(lines[idx:], "\n")
-	post.ImagePaths = extractImagePaths(post.Content)
+	content := strings.Join(lines[idx:], "\n")
+
+	post.ImagePaths = extractImagePaths(content)
+
+	html, err := markdownToHtml(content)
+	if err != nil {
+		log.Printf("Failed to render markdown to html: %+v\n", err)
+		html = "error"
+	}
+
+	post.Content = html
 
 	return post
+}
+
+func HandlePostMedia(s *model.Site, p *model.Post) error {
+	assetPath := filepath.Join(s.SiteDir, "assets", p.Slug)
+
+	if err := os.MkdirAll(assetPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	for _, path := range p.ImagePaths {
+		name := filepath.Base(path)
+
+		b, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.Printf("Failed to read file: %+v\n", err)
+			return err
+		}
+
+		fp := filepath.Join(assetPath, name)
+
+		if err := ioutil.WriteFile(fp, b, os.ModePerm); err != nil {
+			log.Printf("Failed to write file: %+v\n", err)
+			return err
+		}
+
+		newPath := filepath.Join(s.BasePath, s.AssetPath, p.Slug, name)
+
+		log.Printf("MOVED: %s TO %s\n\n", path, newPath)
+		p.Content = strings.Replace(p.Content, path, newPath, -1)
+	}
+
+	return nil
+}
+
+func markdownToHtml(input string) (string, error) {
+	args := []string{
+		// from markdown
+		"-f", "markdown",
+		// to html5
+		"-t", "html5",
+	}
+
+	cmd := exec.Command("pandoc", args...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		log.Printf("failed to open pandoc stdin: %v\n", err)
+		return "", err
+	}
+
+	go func() {
+		defer stdin.Close()
+		io.WriteString(stdin, input)
+	}()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Failed to get output from pandoc: %+v\n", err)
+		return string(out), err
+	}
+
+	return string(out), nil
 }
 
 // Suckily, pandoc can't read .docx from streams, so we have to use a file
