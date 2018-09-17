@@ -69,7 +69,7 @@ func (r RedisStore) ListPostOverviews(site model.Site, offset, limit int64) ([]m
 }
 
 func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview) error {
-	k := fmt.Sprintf("%s:slugs", site.HostPathPrefix())
+	k := keyForSite(site, "slugs")
 
 	values := make([]redis.Z, len(posts))
 	for i, p := range posts {
@@ -118,6 +118,7 @@ func (r RedisStore) GetJSON(k string, obj interface{}) error {
 	dec := json.NewDecoder(strings.NewReader(res))
 	return dec.Decode(obj)
 }
+
 func (r RedisStore) SetJSON(k string, obj interface{}) error {
 	s, err := json.Marshal(obj)
 
@@ -127,6 +128,28 @@ func (r RedisStore) SetJSON(k string, obj interface{}) error {
 
 	_, err = r.db.Set(k, string(s), 0).Result()
 	return err
+}
+
+func (r RedisStore) SetKey(k, v string) error {
+	_, err := r.db.Set(k, v, 0).Result()
+	return err
+}
+
+// TODO: This name is nonsense.
+func (r RedisStore) AddSetJSON(k string, obj interface{}) error {
+	str, err := json.Marshal(obj)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.SAdd(k, str).Result()
+	return err
+}
+
+// TODO: Would be nice to have some JSON parsing here
+func (r RedisStore) SetMembers(k string) ([]string, error) {
+	return r.db.SMembers(k).Result()
 }
 
 func (r RedisStore) GetSite(id string) (*model.Site, error) {
@@ -139,8 +162,11 @@ func (r RedisStore) SetSite(*model.Site) error {
 	return nil
 }
 
-func keyForSlug(site model.Site, slug string) string {
-	return fmt.Sprintf("%s:post:%s", site.HostPathPrefix(), slug)
+func keyForSite(site model.Site, kind string) string {
+	return fmt.Sprintf("%s:%s", site.HostPathPrefix(), kind)
 }
 
-func keyForSite(s model.Site) string { return s.HostPathPrefix() + ":site" }
+func keyForSlug(site model.Site, slug string) string {
+	base := keyForSite(site, "post")
+	return fmt.Sprintf("%s:%s", base, slug)
+}

@@ -2,6 +2,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -28,7 +30,9 @@ func (p Post) GenerateSlug(path string) string {
 	path = NonAlnumPathChars.ReplaceAllString(path, "-")
 	title = NonAlnumChars.ReplaceAllString(title, "-")
 
-	return filepath.Join(path, title)
+	slug := filepath.Join(path, title)
+
+	return strings.Trim(slug, "-")
 }
 
 func (p Post) Overview() PostOverview {
@@ -69,3 +73,8 @@ type Site struct {
 }
 
 func (s Site) HostPathPrefix() string { return s.Host + s.BasePath }
+
+func (s Site) WebhookKey() string {
+	sum := sha256.Sum256([]byte(s.HostPathPrefix()))
+	return fmt.Sprintf("%x", sum)
+}

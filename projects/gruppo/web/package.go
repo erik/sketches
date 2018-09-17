@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 
+	"github.com/erik/gruppo/drive"
 	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/render"
 	"github.com/erik/gruppo/store"
@@ -62,12 +63,23 @@ type web struct {
 	sites siteMapping // host -> [site, ...]
 }
 
-func (w *web) registerRoutes(e *echo.Echo) {
-	// General purpose
-	// ...
-	e.GET("/panel", func(c echo.Context) error {
-		return c.String(http.StatusOK, "Hello, World!")
+func (w *web) RegisterDriveHooks(site *model.Site, c *drive.Client, db *store.RedisStore) error {
+	route := c.ChangeHookRoute(site)
+	log.Printf("setting up drive hook: %s\n", route)
+
+	w.echo.POST(route, func(ctx echo.Context) error {
+		if err := c.HandleChangeHook(site, ctx.Request(), db); err != nil {
+			log.Printf("[ERROR] Failed change hook: %+v\n", err)
+			return ctx.String(http.StatusInternalServerError, "something bad")
+		}
+
+		return ctx.String(http.StatusOK, "")
 	})
+
+	return nil
+}
+
+func (w *web) registerRoutes(e *echo.Echo) {
 
 	// Site-specific
 	e.GET("/*", func(c echo.Context) error {

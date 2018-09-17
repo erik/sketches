@@ -7,13 +7,17 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/erik/gruppo/converters"
 	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/store"
 
+	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -27,21 +31,45 @@ const (
 )
 
 type Configuration struct {
-	ClientId     string
-	ClientSecret string
-	RedirectURI  string
+	ClientId             string
+	ClientSecret         string
+	RedirectURI          string
+	WatchNotificationURI string
 }
 
 type GoogleDriveProvider struct {
-	oauth *oauth2.Config
+	oauth  *oauth2.Config
+	config *Configuration
 }
 
 type Client struct {
 	service *drive.Service
+	config  *Configuration
 }
 
+type folder struct {
+	path string
+	id   string
+}
+
+type File struct {
+	Id     string
+	Name   string
+	Path   string
+	Author string
+}
+
+type FileChange struct {
+	file File
+	site model.Site
+	kind string // one of "created", "deleted", "updated"
+}
+
+// Either `File` or an error. It's like a union type, but fucking stupid.
+type FileResult interface{}
+
 func NewGoogleDriveProvider(conf Configuration) GoogleDriveProvider {
-	config := &oauth2.Config{
+	oauth := &oauth2.Config{
 		ClientID:     conf.ClientId,
 		ClientSecret: conf.ClientSecret,
 		RedirectURL:  conf.RedirectURI,
@@ -50,7 +78,7 @@ func NewGoogleDriveProvider(conf Configuration) GoogleDriveProvider {
 		Endpoint: google.Endpoint,
 	}
 
-	return GoogleDriveProvider{config}
+	return GoogleDriveProvider{oauth, &conf}
 }
 
 func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) {
@@ -61,11 +89,141 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 		return nil, err
 	}
 
-	return &Client{svc}, nil
+	return &Client{svc, p.config}, nil
+}
+
+func (c Client) Start(forceSync bool, site *model.Site, store *store.RedisStore, conf Configuration) {
+	go c.changeWatcherRefresher(site.Drive.FolderId, site, store)
+
+	if forceSync {
+		if err := c.ForceSync(*site, store); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func (c Client) ChangeHookRoute(site *model.Site) string {
+	key := site.WebhookKey()
+
+	// TODO: This is idiotic.
+	url, err := url.Parse(c.config.WatchNotificationURI + key)
+	if err != nil {
+		panic(err)
+	}
+
+	return url.Path
+}
+
+func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.RedisStore) error {
+	headers := req.Header
+
+	resource := headers["X-Goog-Resource-ID"]
+	if len(resource) < 1 {
+		log.Printf("Hook missing resource id")
+		return nil
+	}
+
+	state := headers["X-Goog-Resource-State"]
+	if len(state) < 1 {
+		log.Printf("Hook missing resource state")
+		return nil
+	}
+
+	switch state[0] {
+	case "add":
+		log.Printf("Adding resource: %+v\n", resource)
+
+	case "update", "change":
+		log.Printf("Updating resource: %+v\n", resource)
+
+	case "remove", "trash":
+		log.Printf("Removing resource: %+v\n", resource)
+
+	default:
+		log.Printf("Unknown value for resource state: %+v\n", state)
+		return nil
+	}
+
+	return nil
+}
+
+func (c Client) changeWatcherRefresher(fileId string, site *model.Site, store *store.RedisStore) {
+	key := site.WebhookKey()
+
+	_, err := c.CreateChangeWatcher(fileId, key)
+	if err != nil {
+		log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
+	}
+
+	// Watchers expire very frequently
+	time.Sleep(55 * time.Minute)
+
+}
+
+func (c Client) CreateChangeWatcher(fileId string, key string) (string, error) {
+	id := uuid.New().String()
+
+	channel := &drive.Channel{
+		Address: c.config.WatchNotificationURI + key,
+		Id:      id,
+		Type:    "web_hook",
+	}
+
+	_, err := c.service.Files.
+		Watch(fileId, channel).
+		Do()
+
+	if err != nil {
+		log.Printf("Failed to register file watcher: %+v\n", err)
+		return "", err
+	}
+
+	return id, nil
+}
+
+func (c Client) ExportFile(file File, site model.Site, dir string) (*model.Post, error) {
+	docx, err := c.ExportAsDocx(file)
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(dir, file.Id)
+	if err := os.Mkdir(path, os.ModePerm); err != nil {
+		return nil, err
+	}
+
+	inputFileName := filepath.Join(path, "input.docx")
+	inputFile, err := os.Create(inputFileName)
+	if err != nil {
+		return nil, err
+	}
+
+	w := bufio.NewWriter(inputFile)
+	if _, err := io.Copy(w, docx); err != nil {
+		return nil, err
+	}
+	if err := w.Flush(); err != nil {
+		return nil, err
+	}
+
+	md, err := converters.ConvertDocx(inputFileName, path)
+	if err != nil {
+		return nil, err
+	}
+
+	post := converters.ExtractPost(md)
+	post.Author = file.Author
+	post.Slug = post.GenerateSlug(file.Path)
+
+	if err := converters.HandlePostMedia(&site, &post); err != nil {
+		return nil, err
+	}
+
+	return &post, nil
 }
 
 // ForceSync ...
-func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
+func (c Client) ForceSync(site model.Site, db *store.RedisStore) error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
@@ -87,48 +245,19 @@ func (c Client) ForceSync(site model.Site, db store.RedisStore) error {
 			return res.(error)
 		}
 
-		docx, err := c.ExportAsDocx(file)
+		post, err := c.ExportFile(file, site, dir)
 		if err != nil {
+			log.Printf("Failed to export file from drive: %+v\n", err)
 			return err
 		}
 
-		path := filepath.Join(dir, file.Id)
-		if err := os.Mkdir(path, os.ModePerm); err != nil {
-			return err
-		}
-
-		inputFileName := filepath.Join(path, "input.docx")
-		inputFile, err := os.Create(inputFileName)
-		if err != nil {
-			return err
-		}
-
-		w := bufio.NewWriter(inputFile)
-		if _, err := io.Copy(w, docx); err != nil {
-			return err
-		}
-		if err := w.Flush(); err != nil {
-			return err
-		}
-
-		md, err := converters.ConvertDocx(inputFileName, path)
-		if err != nil {
-			return err
-		}
-
-		post := converters.ExtractPost(md)
-		post.Author = file.Author
-		post.Slug = post.GenerateSlug(file.Path)
-
-		if err := converters.HandlePostMedia(&site, &post); err != nil {
-			return err
-		}
+		go c.changeWatcherRefresher(file.Id, &site, db)
 
 		overview = append(overview, post.Overview())
 
 		log.Printf("[INFO] extracted post: %+v", post.Slug)
 
-		if err := db.AddPost(site, post); err != nil {
+		if err := db.AddPost(site, *post); err != nil {
 			return err
 		}
 	}
@@ -154,21 +283,6 @@ func (c Client) ExportAsDocx(file File) (io.Reader, error) {
 
 	return res.Body, nil
 }
-
-type folder struct {
-	path string
-	id   string
-}
-
-type File struct {
-	Id     string
-	Name   string
-	Path   string
-	Author string
-}
-
-// Either `File` or an error. It's like a union type, but fucking stupid.
-type FileResult interface{}
 
 func (c Client) listFolder(rootId string, files chan FileResult) {
 	defer close(files)

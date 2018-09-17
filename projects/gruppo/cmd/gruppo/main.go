@@ -38,19 +38,6 @@ func loadConfiguration() Configuration {
 	return conf
 }
 
-func syncSite(s model.Site, store store.RedisStore, conf Configuration) {
-	provider := drive.NewGoogleDriveProvider(conf.Drive)
-
-	client, err := provider.ClientForToken(s.Drive.Token)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := client.ForceSync(s, store); err != nil {
-		log.Fatal(err)
-	}
-}
-
 func main() {
 	conf := loadConfiguration()
 	log.Printf("conf, %+v", conf)
@@ -63,8 +50,21 @@ func main() {
 	var site model.Site
 	json.NewDecoder(strings.NewReader(conf.Site)).Decode(&site)
 
-	log.Printf("[INFO] starting sync for site: %s", site.HostPathPrefix())
-	go syncSite(site, *store, conf)
+	provider := drive.NewGoogleDriveProvider(conf.Drive)
+	client, err := provider.ClientForToken(site.Drive.Token)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	web.New([]model.Site{site}, conf.Web, store).Serve()
+	log.Printf("[INFO] starting sync for site: %s", site.HostPathPrefix())
+
+	w := web.New([]model.Site{site}, conf.Web, store)
+
+	if err := w.RegisterDriveHooks(&site, client, store); err != nil {
+		log.Fatal(err)
+	}
+
+	w.Serve()
+
+	client.Start(true, &site, store, conf.Drive)
 }
