@@ -64,7 +64,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	w.Serve()
+	go client.Start(true, &site, store, conf.Drive)
 
-	client.Start(true, &site, store, conf.Drive)
+	w.Serve()
 }

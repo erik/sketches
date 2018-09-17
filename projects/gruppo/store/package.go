@@ -52,7 +52,7 @@ func (r RedisStore) ClearSiteData(s model.Site) error {
 }
 
 func (r RedisStore) ListPostOverviews(site model.Site, offset, limit int64) ([]model.PostOverview, error) {
-	k := fmt.Sprintf("%s:slugs", site.HostPathPrefix())
+	k := KeyForSite(site, "slugs")
 
 	objs, err := r.db.ZRange(k, offset, offset+limit).Result()
 	if err != nil {
@@ -69,7 +69,7 @@ func (r RedisStore) ListPostOverviews(site model.Site, offset, limit int64) ([]m
 }
 
 func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview) error {
-	k := keyForSite(site, "slugs")
+	k := KeyForSite(site, "slugs")
 
 	values := make([]redis.Z, len(posts))
 	for i, p := range posts {
@@ -87,7 +87,7 @@ func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview
 }
 
 func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
-	k := keyForSlug(site, slug)
+	k := KeyForSlug(site, slug)
 	log.Printf("Looking up post: %s\n", k)
 	var post model.Post
 
@@ -103,7 +103,7 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 }
 
 func (r RedisStore) AddPost(site model.Site, p model.Post) error {
-	k := keyForSlug(site, p.Slug)
+	k := KeyForSlug(site, p.Slug)
 	log.Printf("Adding post: %s\n", k)
 
 	return r.SetJSON(k, p)
@@ -148,8 +148,8 @@ func (r RedisStore) AddSetJSON(k string, obj interface{}) error {
 }
 
 // TODO: Would be nice to have some JSON parsing here
-func (r RedisStore) SetMembers(k string) ([]string, error) {
-	return r.db.SMembers(k).Result()
+func (r RedisStore) PopSetMembers(k string) ([]string, error) {
+	return r.db.SPopN(k, 10).Result()
 }
 
 func (r RedisStore) GetSite(id string) (*model.Site, error) {
@@ -162,11 +162,11 @@ func (r RedisStore) SetSite(*model.Site) error {
 	return nil
 }
 
-func keyForSite(site model.Site, kind string) string {
+func KeyForSite(site model.Site, kind string) string {
 	return fmt.Sprintf("%s:%s", site.HostPathPrefix(), kind)
 }
 
-func keyForSlug(site model.Site, slug string) string {
-	base := keyForSite(site, "post")
+func KeyForSlug(site model.Site, slug string) string {
+	base := KeyForSite(site, "post")
 	return fmt.Sprintf("%s:%s", base, slug)
 }

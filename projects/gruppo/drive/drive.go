@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/erik/gruppo/converters"
@@ -59,10 +60,16 @@ type File struct {
 	Author string
 }
 
+const (
+	fileChangeCreated = "created"
+	fileChangeUpdated = "updated"
+	fileChangeDeleted = "deleted"
+)
+
 type FileChange struct {
-	file File
-	site model.Site
-	kind string // one of "created", "deleted", "updated"
+	File File
+	Site model.Site
+	Kind string // one of "created", "deleted", "updated"
 }
 
 // Either `File` or an error. It's like a union type, but fucking stupid.
@@ -94,8 +101,11 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 
 func (c Client) Start(forceSync bool, site *model.Site, store *store.RedisStore, conf Configuration) {
 	go c.changeWatcherRefresher(site.Drive.FolderId, site, store)
+	go c.changeHandler(site, store)
 
 	if forceSync {
+		log.Printf("Starting file sync for site %s\n", site.HostPathPrefix())
+
 		if err := c.ForceSync(*site, store); err != nil {
 			log.Fatal(err)
 		}
@@ -114,10 +124,55 @@ func (c Client) ChangeHookRoute(site *model.Site) string {
 	return url.Path
 }
 
+func EnqueueFileChange(site *model.Site, fc FileChange, db *store.RedisStore) error {
+	k := store.KeyForSite(*site, "changes")
+	return db.AddSetJSON(k, fc)
+}
+
+func DequeueFileChanges(site *model.Site, db *store.RedisStore) ([]FileChange, error) {
+	k := store.KeyForSite(*site, "changes")
+	items, err := db.PopSetMembers(k)
+
+	if err != nil {
+		return nil, err
+	}
+
+	changes := make([]FileChange, len(items))
+	for i, item := range items {
+		dec := json.NewDecoder(strings.NewReader(item))
+		if err := dec.Decode(&changes[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	return changes, nil
+}
+
+func (c Client) changeHandler(site *model.Site, db *store.RedisStore) {
+	fileChanges := []FileChange{}
+	for {
+		if len(fileChanges) == 0 {
+			ch, err := DequeueFileChanges(site, db)
+			if err != nil {
+				log.Printf("Dequeue changes failed: %+v\n", err)
+				return
+			}
+
+			fileChanges = append(fileChanges, ch...)
+		}
+
+		for _, ch := range fileChanges {
+			log.Printf("TODO: handle file change %+v\n", ch)
+
+			time.Sleep(30 * time.Second)
+		}
+	}
+}
+
 func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.RedisStore) error {
 	headers := req.Header
 
-	resource := headers["X-Goog-Resource-ID"]
+	resource := headers["X-Goog-Resource-Id"]
 	if len(resource) < 1 {
 		log.Printf("Hook missing resource id")
 		return nil
@@ -129,22 +184,34 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.
 		return nil
 	}
 
+	change := FileChange{
+		Site: *site,
+		File: File{Id: resource[0]},
+	}
+
 	switch state[0] {
+	case "sync":
+		log.Printf("Hook registered successfully for %s\n", site.HostPathPrefix())
+		return nil
+
 	case "add":
 		log.Printf("Adding resource: %+v\n", resource)
+		change.Kind = fileChangeCreated
 
 	case "update", "change":
 		log.Printf("Updating resource: %+v\n", resource)
+		change.Kind = fileChangeUpdated
 
 	case "remove", "trash":
 		log.Printf("Removing resource: %+v\n", resource)
+		change.Kind = fileChangeDeleted
 
 	default:
 		log.Printf("Unknown value for resource state: %+v\n", state)
 		return nil
 	}
 
-	return nil
+	return EnqueueFileChange(site, change, db)
 }
 
 func (c Client) changeWatcherRefresher(fileId string, site *model.Site, store *store.RedisStore) {
