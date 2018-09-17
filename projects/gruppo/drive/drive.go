@@ -164,6 +164,9 @@ func (c Client) changeHandler(site *model.Site, db *store.RedisStore) {
 		for _, ch := range fileChanges {
 			log.Printf("TODO: handle file change %+v\n", ch)
 
+			// TODO: Haven't written a file specific version yet
+			c.ForceSync(*site, db)
+
 			time.Sleep(30 * time.Second)
 		}
 	}
