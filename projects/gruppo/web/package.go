@@ -63,12 +63,12 @@ type web struct {
 	sites siteMapping // host -> [site, ...]
 }
 
-func (w *web) RegisterDriveHooks(site *model.Site, c *drive.Client) error {
-	route := c.ChangeHookRoute(site)
+func (w *web) RegisterDriveHooks(c *drive.Client) error {
+	route := c.ChangeHookRoute()
 	log.Printf("setting up drive hook: %s\n", route)
 
 	w.echo.POST(route, func(ctx echo.Context) error {
-		if err := c.HandleChangeHook(site, ctx.Request()); err != nil {
+		if err := c.HandleChangeHook(ctx.Request()); err != nil {
 			log.Printf("[ERROR] Failed change hook: %+v\n", err)
 			return ctx.String(http.StatusInternalServerError, "something bad")
 		}

@@ -51,7 +51,7 @@ func main() {
 	json.NewDecoder(strings.NewReader(conf.Site)).Decode(&site)
 
 	provider := drive.NewGoogleDriveProvider(conf.Drive, store)
-	client, err := provider.ClientForToken(site.Drive.Token)
+	client, err := provider.ClientForSite(site)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -60,11 +60,11 @@ func main() {
 
 	w := web.New([]model.Site{site}, conf.Web, store)
 
-	if err := w.RegisterDriveHooks(&site, client); err != nil {
+	if err := w.RegisterDriveHooks(client); err != nil {
 		log.Fatal(err)
 	}
 
-	go client.Start(true, &site, conf.Drive)
+	go client.Start(true, conf.Drive)
 
 	w.Serve()
 }

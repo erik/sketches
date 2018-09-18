@@ -48,6 +48,7 @@ type Client struct {
 	service *drive.Service
 	config  *Configuration
 	db      *store.RedisStore
+	site    model.Site
 }
 
 type folder struct {
@@ -70,7 +71,6 @@ const (
 
 type FileChange struct {
 	File File
-	Site model.Site
 	Kind string // one of "created", "deleted", "updated"
 }
 
@@ -90,7 +90,9 @@ func NewGoogleDriveProvider(conf Configuration, db *store.RedisStore) GoogleDriv
 	return GoogleDriveProvider{oauth, &conf, db}
 }
 
-func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) {
+func (p GoogleDriveProvider) ClientForSite(site model.Site) (*Client, error) {
+	tok := site.Drive.Token
+
 	client := p.oauth.Client(context.TODO(), tok)
 
 	svc, err := drive.New(client)
@@ -98,24 +100,29 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 		return nil, err
 	}
 
-	return &Client{svc, p.config, p.db}, nil
+	return &Client{
+		service: svc,
+		config:  p.config,
+		db:      p.db,
+		site:    site,
+	}, nil
 }
 
-func (c Client) Start(forceSync bool, site *model.Site, conf Configuration) {
-	go c.changeWatcherRefresher(site.Drive.FolderId, site)
-	go c.changeHandler(site)
+func (c Client) Start(forceSync bool, conf Configuration) {
+	go c.changeWatcherRefresher(c.site.Drive.FolderId)
+	go c.changeHandler()
 
 	if forceSync {
-		log.Printf("Starting file sync for site %s\n", site.HostPathPrefix())
+		log.Printf("Starting file sync for site %s\n", c.site.HostPathPrefix())
 
-		if err := c.ForceSync(*site); err != nil {
+		if err := c.ForceSync(); err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func (c Client) ChangeHookRoute(site *model.Site) string {
-	key := site.WebhookKey()
+func (c Client) ChangeHookRoute() string {
+	key := c.site.WebhookKey()
 
 	// TODO: This is idiotic.
 	url, err := url.Parse(c.config.WatchNotificationURI + key)
@@ -126,13 +133,13 @@ func (c Client) ChangeHookRoute(site *model.Site) string {
 	return url.Path
 }
 
-func (c Client) EnqueueFileChange(site *model.Site, fc FileChange) error {
-	k := store.KeyForSite(*site, "changes")
+func (c Client) EnqueueFileChange(fc FileChange) error {
+	k := store.KeyForSite(c.site, "changes")
 	return c.db.AddSetJSON(k, fc)
 }
 
-func (c Client) DequeueFileChanges(site *model.Site) ([]FileChange, error) {
-	k := store.KeyForSite(*site, "changes")
+func (c Client) DequeueFileChanges() ([]FileChange, error) {
+	k := store.KeyForSite(c.site, "changes")
 	items, err := c.db.PopSetMembers(k)
 
 	if err != nil {
@@ -150,11 +157,11 @@ func (c Client) DequeueFileChanges(site *model.Site) ([]FileChange, error) {
 	return changes, nil
 }
 
-func (c Client) changeHandler(site *model.Site) {
+func (c Client) changeHandler() {
 	fileChanges := []FileChange{}
 	for {
 		if len(fileChanges) == 0 {
-			ch, err := c.DequeueFileChanges(site)
+			ch, err := c.DequeueFileChanges()
 			if err != nil {
 				log.Printf("Dequeue changes failed: %+v\n", err)
 				return
@@ -174,7 +181,7 @@ func (c Client) changeHandler(site *model.Site) {
 	}
 }
 
-func (c Client) HandleChangeHook(site *model.Site, req *http.Request) error {
+func (c Client) HandleChangeHook(req *http.Request) error {
 	headers := req.Header
 
 	resources := headers["X-Goog-Resource-Id"]
@@ -195,7 +202,7 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request) error {
 
 	switch state[0] {
 	case "sync":
-		log.Printf("Hook registered successfully for %s\n", site.HostPathPrefix())
+		log.Printf("Hook registered successfully for %s\n", c.site.HostPathPrefix())
 		return nil
 
 	case "add":
@@ -228,7 +235,6 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request) error {
 	}
 
 	change := FileChange{
-		Site: *site,
 		Kind: changeKind,
 		File: File{
 			Id:   fileId,
@@ -236,11 +242,11 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request) error {
 		},
 	}
 
-	return c.EnqueueFileChange(site, change)
+	return c.EnqueueFileChange(change)
 }
 
-func (c Client) changeWatcherRefresher(fileId string, site *model.Site) {
-	key := site.WebhookKey()
+func (c Client) changeWatcherRefresher(fileId string) {
+	key := c.site.WebhookKey()
 
 	ch, err := c.CreateChangeWatcher(fileId, key)
 	if err != nil {
@@ -253,7 +259,6 @@ func (c Client) changeWatcherRefresher(fileId string, site *model.Site) {
 
 	// Watchers expire very frequently
 	time.Sleep(55 * time.Minute)
-
 }
 
 func (c Client) CreateChangeWatcher(fileId string, key string) (*drive.Channel, error) {
@@ -275,7 +280,7 @@ func (c Client) CreateChangeWatcher(fileId string, key string) (*drive.Channel, 
 	return ch, nil
 }
 
-func (c Client) ExportFile(file File, site model.Site, dir string) (*model.Post, error) {
+func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 	docx, err := c.ExportAsDocx(file)
 	if err != nil {
 		return nil, err
@@ -309,26 +314,26 @@ func (c Client) ExportFile(file File, site model.Site, dir string) (*model.Post,
 	post.Author = file.Author
 	post.Slug = post.GenerateSlug(file.Path)
 
-	if err := converters.HandlePostMedia(&site, &post); err != nil {
+	if err := converters.HandlePostMedia(&c.site, &post); err != nil {
 		return nil, err
 	}
 
 	return &post, nil
 }
 
-func (c Client) ProcessFile(file File, isNew bool, site model.Site, tmpDir string) (*model.Post, error) {
-	post, err := c.ExportFile(file, site, tmpDir)
+func (c Client) ProcessFile(file File, isNew bool, tmpDir string) (*model.Post, error) {
+	post, err := c.ExportFile(file, tmpDir)
 	if err != nil {
 		log.Printf("Failed to export file from drive: %+v\n", err)
 		return nil, err
 	}
 
-	go c.changeWatcherRefresher(file.Id, &site)
+	go c.changeWatcherRefresher(file.Id)
 
 	log.Printf("[INFO] extracted post: %+v", post.Slug)
 
 	if isNew {
-		if err := c.db.AddPost(site, *post); err != nil {
+		if err := c.db.AddPost(c.site, *post); err != nil {
 			return nil, err
 		}
 	}
@@ -337,7 +342,7 @@ func (c Client) ProcessFile(file File, isNew bool, site model.Site, tmpDir strin
 }
 
 // ForceSync ...
-func (c Client) ForceSync(site model.Site) error {
+func (c Client) ForceSync() error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
@@ -346,20 +351,20 @@ func (c Client) ForceSync(site model.Site) error {
 	defer os.RemoveAll(dir)
 
 	// Start with a clean slate
-	if err := c.db.ClearSiteData(site); err != nil {
+	if err := c.db.ClearSiteData(c.site); err != nil {
 		return err
 	}
 
 	// Generated List of posts
 	overview := []model.PostOverview{}
 
-	for res := range c.List(site.Drive.FolderId) {
+	for res := range c.List(c.site.Drive.FolderId) {
 		file, ok := res.(File)
 		if !ok {
 			return res.(error)
 		}
 
-		post, err := c.ProcessFile(file, true, site, dir)
+		post, err := c.ProcessFile(file, true, dir)
 		if err != nil {
 			return err
 		}
@@ -367,7 +372,7 @@ func (c Client) ForceSync(site model.Site) error {
 		overview = append(overview, post.Overview())
 	}
 
-	if err := c.db.SetPostOverviews(site, overview); err != nil {
+	if err := c.db.SetPostOverviews(c.site, overview); err != nil {
 		return err
 	}
 
