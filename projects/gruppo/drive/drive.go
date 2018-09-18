@@ -41,11 +41,13 @@ type Configuration struct {
 type GoogleDriveProvider struct {
 	oauth  *oauth2.Config
 	config *Configuration
+	db     *store.RedisStore
 }
 
 type Client struct {
 	service *drive.Service
 	config  *Configuration
+	db      *store.RedisStore
 }
 
 type folder struct {
@@ -75,7 +77,7 @@ type FileChange struct {
 // Either `File` or an error. It's like a union type, but fucking stupid.
 type FileResult interface{}
 
-func NewGoogleDriveProvider(conf Configuration) GoogleDriveProvider {
+func NewGoogleDriveProvider(conf Configuration, db *store.RedisStore) GoogleDriveProvider {
 	oauth := &oauth2.Config{
 		ClientID:     conf.ClientId,
 		ClientSecret: conf.ClientSecret,
@@ -85,7 +87,7 @@ func NewGoogleDriveProvider(conf Configuration) GoogleDriveProvider {
 		Endpoint: google.Endpoint,
 	}
 
-	return GoogleDriveProvider{oauth, &conf}
+	return GoogleDriveProvider{oauth, &conf, db}
 }
 
 func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) {
@@ -96,17 +98,17 @@ func (p GoogleDriveProvider) ClientForToken(tok *oauth2.Token) (*Client, error) 
 		return nil, err
 	}
 
-	return &Client{svc, p.config}, nil
+	return &Client{svc, p.config, p.db}, nil
 }
 
-func (c Client) Start(forceSync bool, site *model.Site, store *store.RedisStore, conf Configuration) {
-	go c.changeWatcherRefresher(site.Drive.FolderId, site, store)
-	go c.changeHandler(site, store)
+func (c Client) Start(forceSync bool, site *model.Site, conf Configuration) {
+	go c.changeWatcherRefresher(site.Drive.FolderId, site)
+	go c.changeHandler(site)
 
 	if forceSync {
 		log.Printf("Starting file sync for site %s\n", site.HostPathPrefix())
 
-		if err := c.ForceSync(*site, store); err != nil {
+		if err := c.ForceSync(*site); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -124,14 +126,14 @@ func (c Client) ChangeHookRoute(site *model.Site) string {
 	return url.Path
 }
 
-func EnqueueFileChange(site *model.Site, fc FileChange, db *store.RedisStore) error {
+func (c Client) EnqueueFileChange(site *model.Site, fc FileChange) error {
 	k := store.KeyForSite(*site, "changes")
-	return db.AddSetJSON(k, fc)
+	return c.db.AddSetJSON(k, fc)
 }
 
-func DequeueFileChanges(site *model.Site, db *store.RedisStore) ([]FileChange, error) {
+func (c Client) DequeueFileChanges(site *model.Site) ([]FileChange, error) {
 	k := store.KeyForSite(*site, "changes")
-	items, err := db.PopSetMembers(k)
+	items, err := c.db.PopSetMembers(k)
 
 	if err != nil {
 		return nil, err
@@ -148,11 +150,11 @@ func DequeueFileChanges(site *model.Site, db *store.RedisStore) ([]FileChange, e
 	return changes, nil
 }
 
-func (c Client) changeHandler(site *model.Site, db *store.RedisStore) {
+func (c Client) changeHandler(site *model.Site) {
 	fileChanges := []FileChange{}
 	for {
 		if len(fileChanges) == 0 {
-			ch, err := DequeueFileChanges(site, db)
+			ch, err := c.DequeueFileChanges(site)
 			if err != nil {
 				log.Printf("Dequeue changes failed: %+v\n", err)
 				return
@@ -172,7 +174,7 @@ func (c Client) changeHandler(site *model.Site, db *store.RedisStore) {
 	}
 }
 
-func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.RedisStore) error {
+func (c Client) HandleChangeHook(site *model.Site, req *http.Request) error {
 	headers := req.Header
 
 	resources := headers["X-Goog-Resource-Id"]
@@ -213,13 +215,13 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.
 		return nil
 	}
 
-	fileId, err := getResourceFile(resourceId, db)
+	fileId, err := c.getResourceFile(resourceId)
 	if err != nil {
 		log.Printf("Failed to find fileId for resource: %s: %+v\n", resourceId, err)
 		return err
 	}
 
-	path, err := getFileFolder(fileId, db)
+	path, err := c.getFileFolder(fileId)
 	if err != nil {
 		log.Printf("Failed to find folder for fileId: %s: %+v\n", fileId, err)
 		return err
@@ -234,10 +236,10 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.
 		},
 	}
 
-	return EnqueueFileChange(site, change, db)
+	return c.EnqueueFileChange(site, change)
 }
 
-func (c Client) changeWatcherRefresher(fileId string, site *model.Site, db *store.RedisStore) {
+func (c Client) changeWatcherRefresher(fileId string, site *model.Site) {
 	key := site.WebhookKey()
 
 	ch, err := c.CreateChangeWatcher(fileId, key)
@@ -245,7 +247,7 @@ func (c Client) changeWatcherRefresher(fileId string, site *model.Site, db *stor
 		log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
 	}
 
-	if err := setResourceFile(fileId, ch.ResourceId, db); err != nil {
+	if err := c.setResourceFile(fileId, ch.ResourceId); err != nil {
 		log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
 	}
 
@@ -314,8 +316,28 @@ func (c Client) ExportFile(file File, site model.Site, dir string) (*model.Post,
 	return &post, nil
 }
 
+func (c Client) ProcessFile(file File, isNew bool, site model.Site, tmpDir string) (*model.Post, error) {
+	post, err := c.ExportFile(file, site, tmpDir)
+	if err != nil {
+		log.Printf("Failed to export file from drive: %+v\n", err)
+		return nil, err
+	}
+
+	go c.changeWatcherRefresher(file.Id, &site)
+
+	log.Printf("[INFO] extracted post: %+v", post.Slug)
+
+	if isNew {
+		if err := c.db.AddPost(site, *post); err != nil {
+			return nil, err
+		}
+	}
+
+	return post, nil
+}
+
 // ForceSync ...
-func (c Client) ForceSync(site model.Site, db *store.RedisStore) error {
+func (c Client) ForceSync(site model.Site) error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
@@ -324,37 +346,28 @@ func (c Client) ForceSync(site model.Site, db *store.RedisStore) error {
 	defer os.RemoveAll(dir)
 
 	// Start with a clean slate
-	if err := db.ClearSiteData(site); err != nil {
+	if err := c.db.ClearSiteData(site); err != nil {
 		return err
 	}
 
 	// Generated List of posts
 	overview := []model.PostOverview{}
 
-	for res := range c.List(site.Drive.FolderId, db) {
+	for res := range c.List(site.Drive.FolderId) {
 		file, ok := res.(File)
 		if !ok {
 			return res.(error)
 		}
 
-		post, err := c.ExportFile(file, site, dir)
+		post, err := c.ProcessFile(file, true, site, dir)
 		if err != nil {
-			log.Printf("Failed to export file from drive: %+v\n", err)
 			return err
 		}
-
-		go c.changeWatcherRefresher(file.Id, &site, db)
 
 		overview = append(overview, post.Overview())
-
-		log.Printf("[INFO] extracted post: %+v", post.Slug)
-
-		if err := db.AddPost(site, *post); err != nil {
-			return err
-		}
 	}
 
-	if err := db.SetPostOverviews(site, overview); err != nil {
+	if err := c.db.SetPostOverviews(site, overview); err != nil {
 		return err
 	}
 
@@ -376,35 +389,31 @@ func (c Client) ExportAsDocx(file File) (io.Reader, error) {
 	return res.Body, nil
 }
 
-func (c Client) fileById(fileId string) (*File, error) {
-	return nil, nil
-}
-
 // Return the directory a File is contained in. Because in google drive files
 // don't know where they are.
-func getFileFolder(fileId string, db *store.RedisStore) (string, error) {
+func (c Client) getFileFolder(fileId string) (string, error) {
 	k := "drive:filetree:" + fileId
-	return db.GetKey(k)
+	return c.db.GetKey(k)
 }
 
-func setFileFolder(fileId, path string, db *store.RedisStore) error {
+func (c Client) setFileFolder(fileId, path string) error {
 	log.Printf("======> setting %s to %s", fileId, path)
 	k := "drive:filetree:" + fileId
-	return db.SetKey(k, path)
+	return c.db.SetKey(k, path)
 }
 
-func setResourceFile(fileId, resourceId string, db *store.RedisStore) error {
+func (c Client) setResourceFile(fileId, resourceId string) error {
 	log.Printf("~~~~~~> setting %s to %s", fileId, resourceId)
 	k := "drive:resources:" + resourceId
-	return db.SetKey(k, fileId)
+	return c.db.SetKey(k, fileId)
 }
 
-func getResourceFile(resourceId string, db *store.RedisStore) (string, error) {
+func (c Client) getResourceFile(resourceId string) (string, error) {
 	k := "drive:resources:" + resourceId
-	return db.GetKey(k)
+	return c.db.GetKey(k)
 }
 
-func (c Client) listFolder(rootId string, files chan FileResult, db *store.RedisStore) {
+func (c Client) listFolder(rootId string, files chan FileResult) {
 	defer close(files)
 
 	var current folder
@@ -434,7 +443,7 @@ func (c Client) listFolder(rootId string, files chan FileResult, db *store.Redis
 			}
 
 			for _, f := range result.Files {
-				if err := setFileFolder(f.Id, current.path, db); err != nil {
+				if err := c.setFileFolder(f.Id, current.path); err != nil {
 					files <- err
 					return
 				}
@@ -469,10 +478,10 @@ func (c Client) listFolder(rootId string, files chan FileResult, db *store.Redis
 
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
-func (c Client) List(folderId string, db *store.RedisStore) <-chan FileResult {
+func (c Client) List(folderId string) <-chan FileResult {
 	files := make(chan FileResult, 1)
 
-	go c.listFolder(folderId, files, db)
+	go c.listFolder(folderId, files)
 
 	return files
 }

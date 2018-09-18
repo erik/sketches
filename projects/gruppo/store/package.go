@@ -153,7 +153,7 @@ func (r RedisStore) AddSetJSON(k string, obj interface{}) error {
 
 // TODO: Would be nice to have some JSON parsing here
 func (r RedisStore) PopSetMembers(k string) ([]string, error) {
-	return r.db.SPopN(k, 10).Result()
+	return r.db.SPopN(k, 1).Result()
 }
 
 func (r RedisStore) GetSite(id string) (*model.Site, error) {
