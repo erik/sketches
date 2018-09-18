@@ -135,6 +135,10 @@ func (r RedisStore) SetKey(k, v string) error {
 	return err
 }
 
+func (r RedisStore) GetKey(k string) (string, error) {
+	return r.db.Get(k).Result()
+}
+
 // TODO: This name is nonsense.
 func (r RedisStore) AddSetJSON(k string, obj interface{}) error {
 	str, err := json.Marshal(obj)

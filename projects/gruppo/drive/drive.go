@@ -165,21 +165,23 @@ func (c Client) changeHandler(site *model.Site, db *store.RedisStore) {
 			log.Printf("TODO: handle file change %+v\n", ch)
 
 			// TODO: Haven't written a file specific version yet
-			c.ForceSync(*site, db)
-
-			time.Sleep(30 * time.Second)
+			//c.ForceSync(*site, db)
 		}
+
+		time.Sleep(30 * time.Second)
 	}
 }
 
 func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.RedisStore) error {
 	headers := req.Header
 
-	resource := headers["X-Goog-Resource-Id"]
-	if len(resource) < 1 {
+	resources := headers["X-Goog-Resource-Id"]
+	if len(resources) < 1 {
 		log.Printf("Hook missing resource id")
 		return nil
 	}
+
+	resourceId := resources[0]
 
 	state := headers["X-Goog-Resource-State"]
 	if len(state) < 1 {
@@ -187,10 +189,7 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.
 		return nil
 	}
 
-	change := FileChange{
-		Site: *site,
-		File: File{Id: resource[0]},
-	}
+	var changeKind string
 
 	switch state[0] {
 	case "sync":
@@ -198,31 +197,56 @@ func (c Client) HandleChangeHook(site *model.Site, req *http.Request, db *store.
 		return nil
 
 	case "add":
-		log.Printf("Adding resource: %+v\n", resource)
-		change.Kind = fileChangeCreated
+		log.Printf("Adding resource: %+v\n", resourceId)
+		changeKind = fileChangeCreated
 
 	case "update", "change":
-		log.Printf("Updating resource: %+v\n", resource)
-		change.Kind = fileChangeUpdated
+		log.Printf("Updating resource: %+v\n", resourceId)
+		changeKind = fileChangeUpdated
 
 	case "remove", "trash":
-		log.Printf("Removing resource: %+v\n", resource)
-		change.Kind = fileChangeDeleted
+		log.Printf("Removing resource: %+v\n", resourceId)
+		changeKind = fileChangeDeleted
 
 	default:
 		log.Printf("Unknown value for resource state: %+v\n", state)
 		return nil
 	}
 
+	fileId, err := getResourceFile(resourceId, db)
+	if err != nil {
+		log.Printf("Failed to find fileId for resource: %s: %+v\n", resourceId, err)
+		return err
+	}
+
+	path, err := getFileFolder(fileId, db)
+	if err != nil {
+		log.Printf("Failed to find folder for fileId: %s: %+v\n", fileId, err)
+		return err
+	}
+
+	change := FileChange{
+		Site: *site,
+		Kind: changeKind,
+		File: File{
+			Id:   fileId,
+			Path: path,
+		},
+	}
+
 	return EnqueueFileChange(site, change, db)
 }
 
-func (c Client) changeWatcherRefresher(fileId string, site *model.Site, store *store.RedisStore) {
+func (c Client) changeWatcherRefresher(fileId string, site *model.Site, db *store.RedisStore) {
 	key := site.WebhookKey()
 
-	_, err := c.CreateChangeWatcher(fileId, key)
+	ch, err := c.CreateChangeWatcher(fileId, key)
 	if err != nil {
 		log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
+	}
+
+	if err := setResourceFile(fileId, ch.ResourceId, db); err != nil {
+		log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
 	}
 
 	// Watchers expire very frequently
@@ -230,25 +254,23 @@ func (c Client) changeWatcherRefresher(fileId string, site *model.Site, store *s
 
 }
 
-func (c Client) CreateChangeWatcher(fileId string, key string) (string, error) {
-	id := uuid.New().String()
-
+func (c Client) CreateChangeWatcher(fileId string, key string) (*drive.Channel, error) {
 	channel := &drive.Channel{
 		Address: c.config.WatchNotificationURI + key,
-		Id:      id,
+		Id:      uuid.New().String(),
 		Type:    "web_hook",
 	}
 
-	_, err := c.service.Files.
+	ch, err := c.service.Files.
 		Watch(fileId, channel).
 		Do()
 
 	if err != nil {
 		log.Printf("Failed to register file watcher: %+v\n", err)
-		return "", err
+		return nil, err
 	}
 
-	return id, nil
+	return ch, nil
 }
 
 func (c Client) ExportFile(file File, site model.Site, dir string) (*model.Post, error) {
@@ -309,7 +331,7 @@ func (c Client) ForceSync(site model.Site, db *store.RedisStore) error {
 	// Generated List of posts
 	overview := []model.PostOverview{}
 
-	for res := range c.List(site.Drive.FolderId) {
+	for res := range c.List(site.Drive.FolderId, db) {
 		file, ok := res.(File)
 		if !ok {
 			return res.(error)
@@ -354,7 +376,35 @@ func (c Client) ExportAsDocx(file File) (io.Reader, error) {
 	return res.Body, nil
 }
 
-func (c Client) listFolder(rootId string, files chan FileResult) {
+func (c Client) fileById(fileId string) (*File, error) {
+	return nil, nil
+}
+
+// Return the directory a File is contained in. Because in google drive files
+// don't know where they are.
+func getFileFolder(fileId string, db *store.RedisStore) (string, error) {
+	k := "drive:filetree:" + fileId
+	return db.GetKey(k)
+}
+
+func setFileFolder(fileId, path string, db *store.RedisStore) error {
+	log.Printf("======> setting %s to %s", fileId, path)
+	k := "drive:filetree:" + fileId
+	return db.SetKey(k, path)
+}
+
+func setResourceFile(fileId, resourceId string, db *store.RedisStore) error {
+	log.Printf("~~~~~~> setting %s to %s", fileId, resourceId)
+	k := "drive:resources:" + resourceId
+	return db.SetKey(k, fileId)
+}
+
+func getResourceFile(resourceId string, db *store.RedisStore) (string, error) {
+	k := "drive:resources:" + resourceId
+	return db.GetKey(k)
+}
+
+func (c Client) listFolder(rootId string, files chan FileResult, db *store.RedisStore) {
 	defer close(files)
 
 	var current folder
@@ -384,6 +434,11 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 			}
 
 			for _, f := range result.Files {
+				if err := setFileFolder(f.Id, current.path, db); err != nil {
+					files <- err
+					return
+				}
+
 				switch f.MimeType {
 				case MimeTypeDriveFolder:
 					log.Printf("[INFO] queuing directory: %s\n", f.Name)
@@ -414,10 +469,10 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
-func (c Client) List(folderId string) <-chan FileResult {
+func (c Client) List(folderId string, db *store.RedisStore) <-chan FileResult {
 	files := make(chan FileResult, 1)
 
-	go c.listFolder(folderId, files)
+	go c.listFolder(folderId, files, db)
 
 	return files
 }
