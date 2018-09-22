@@ -151,8 +151,8 @@ func (c Client) changeWatcherRefresher(fileId string) {
 		log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
 	}
 
-	// Watchers expire very frequently
-	time.Sleep(55 * time.Minute)
+	// Watchers expire every hour
+	time.Sleep(60 * time.Minute)
 }
 
 func (c Client) createChangeWatcher(fileId string, key string) (*drive.Channel, error) {

@@ -168,7 +168,19 @@ func (c Client) ProcessFile(file File, isNew bool, tmpDir string) (*model.Post, 
 
 	log.Printf("[INFO] extracted post: %+v", post.Slug)
 
-	// TODO: If we're refreshing an existing post, don't change the slug
+	if isNew {
+		if err := c.setSlugForFileId(file.Id, post.Slug); err != nil {
+			return nil, err
+		}
+	} else {
+		// If we're refreshing an existing post, don't change the slug
+		slug, err := c.getSlugForFileId(file.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		post.Slug = slug
+	}
 
 	if err := c.db.AddPost(c.site, *post); err != nil {
 		return nil, err
