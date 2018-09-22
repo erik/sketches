@@ -145,6 +145,11 @@ func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
 		Post:  post,
 	})
 
+	if err != nil {
+		log.Printf("[ERROR] failed to render template: %+v\n", err)
+		return c.String(http.StatusInternalServerError, "failed to render")
+	}
+
 	return c.HTML(http.StatusOK, html)
 }
 

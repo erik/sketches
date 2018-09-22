@@ -218,11 +218,7 @@ func (c Client) ForceSync() error {
 		overview = append(overview, post.Overview())
 	}
 
-	if err := c.db.SetPostOverviews(c.site, overview); err != nil {
-		return err
-	}
-
-	return nil
+	return c.db.SetPostOverviews(c.site, overview)
 }
 
 func (c Client) ExportAsDocx(file File) (io.Reader, error) {
