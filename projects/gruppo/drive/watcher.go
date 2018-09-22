@@ -2,14 +2,10 @@
 package drive
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
-
-	"github.com/erik/gruppo/store"
 
 	"github.com/google/uuid"
 	"google.golang.org/api/drive/v3"
@@ -27,50 +23,27 @@ func (c Client) ChangeHookRoute() string {
 	return url.Path
 }
 
-func (c Client) enqueueFileChange(fc FileChange) error {
-	k := store.KeyForSite(c.site, "changes")
-	return c.db.AddSetJSON(k, fc)
-}
-
-func (c Client) dequeueFileChanges() ([]FileChange, error) {
-	k := store.KeyForSite(c.site, "changes")
-	items, err := c.db.PopSetMembers(k)
-
-	if err != nil {
-		return nil, err
-	}
-
-	changes := make([]FileChange, len(items))
-	for i, item := range items {
-		dec := json.NewDecoder(strings.NewReader(item))
-		if err := dec.Decode(&changes[i]); err != nil {
-			return nil, err
-		}
-	}
-
-	return changes, nil
-}
-
 func (c Client) changeHandler() {
-	fileChanges := []FileChange{}
 	for {
-		if len(fileChanges) == 0 {
-			ch, err := c.dequeueFileChanges()
-			if err != nil {
-				log.Printf("Dequeue changes failed: %+v\n", err)
-				return
-			}
-
-			fileChanges = append(fileChanges, ch...)
+		ch, err := c.popFileChange()
+		if err != nil {
+			log.Printf("Dequeue changes failed: %+v\n", err)
+			return
 		}
 
-		for _, ch := range fileChanges {
-			log.Printf("TODO: handle file change %+v\n", ch)
-
-			// TODO: Haven't written a file specific version yet
-			//c.ForceSync(*site, db)
+		// If we don't have any work, sleep a little less
+		if ch == nil {
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
+		log.Printf("TODO: handle file change %+v\n", ch)
+
+		// TODO: Haven't written a file specific version yet
+		//c.ForceSync(*site, db)
+
+		// It's unlikely that multiple posts will be worked on at the
+		// same time for the same site, so sleep for a little longer.
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -136,7 +109,7 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 		},
 	}
 
-	return c.enqueueFileChange(change)
+	return c.pushFileChange(change)
 }
 
 func (c Client) changeWatcherRefresher(fileId string) {

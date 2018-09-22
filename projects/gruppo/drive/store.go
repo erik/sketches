@@ -1,6 +1,10 @@
 // extensions to store which are specific to Google drive support.
 package drive
 
+import (
+	"github.com/erik/gruppo/store"
+)
+
 const (
 	keyFileFolder   = "drive:filetree:"
 	keyResourceFile = "drive:resources:"
@@ -37,4 +41,20 @@ func (c Client) getSlugForFileId(fileId string) (string, error) {
 func (c Client) setSlugForFileId(fileId, slug string) error {
 	k := keyFileSlug + fileId
 	return c.db.SetKey(k, fileId)
+}
+
+func (c Client) pushFileChange(fc FileChange) error {
+	k := store.KeyForSite(c.site, "drive:changes")
+	return c.db.AddSetJSON(k, fc)
+}
+
+func (c Client) popFileChange() (*FileChange, error) {
+	k := store.KeyForSite(c.site, "drive:changes")
+	var change *FileChange
+
+	if err := c.db.PopSetMember(k, change); err != nil {
+		return nil, err
+	}
+
+	return change, nil
 }
