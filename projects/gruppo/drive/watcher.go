@@ -25,8 +25,11 @@ func (c Client) ChangeHookRoute() string {
 	return url.Path
 }
 
+// Continuously listen for file changes in Redis, processing files as
+// they appear. Applies a debounce so that multiple quick edits to the
+// same file are not consuming the worker.
 func (c Client) changeHandler() {
-	for {
+	for range time.Tick(5 * time.Second) {
 		ch, err := c.popFileChange()
 		if err != nil {
 			log.Printf("Dequeue changes failed: %+v\n", err)
@@ -35,7 +38,6 @@ func (c Client) changeHandler() {
 
 		// If we don't have any work, sleep a little less
 		if ch == nil {
-			time.Sleep(5 * time.Second)
 			continue
 		}
 
@@ -54,10 +56,7 @@ func (c Client) changeHandler() {
 
 		log.Printf("Handled file change %+v\n", post)
 
-		// It's unlikely that multiple posts will be worked on at the
-		// same time for the same site, so sleep for a little longer
-		// so we don't flood the worker every time the user types a
-		// sentence.
+		// Debounce
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -126,20 +125,21 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 	return c.pushFileChange(change)
 }
 
+// Periodically recreate the webhook, since Drive's API only allows
+// them to live briefly.
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
 
-	ch, err := c.createChangeWatcher(fileId, key)
-	if err != nil {
-		log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
-	}
+	for range time.Tick(1 * time.Hour) {
+		ch, err := c.createChangeWatcher(fileId, key)
+		if err != nil {
+			log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
+		}
 
-	if err := c.setResourceFile(fileId, ch.ResourceId); err != nil {
-		log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
+		if err := c.setResourceFile(fileId, ch.ResourceId); err != nil {
+			log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
+		}
 	}
-
-	// Watchers expire every hour
-	time.Sleep(60 * time.Minute)
 }
 
 func (c Client) createChangeWatcher(fileId string, key string) (*drive.Channel, error) {
