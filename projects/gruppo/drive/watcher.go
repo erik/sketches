@@ -2,9 +2,11 @@
 package drive
 
 import (
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,13 +39,25 @@ func (c Client) changeHandler() {
 			continue
 		}
 
-		log.Printf("TODO: handle file change %+v\n", ch)
+		dir, err := ioutil.TempDir("/tmp", "exported-media-")
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		// TODO: Haven't written a file specific version yet
-		//c.ForceSync(*site, db)
+		defer os.RemoveAll(dir)
+
+		post, err := c.ProcessFile(ch.File, dir)
+		if err != nil {
+			log.Printf("ProcessFile failed: %+v\n", err)
+			return
+		}
+
+		log.Printf("Handled file change %+v\n", post)
 
 		// It's unlikely that multiple posts will be worked on at the
-		// same time for the same site, so sleep for a little longer.
+		// same time for the same site, so sleep for a little longer
+		// so we don't flood the worker every time the user types a
+		// sentence.
 		time.Sleep(30 * time.Second)
 	}
 }

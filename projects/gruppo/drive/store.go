@@ -2,6 +2,8 @@
 package drive
 
 import (
+	"github.com/go-redis/redis"
+
 	"github.com/erik/gruppo/store"
 )
 
@@ -33,14 +35,24 @@ func (c Client) getResourceFile(resourceId string) (string, error) {
 	return c.db.GetKey(k)
 }
 
+func (c Client) getOrSetSlugForFileId(fileId, slug string) (string, error) {
+	k := keyFileSlug + fileId
+
+	// Exclude key not found errors
+	if val, err := c.db.GetKey(k); val != "" || (err != nil && err != redis.Nil) {
+		return val, err
+	}
+
+	if err := c.db.SetKey(k, slug); err != nil {
+		return "", err
+	}
+
+	return slug, nil
+}
+
 func (c Client) getSlugForFileId(fileId string) (string, error) {
 	k := keyFileSlug + fileId
 	return c.db.GetKey(k)
-}
-
-func (c Client) setSlugForFileId(fileId, slug string) error {
-	k := keyFileSlug + fileId
-	return c.db.SetKey(k, fileId)
 }
 
 func (c Client) pushFileChange(fc FileChange) error {

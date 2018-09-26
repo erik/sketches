@@ -156,7 +156,7 @@ func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 	return &post, nil
 }
 
-func (c Client) ProcessFile(file File, isNew bool, tmpDir string) (*model.Post, error) {
+func (c Client) ProcessFile(file File, tmpDir string) (*model.Post, error) {
 	post, err := c.ExportFile(file, tmpDir)
 	if err != nil {
 		log.Printf("Failed to export file from drive: %+v\n", err)
@@ -165,19 +165,13 @@ func (c Client) ProcessFile(file File, isNew bool, tmpDir string) (*model.Post, 
 
 	go c.changeWatcherRefresher(file.Id)
 
-	if isNew {
-		if err := c.setSlugForFileId(file.Id, post.Slug); err != nil {
-			return nil, err
-		}
-	} else {
-		// If we're refreshing an existing post, don't change the slug
-		slug, err := c.getSlugForFileId(file.Id)
-		if err != nil {
-			return nil, err
-		}
-
-		post.Slug = slug
+	// If we're refreshing an existing post, don't change the slug
+	slug, err := c.getOrSetSlugForFileId(file.Id, post.Slug)
+	if err != nil {
+		return nil, err
 	}
+
+	post.Slug = slug
 
 	if err := c.db.AddPost(c.site, *post); err != nil {
 		return nil, err
@@ -210,7 +204,7 @@ func (c Client) ForceSync() error {
 			return res.(error)
 		}
 
-		post, err := c.ProcessFile(file, true, dir)
+		post, err := c.ProcessFile(file, dir)
 		if err != nil {
 			return err
 		}
