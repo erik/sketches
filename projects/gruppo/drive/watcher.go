@@ -29,7 +29,7 @@ func (c Client) ChangeHookRoute() string {
 // they appear. Applies a debounce so that multiple quick edits to the
 // same file are not consuming the worker.
 func (c Client) changeHandler() {
-	for range time.Tick(5 * time.Second) {
+	for t := time.Tick(5 * time.Second); ; <-t {
 		ch, err := c.popFileChange()
 		if err != nil {
 			log.Printf("Dequeue changes failed: %+v\n", err)
@@ -130,7 +130,7 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
 
-	for range time.Tick(1 * time.Hour) {
+	for t := time.Tick(1 * time.Hour); ; <-t {
 		ch, err := c.createChangeWatcher(fileId, key)
 		if err != nil {
 			log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
