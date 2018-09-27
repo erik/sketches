@@ -62,11 +62,13 @@ func (c Client) pushFileChange(fc FileChange) error {
 
 func (c Client) popFileChange() (*FileChange, error) {
 	k := store.KeyForSite(c.site, "drive:changes")
-	var change *FileChange
+	var change FileChange
 
-	if err := c.db.PopSetMember(k, change); err != nil && err != redis.Nil {
+	if err := c.db.PopSetMember(k, &change); err != nil && err != redis.Nil {
 		return nil, err
+	} else if err == redis.Nil {
+		return nil, nil
 	}
 
-	return change, nil
+	return &change, nil
 }
