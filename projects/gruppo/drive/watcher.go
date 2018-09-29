@@ -130,10 +130,11 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
 
-	for t := time.Tick(1 * time.Hour); ; <-t {
+	for t := time.Tick(59 * time.Minute); ; <-t {
 		ch, err := c.createChangeWatcher(fileId, key)
 		if err != nil {
 			log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
+			continue
 		}
 
 		if err := c.setResourceFile(fileId, ch.ResourceId); err != nil {
@@ -149,14 +150,7 @@ func (c Client) createChangeWatcher(fileId string, key string) (*drive.Channel, 
 		Type:    "web_hook",
 	}
 
-	ch, err := c.service.Files.
+	return c.service.Files.
 		Watch(fileId, channel).
 		Do()
-
-	if err != nil {
-		log.Printf("Failed to register file watcher: %+v\n", err)
-		return nil, err
-	}
-
-	return ch, nil
 }
