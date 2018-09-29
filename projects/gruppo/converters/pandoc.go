@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"fmt"
 	"github.com/erik/gruppo/model"
 )
 
@@ -143,6 +144,7 @@ func ExtractPost(markdown string) model.Post {
 	return post
 }
 
+// TODO: pull this out of pandoc.go
 func HandlePostMedia(s *model.Site, p *model.Post) error {
 	assetPath := filepath.Join(s.SiteDir, "assets", p.Slug)
 
@@ -153,29 +155,103 @@ func HandlePostMedia(s *model.Site, p *model.Post) error {
 	for _, path := range p.ImagePaths {
 		name := filepath.Base(path)
 
-		b, err := ioutil.ReadFile(path)
+		reader, err := os.Open(path)
 		if err != nil {
-			log.WithError(err).Error("failed to read file")
+			log.WithError(err).Error("failed to open file")
 			return err
 		}
 
-		fp := filepath.Join(assetPath, name)
-
-		if err := ioutil.WriteFile(fp, b, os.ModePerm); err != nil {
-			log.WithError(err).Error("failed to write file")
+		writer, err := os.Create(filepath.Join(assetPath, name))
+		if err != nil {
+			log.WithError(err).Error("failed to create output file")
 			return err
 		}
 
-		newPath := filepath.Join(s.BasePath, s.AssetPath, p.Slug, name)
+		defer writer.Close()
+
+		if err := resizeImage(reader, writer); err != nil {
+			log.WithError(err).Error("failed to resize image")
+			return err
+		}
+
+		newURI := filepath.Join(s.BasePath, s.AssetPath, p.Slug, name)
 
 		log.WithFields(log.Fields{
 			"site":      s.HostPathPrefix(),
 			"post_slug": p.Slug,
-			"orig":      path,
-			"new":       newPath,
+			"from":      path,
+			"to":        newURI,
 		}).Debug("rewrote media location")
 
-		p.Content = strings.Replace(p.Content, path, newPath, -1)
+		p.Content = strings.Replace(p.Content, path, newURI, -1)
+	}
+
+	return nil
+}
+
+const (
+	maxImageWidth  = 1000
+	maxImageHeight = 2000
+)
+
+func resizeImage(r io.Reader, w io.Writer) error {
+	maxSize := fmt.Sprintf("%dx%d>", maxImageWidth, maxImageHeight)
+
+	args := []string{
+		"-", // read from stdin
+		"-resize", maxSize,
+		"-quality", "90",
+		"jpeg:-", // write to stdout as jpeg
+	}
+
+	cmd := exec.Command("convert", args...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		log.WithError(err).Error("failed to open `convert` stdin")
+		return err
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.WithError(err).Error("failed to open `convert` stdout")
+		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.WithError(err).Error("failed to open `convert` stderr")
+		return err
+	}
+
+	go func() {
+		defer stdin.Close()
+		if _, err := io.Copy(stdin, r); err != nil {
+			log.WithError(err).Error("writing to stdin failed")
+		}
+	}()
+
+	go func() {
+		defer stdout.Close()
+		if _, err := io.Copy(w, stdout); err != nil {
+			log.WithError(err).Error("reading from stdout failed")
+		}
+	}()
+
+	go func() {
+		defer stderr.Close()
+		s, e := ioutil.ReadAll(stderr)
+		log.WithError(e).Errorf("read stderr: %s", s)
+	}()
+
+	if err := cmd.Start(); err != nil {
+		log.WithError(err).Error("failed to start `convert` process")
+		return err
+	}
+
+	if err := cmd.Wait(); err != nil {
+		log.WithError(err).Error("failed to await `convert` process")
+		return err
 	}
 
 	return nil

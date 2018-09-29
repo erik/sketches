@@ -21,7 +21,7 @@ type Post struct {
 var (
 	nonAlnumChars     = regexp.MustCompile("[^a-z0-9]")
 	nonAlnumPathChars = regexp.MustCompile("[^/a-z0-9]")
-	repeatedDashes    = regexp.MustCompile("[-]+")
+	repeatedDashes    = regexp.MustCompile("-+")
 )
 
 func (p Post) GenerateSlug(path string) string {
