@@ -2,6 +2,8 @@
 package drive
 
 import (
+	"time"
+
 	"github.com/go-redis/redis"
 
 	"github.com/erik/gruppo/store"
@@ -11,6 +13,7 @@ const (
 	keyFileFolder   = "drive:filetree:"
 	keyResourceFile = "drive:resources:"
 	keyFileSlug     = "drive:slugmap:"
+	keyWebhookFiles = "drive:webhooks:"
 )
 
 // Return the directory a File is contained in. Because in google drive files
@@ -53,6 +56,11 @@ func (c Client) getOrSetSlugForFileId(fileId, slug string) (string, error) {
 func (c Client) getSlugForFileId(fileId string) (string, error) {
 	k := keyFileSlug + fileId
 	return c.db.GetKey(k)
+}
+
+func (c Client) addWebhookIfNotExists(fileId string, t time.Duration) (bool, error) {
+	k := keyWebhookFiles + fileId
+	return c.db.SetKeyNX(k, "true", t)
 }
 
 func (c Client) pushFileChange(fc FileChange) error {

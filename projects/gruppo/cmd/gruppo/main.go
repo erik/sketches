@@ -40,6 +40,7 @@ func loadConfiguration() Configuration {
 
 func init() {
 	log.SetFormatter(&log.TextFormatter{})
+	log.SetLevel(log.DebugLevel)
 }
 
 func main() {

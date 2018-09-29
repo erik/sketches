@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-redis/redis"
 	log "github.com/sirupsen/logrus"
@@ -140,6 +141,10 @@ func (r RedisStore) SetJSON(k string, obj interface{}) error {
 func (r RedisStore) SetKey(k, v string) error {
 	_, err := r.db.Set(k, v, 0).Result()
 	return err
+}
+
+func (r RedisStore) SetKeyNX(k, v string, t time.Duration) (bool, error) {
+	return r.db.SetNX(k, v, t).Result()
 }
 
 func (r RedisStore) GetKey(k string) (string, error) {

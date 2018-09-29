@@ -150,13 +150,31 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 	return c.pushFileChange(change)
 }
 
+const webhookTimeout = 599 * time.Second
+
 // Periodically recreate the webhook, since Drive's API only allows
 // them to live briefly.
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
+	added, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
 
-	for t := time.Tick(59 * time.Minute); ; <-t {
+	if !added || err != nil {
+		log.WithField("file", fileId).
+			Debug("not creating watcher, already exists")
+		return
+	}
+
+	for t := time.Tick(webhookTimeout + 1); ; <-t {
+		added, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
+		if !added || err != nil {
+			log.WithField("file", fileId).
+				Debug("not refreshing watcher, already exists")
+
+			continue
+		}
+
 		ch, err := c.createChangeWatcher(fileId, key)
+
 		if err != nil {
 			log.WithError(err).
 				WithField("site", c.site.HostPathPrefix()).
