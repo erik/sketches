@@ -14,23 +14,25 @@ import (
 type Post struct {
 	PostOverview
 
-	Content    string
-	ImagePaths []string
+	Content    string   `json:",omitempty"`
+	ImagePaths []string `json:"-"`
 }
 
 var (
-	NonAlnumChars     = regexp.MustCompile("[^a-z0-9]")
-	NonAlnumPathChars = regexp.MustCompile("[^/a-z0-9]")
+	nonAlnumChars     = regexp.MustCompile("[^a-z0-9]")
+	nonAlnumPathChars = regexp.MustCompile("[^/a-z0-9]")
+	repeatedDashes    = regexp.MustCompile("[-]+")
 )
 
 func (p Post) GenerateSlug(path string) string {
 	path = strings.ToLower(path)
 	title := strings.ToLower(p.Title)
 
-	path = NonAlnumPathChars.ReplaceAllString(path, "-")
-	title = NonAlnumChars.ReplaceAllString(title, "-")
+	path = nonAlnumPathChars.ReplaceAllString(path, "-")
+	title = nonAlnumChars.ReplaceAllString(title, "-")
 
 	slug := filepath.Join(path, title)
+	slug = repeatedDashes.ReplaceAllString(slug, "-")
 
 	return strings.Trim(slug, "-")
 }
@@ -41,12 +43,12 @@ func (p Post) Overview() PostOverview {
 
 type PostOverview struct {
 	Slug     string
-	Title    string
-	Subtitle string
-	Author   string
-	Date     string
+	Title    string `json:",omitempty"`
+	Subtitle string `json:",omitempty"`
+	Author   string `json:",omitempty"`
+	Date     string `json:",omitempty"`
 
-	Intro string
+	Intro string `json:",omitempty"`
 }
 
 type SiteDriveConfig struct {

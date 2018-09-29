@@ -2,10 +2,14 @@
 package drive
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis"
+	log "github.com/sirupsen/logrus"
 
+	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/store"
 )
 
@@ -79,4 +83,39 @@ func (c Client) popFileChange() (*FileChange, error) {
 	}
 
 	return &change, nil
+}
+
+func (c Client) addOrUpdatePost(p model.Post) error {
+	k := store.KeyForSlug(c.site, p.Slug)
+
+	var post model.Post
+
+	// Merge post in db with new post. More complicated than it should
+	// be, because go.
+	// FIXME: also, it doesn't work.
+	orig, err := c.db.GetPost(c.site, p.Slug)
+	if err != nil && err != redis.Nil {
+		return err
+	} else if orig != nil {
+		post = *orig
+	}
+
+	strPost, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	// Decode the new post "into" the existing post. This causes a merge.
+	dec := json.NewDecoder(strings.NewReader(string(strPost)))
+	if err := dec.Decode(&post); err != nil {
+		return err
+	}
+
+	log.WithFields(log.Fields{
+		"key":    k,
+		"site":   c.site.HostPathPrefix(),
+		"is_new": orig == nil,
+	}).Debug("adding or updating post")
+
+	return c.db.SetJSON(k, p)
 }

@@ -48,7 +48,7 @@ func (c Client) changeHandler() {
 
 		defer os.RemoveAll(dir)
 
-		post, err := c.ProcessFile(ch.File, dir)
+		post, err := c.processFile(ch.File, dir)
 		if err != nil {
 			log.WithError(err).Error("failed to process file")
 			return
@@ -156,21 +156,15 @@ const webhookTimeout = 599 * time.Second
 // them to live briefly.
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
-	added, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
-
-	if !added || err != nil {
-		log.WithField("file", fileId).
-			Debug("not creating watcher, already exists")
-		return
-	}
 
 	for t := time.Tick(webhookTimeout + 1); ; <-t {
-		added, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
-		if !added || err != nil {
+		set, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
+		if !set || err != nil {
 			log.WithField("file", fileId).
+				WithError(err).
 				Debug("not refreshing watcher, already exists")
 
-			continue
+			return
 		}
 
 		ch, err := c.createChangeWatcher(fileId, key)

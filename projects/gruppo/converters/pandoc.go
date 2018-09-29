@@ -65,8 +65,10 @@ func extractMetadata(lines []string, post *model.Post) int {
 
 			// Roll up multiline values
 			for idx++; lines[idx] == "" || strings.HasPrefix(lines[idx], " "); idx++ {
-				kv[1] += strings.TrimSpace(lines[idx])
+				kv[1] += strings.Trim(lines[idx], "\n")
 			}
+
+			idx -= 1
 		}
 
 		switch kv[0] {
@@ -117,6 +119,7 @@ func ExtractPost(markdown string) model.Post {
 
 	post.Content = html
 
+	// Right now intro is simply first 5 lines of content
 	introEnd := idx + 5
 	if introEnd >= len(lines) {
 		introEnd = len(lines) - 1

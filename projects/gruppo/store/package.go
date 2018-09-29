@@ -89,10 +89,6 @@ func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview
 
 func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 	k := KeyForSlug(site, slug)
-	log.WithFields(log.Fields{
-		"key":  k,
-		"site": site.HostPathPrefix(),
-	}).Debug("looking up post")
 
 	var post model.Post
 
@@ -105,16 +101,6 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 	}
 
 	return &post, nil
-}
-
-func (r RedisStore) AddPost(site model.Site, p model.Post) error {
-	k := KeyForSlug(site, p.Slug)
-	log.WithFields(log.Fields{
-		"key":  k,
-		"site": site.HostPathPrefix(),
-	}).Debug("adding post")
-
-	return r.SetJSON(k, p)
 }
 
 func (r RedisStore) GetJSON(k string, obj interface{}) error {

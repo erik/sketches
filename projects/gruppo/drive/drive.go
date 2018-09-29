@@ -52,9 +52,9 @@ type folder struct {
 
 type File struct {
 	Id     string
-	Name   string
-	Path   string
-	Author string
+	Name   string `json:",omitempty"`
+	Path   string `json:",omitempty"`
+	Author string `json:",omitempty"`
 }
 
 const (
@@ -157,7 +157,7 @@ func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 	return &post, nil
 }
 
-func (c Client) ProcessFile(file File, tmpDir string) (*model.Post, error) {
+func (c Client) processFile(file File, tmpDir string) (*model.Post, error) {
 	post, err := c.ExportFile(file, tmpDir)
 	if err != nil {
 		log.WithError(err).
@@ -177,7 +177,7 @@ func (c Client) ProcessFile(file File, tmpDir string) (*model.Post, error) {
 
 	post.Slug = slug
 
-	if err := c.db.AddPost(c.site, *post); err != nil {
+	if err := c.addOrUpdatePost(*post); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +211,7 @@ func (c Client) ForceSync() error {
 			return res.(error)
 		}
 
-		post, err := c.ProcessFile(file, dir)
+		post, err := c.processFile(file, dir)
 		if err != nil {
 			return err
 		}
