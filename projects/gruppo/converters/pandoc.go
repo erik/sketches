@@ -4,12 +4,13 @@ import (
 	"bufio"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/erik/gruppo/model"
 )
@@ -110,7 +111,7 @@ func ExtractPost(markdown string) model.Post {
 
 	html, err := markdownToHtml(content)
 	if err != nil {
-		log.Printf("Failed to render markdown to html: %+v\n", err)
+		log.WithError(err).Error("failed to render markdown to html")
 		html = "error"
 	}
 
@@ -128,7 +129,9 @@ func ExtractPost(markdown string) model.Post {
 
 	intro, err := markdownToHtml(content)
 	if err != nil {
-		log.Printf("Failed to render intro markdown to html: %+v\n", err)
+		log.WithFields(log.Fields{
+			"intro": intro,
+		}).Error("failed to render intro to html")
 		intro = ""
 	}
 
@@ -149,20 +152,26 @@ func HandlePostMedia(s *model.Site, p *model.Post) error {
 
 		b, err := ioutil.ReadFile(path)
 		if err != nil {
-			log.Printf("Failed to read file: %+v\n", err)
+			log.WithError(err).Error("failed to read file")
 			return err
 		}
 
 		fp := filepath.Join(assetPath, name)
 
 		if err := ioutil.WriteFile(fp, b, os.ModePerm); err != nil {
-			log.Printf("Failed to write file: %+v\n", err)
+			log.WithError(err).Error("failed to write file")
 			return err
 		}
 
 		newPath := filepath.Join(s.BasePath, s.AssetPath, p.Slug, name)
 
-		log.Printf("MOVED: %s TO %s\n\n", path, newPath)
+		log.WithFields(log.Fields{
+			"site":      s.HostPathPrefix(),
+			"post_slug": p.Slug,
+			"orig":      path,
+			"new":       newPath,
+		}).Debug("rewrote media location")
+
 		p.Content = strings.Replace(p.Content, path, newPath, -1)
 	}
 
@@ -181,7 +190,7 @@ func markdownToHtml(input string) (string, error) {
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("failed to open pandoc stdin: %v\n", err)
+		log.WithError(err).Error("failed to open pandoc stdin")
 		return "", err
 	}
 
@@ -192,7 +201,7 @@ func markdownToHtml(input string) (string, error) {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Failed to get output from pandoc: %+v\n", err)
+		log.WithError(err).Error("failed to read output from pandoc")
 		return string(out), err
 	}
 
@@ -217,29 +226,29 @@ func ConvertDocx(inputFile string, mediaDir string) (string, error) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Printf("failed to open pandoc stdout: %v\n", err)
+		log.WithError(err).Error("failed to open pandoc stdout")
 		return "", err
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Printf("failed to open pandoc stderr: %v\n", err)
+		log.WithError(err).Error("failed to open pandoc stderr")
 		return "", err
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Printf("failed to run pandoc: %v\n", err)
+		log.WithError(err).Error("failed to run pandoc")
 		return "", err
 	}
 
 	markdown, err := ioutil.ReadAll(stdout)
 	if err != nil {
-		log.Printf("failed reading from pandoc")
+		log.WithError(err).Error("failed to read from pandoc")
 		return "", err
 	}
 
 	if err := cmd.Wait(); err != nil {
-		log.Printf("pandoc exited with an error: %v\n", err)
+		log.WithError(err).Error("pandoc exited with an error")
 
 		// Make sure we print out the error output
 		scanner := bufio.NewScanner(stderr)

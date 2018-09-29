@@ -3,13 +3,13 @@ package drive
 
 import (
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/drive/v3"
 )
 
@@ -32,7 +32,7 @@ func (c Client) changeHandler() {
 	for t := time.Tick(5 * time.Second); ; <-t {
 		ch, err := c.popFileChange()
 		if err != nil {
-			log.Printf("Dequeue changes failed: %+v\n", err)
+			log.WithError(err).Error("failed to dequeue changes")
 			return
 		}
 
@@ -50,11 +50,12 @@ func (c Client) changeHandler() {
 
 		post, err := c.ProcessFile(ch.File, dir)
 		if err != nil {
-			log.Printf("ProcessFile failed: %+v\n", err)
+			log.WithError(err).Error("failed to process file")
 			return
 		}
 
-		log.Printf("Handled file change %+v\n", post)
+		log.WithField("post_data", post).
+			Debug("handled file data")
 
 		// Debounce
 		time.Sleep(30 * time.Second)
@@ -66,7 +67,9 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 
 	resources := headers["X-Goog-Resource-Id"]
 	if len(resources) < 1 {
-		log.Printf("Hook missing resource id")
+		log.WithField("headers", headers).
+			Warn("hook response from api missing resource id")
+
 		return nil
 	}
 
@@ -74,7 +77,9 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 
 	state := headers["X-Goog-Resource-State"]
 	if len(state) < 1 {
-		log.Printf("Hook missing resource state")
+		log.WithField("headers", headers).
+			Warn("hook response from api missing resource state")
+
 		return nil
 	}
 
@@ -82,37 +87,57 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 
 	switch state[0] {
 	case "sync":
-		log.Printf("Hook registered successfully for %s\n", c.site.HostPathPrefix())
+		log.WithFields(log.Fields{
+			"site":     c.site.HostPathPrefix(),
+			"resource": resourceId,
+		}).Info("registered hook successfully")
+
 		return nil
 
 	case "add":
-		log.Printf("Adding resource: %+v\n", resourceId)
 		changeKind = fileChangeCreated
 
 	case "update", "change":
-		log.Printf("Updating resource: %+v\n", resourceId)
 		changeKind = fileChangeUpdated
 
 	case "remove", "trash":
-		log.Printf("Removing resource: %+v\n", resourceId)
 		changeKind = fileChangeDeleted
 
 	default:
-		log.Printf("Unknown value for resource state: %+v\n", state)
+		log.WithFields(log.Fields{
+			"site":     c.site.HostPathPrefix(),
+			"state":    state,
+			"resource": resourceId,
+		}).Warn("unknown value for resource state")
+
 		return nil
 	}
 
 	fileId, err := c.getResourceFile(resourceId)
 	if err != nil {
-		log.Printf("Failed to find fileId for resource: %s: %+v\n", resourceId, err)
+		log.WithError(err).
+			WithField("resource", resourceId).
+			Error("failed to find fileId for resource")
 		return err
 	}
 
 	path, err := c.getFileFolder(fileId)
 	if err != nil {
-		log.Printf("Failed to find folder for fileId: %s: %+v\n", fileId, err)
+		log.WithError(err).
+			WithField("resource", resourceId).
+			WithField("file", fileId).
+			Error("failed to find folder for fileId")
+
 		return err
 	}
+
+	log.WithFields(log.Fields{
+		"site":        c.site.HostPathPrefix(),
+		"file":        fileId,
+		"folder":      path,
+		"change_kind": changeKind,
+		"resource":    resourceId,
+	}).Info("adding file change")
 
 	change := FileChange{
 		Kind: changeKind,
@@ -133,12 +158,17 @@ func (c Client) changeWatcherRefresher(fileId string) {
 	for t := time.Tick(59 * time.Minute); ; <-t {
 		ch, err := c.createChangeWatcher(fileId, key)
 		if err != nil {
-			log.Printf("ERROR: Failed to register file watcher: %+v\n", err)
+			log.WithError(err).
+				WithField("site", c.site.HostPathPrefix()).
+				Error("failed to register file watcher")
+
 			continue
 		}
 
 		if err := c.setResourceFile(fileId, ch.ResourceId); err != nil {
-			log.Printf("ERROR: Failed to store resourceId -> fileId mapping %+v\n", err)
+			log.WithError(err).
+				WithField("site", c.site.HostPathPrefix()).
+				Error("failed to store resourceId -> fileId mapping")
 		}
 	}
 }

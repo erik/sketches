@@ -2,14 +2,15 @@ package web
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/erik/gruppo/drive"
 	"github.com/erik/gruppo/model"
@@ -52,7 +53,8 @@ func buildSiteMap(sites []model.Site) siteMapping {
 		sort.Sort(bySitePathLen(v))
 	}
 
-	log.Printf("site map => %+v", m)
+	log.WithFields(log.Fields{"map": m}).Debug("built site map")
+
 	return m
 }
 
@@ -63,13 +65,45 @@ type web struct {
 	sites siteMapping // host -> [site, ...]
 }
 
+func logger() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			res := c.Response()
+			start := time.Now()
+
+			var err error
+			if err = next(c); err != nil {
+				c.Error(err)
+			}
+
+			stop := time.Now()
+
+			log.Infof("%s %s %s %s - %d [%s]",
+				req.Host,
+				c.RealIP(),
+				req.Method,
+				req.RequestURI,
+				res.Status,
+				stop.Sub(start).String(),
+			)
+
+			return err
+		}
+	}
+}
+
 func (w *web) RegisterDriveHooks(c *drive.Client) error {
 	route := c.ChangeHookRoute()
-	log.Printf("setting up drive hook: %s\n", route)
+
+	log.WithFields(log.Fields{}).Info("setting up drive hook")
 
 	w.echo.POST(route, func(ctx echo.Context) error {
 		if err := c.HandleChangeHook(ctx.Request()); err != nil {
-			log.Printf("[ERROR] Failed change hook: %+v\n", err)
+			log.WithError(err).
+				WithFields(log.Fields{}).
+				Error("failed to handle change hook")
+
 			return ctx.String(http.StatusInternalServerError, "something bad")
 		}
 
@@ -123,7 +157,13 @@ func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context)
 	})
 
 	if err != nil {
-		log.Printf("Rendering failed: %+v\n", err)
+		log.WithFields(log.Fields{
+			"error":    err,
+			"site":     site.HostPathPrefix(),
+			"template": pg.Template,
+			"theme":    site.Theme,
+		}).Error("failed to render page template")
+
 		return err
 	}
 
@@ -146,7 +186,12 @@ func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
 	})
 
 	if err != nil {
-		log.Printf("[ERROR] failed to render template: %+v\n", err)
+		log.WithFields(log.Fields{
+			"error": err,
+			"site":  site.HostPathPrefix(),
+			"theme": site.Theme,
+		}).Error("failed to render post template")
+
 		return c.String(http.StatusInternalServerError, "failed to render")
 	}
 
@@ -184,7 +229,9 @@ func (w *web) handleSiteRequest(site *model.Site, c echo.Context) error {
 }
 
 func (w *web) registerMiddleware(e *echo.Echo) {
-	e.Use(middleware.Logger())
+	// Echo's logger sucks, use a custom one
+	e.Use(logger())
+
 	e.Use(middleware.Recover())
 }
 
@@ -207,6 +254,8 @@ func (w *web) siteFromContext(c echo.Context) *model.Site {
 
 func New(sites []model.Site, conf Configuration, db *store.RedisStore) web {
 	e := echo.New()
+	e.HideBanner = true
+
 	s := buildSiteMap(sites)
 
 	w := web{e, db, &conf, s}

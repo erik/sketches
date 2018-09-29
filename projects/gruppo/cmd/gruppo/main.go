@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/erik/gruppo/drive"
 	"github.com/erik/gruppo/model"
@@ -38,13 +38,16 @@ func loadConfiguration() Configuration {
 	return conf
 }
 
+func init() {
+	log.SetFormatter(&log.TextFormatter{})
+}
+
 func main() {
 	conf := loadConfiguration()
-	log.Printf("conf, %+v", conf)
 
 	store, err := store.New(conf.Store)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to create redis store: %v\n", err)
 	}
 
 	var site model.Site
@@ -53,18 +56,20 @@ func main() {
 	provider := drive.NewGoogleDriveProvider(conf.Drive, store)
 	client, err := provider.ClientForSite(site)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to create drive client: %v\n", err)
 	}
-
-	log.Printf("[INFO] starting sync for site: %s", site.HostPathPrefix())
 
 	w := web.New([]model.Site{site}, conf.Web, store)
 
 	if err := w.RegisterDriveHooks(client); err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to register drive hooks: %v\n", err)
 	}
 
 	go client.Start(true, conf.Drive)
+
+	log.WithFields(log.Fields{
+		"site": site.HostPathPrefix(),
+	}).Info("Launching server")
 
 	w.Serve()
 }

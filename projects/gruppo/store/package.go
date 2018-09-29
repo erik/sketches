@@ -3,10 +3,10 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/go-redis/redis"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/erik/gruppo/model"
 )
@@ -88,7 +88,11 @@ func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview
 
 func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 	k := KeyForSlug(site, slug)
-	log.Printf("Looking up post: %s\n", k)
+	log.WithFields(log.Fields{
+		"key":  k,
+		"site": site.HostPathPrefix(),
+	}).Debug("looking up post")
+
 	var post model.Post
 
 	if err := r.GetJSON(k, &post); err != nil {
@@ -104,7 +108,10 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 
 func (r RedisStore) AddPost(site model.Site, p model.Post) error {
 	k := KeyForSlug(site, p.Slug)
-	log.Printf("Adding post: %s\n", k)
+	log.WithFields(log.Fields{
+		"key":  k,
+		"site": site.HostPathPrefix(),
+	}).Debug("adding post")
 
 	return r.SetJSON(k, p)
 }

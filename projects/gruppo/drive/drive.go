@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 
-	"github.com/erik/gruppo/converters"
-	"github.com/erik/gruppo/model"
-	"github.com/erik/gruppo/store"
-
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+
+	"github.com/erik/gruppo/converters"
+	"github.com/erik/gruppo/model"
+	"github.com/erik/gruppo/store"
 )
 
 const (
@@ -107,7 +107,8 @@ func (c Client) Start(forceSync bool, conf Configuration) {
 	go c.changeHandler()
 
 	if forceSync {
-		log.Printf("Starting file sync for site %s\n", c.site.HostPathPrefix())
+		log.WithField("site", c.site.HostPathPrefix()).
+			Info("starting force sync for site")
 
 		if err := c.ForceSync(); err != nil {
 			log.Fatal(err)
@@ -159,7 +160,10 @@ func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 func (c Client) ProcessFile(file File, tmpDir string) (*model.Post, error) {
 	post, err := c.ExportFile(file, tmpDir)
 	if err != nil {
-		log.Printf("Failed to export file from drive: %+v\n", err)
+		log.WithError(err).
+			WithField("site", c.site.HostPathPrefix()).
+			Error("failed to export file from drive")
+
 		return nil, err
 	}
 
@@ -177,7 +181,10 @@ func (c Client) ProcessFile(file File, tmpDir string) (*model.Post, error) {
 		return nil, err
 	}
 
-	log.Printf("[INFO] extracted post: %+v", post.Slug)
+	log.WithFields(log.Fields{
+		"site": c.site.HostPathPrefix(),
+		"slug": post.Slug,
+	}).Debug("extracted post")
 
 	return post, nil
 }
@@ -216,7 +223,10 @@ func (c Client) ForceSync() error {
 }
 
 func (c Client) ExportAsDocx(file File) (io.Reader, error) {
-	log.Printf("[INFO] exporting %s as .docx", file.Name)
+	log.WithFields(log.Fields{
+		"site": c.site.HostPathPrefix(),
+		"file": file.Name,
+	}).Debug("exporting from drive as a .docx")
 
 	// TODO: Support large file download via chunked transfer.
 	res, err := c.service.Files.
@@ -243,7 +253,10 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 	for len(folders) > 0 {
 		current, folders = folders[0], folders[1:]
 
-		log.Printf("[INFO] exploring folder: %v\n", current)
+		log.WithFields(log.Fields{
+			"site":   c.site.HostPathPrefix(),
+			"folder": current,
+		}).Debug("exploring folder")
 
 		query := c.service.Files.
 			List().
@@ -267,7 +280,6 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 
 				switch f.MimeType {
 				case MimeTypeDriveFolder:
-					log.Printf("[INFO] queuing directory: %s\n", f.Name)
 					folders = append(folders, folder{
 						id:   f.Id,
 						path: filepath.Join(current.path, f.Name),
@@ -283,7 +295,12 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 					}
 
 				default:
-					log.Printf("[INFO] skipping object of unknown type (%s): %v\n", f.MimeType, f)
+					log.WithFields(log.Fields{
+						"site":   c.site.HostPathPrefix(),
+						"folder": current,
+						"type":   f.MimeType,
+						"name":   f.Name,
+					}).Warn("skipping drive object of unknown type")
 				}
 			}
 
