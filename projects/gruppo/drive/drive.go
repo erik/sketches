@@ -57,15 +57,9 @@ type File struct {
 	Author string `json:",omitempty"`
 }
 
-const (
-	fileChangeCreated = "created"
-	fileChangeUpdated = "updated"
-	fileChangeDeleted = "deleted"
-)
-
-type FileChange struct {
-	File File
-	Kind string // one of "created", "deleted", "updated"
+type DriveChange struct {
+	FileId string
+	Path   string
 }
 
 // Either `File` or an error. It's like a union type, but fucking stupid.
@@ -106,18 +100,20 @@ func (c Client) Start(forceSync bool, conf Configuration) {
 	go c.changeWatcherRefresher(c.site.Drive.FolderId)
 	go c.changeHandler()
 
-	if forceSync {
-		log.WithField("site", c.site.HostPathPrefix()).
-			Info("starting force sync for site")
+	log.WithField("site", c.site.HostPathPrefix()).
+		Info("starting sync for site")
 
-		if err := c.ForceSync(); err != nil {
-			log.Fatal(err)
-		}
+	root := c.site.Drive.FolderId
+	if err := c.syncFolder(root, "", forceSync); err != nil {
+		log.Fatal(err)
 	}
+
+	log.WithField("site", c.site.HostPathPrefix()).
+		Info("finished sync for site")
 }
 
-func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
-	docx, err := c.ExportAsDocx(file)
+func (c Client) exportFile(file File, dir string) (*model.Post, error) {
+	docx, err := c.exportAsDocx(file)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +144,7 @@ func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 
 	post := converters.ExtractPost(md)
 	post.Author = file.Author
-	post.Slug = post.GenerateSlug(file.Path)
+	post.Slug = post.GenerateSlug(file.Path, file.Name)
 
 	if err := converters.HandlePostMedia(&c.site, &post); err != nil {
 		return nil, err
@@ -158,7 +154,7 @@ func (c Client) ExportFile(file File, dir string) (*model.Post, error) {
 }
 
 func (c Client) processFile(file File, tmpDir string) (*model.Post, error) {
-	post, err := c.ExportFile(file, tmpDir)
+	post, err := c.exportFile(file, tmpDir)
 	if err != nil {
 		log.WithError(err).
 			WithField("site", c.site.HostPathPrefix()).
@@ -189,7 +185,7 @@ func (c Client) processFile(file File, tmpDir string) (*model.Post, error) {
 	return post, nil
 }
 
-func (c Client) ForceSync() error {
+func (c Client) syncFolder(folderId, folderPath string, force bool) error {
 	dir, err := ioutil.TempDir("/tmp", "exported-media-")
 	if err != nil {
 		log.Fatal(err)
@@ -197,15 +193,17 @@ func (c Client) ForceSync() error {
 
 	defer os.RemoveAll(dir)
 
-	// Start with a clean slate
-	if err := c.db.ClearSiteData(c.site); err != nil {
-		return err
+	if force {
+		// Start with a clean slate
+		if err := c.db.ClearSiteData(c.site); err != nil {
+			return err
+		}
 	}
 
 	// Generated List of posts
 	overview := []model.PostOverview{}
 
-	for res := range c.List(c.site.Drive.FolderId) {
+	for res := range c.list(folderId, folderPath, force) {
 		file, ok := res.(File)
 		if !ok {
 			return res.(error)
@@ -222,7 +220,7 @@ func (c Client) ForceSync() error {
 	return c.db.SetPostOverviews(c.site, overview)
 }
 
-func (c Client) ExportAsDocx(file File) (io.Reader, error) {
+func (c Client) exportAsDocx(file File) (io.Reader, error) {
 	log.WithFields(log.Fields{
 		"site": c.site.HostPathPrefix(),
 		"file": file.Name,
@@ -240,14 +238,14 @@ func (c Client) ExportAsDocx(file File) (io.Reader, error) {
 	return res.Body, nil
 }
 
-func (c Client) listFolder(rootId string, files chan FileResult) {
+func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force bool) {
 	defer close(files)
 
 	var current folder
 
 	// Ids of folders that we haven't explored yet
 	folders := []folder{
-		folder{id: rootId},
+		folder{id: rootId, path: rootPath},
 	}
 
 	for len(folders) > 0 {
@@ -312,10 +310,14 @@ func (c Client) listFolder(rootId string, files chan FileResult) {
 
 // Recursively list all Google Doc files nested under `folderId`.
 // Implemented as breadth first search.
-func (c Client) List(folderId string) <-chan FileResult {
+func (c Client) list(folderId, folderPath string, force bool) <-chan FileResult {
 	files := make(chan FileResult, 1)
 
-	go c.listFolder(folderId, files)
+	go c.listFolder(folderId, folderPath, files, force)
 
 	return files
+}
+
+func (c Client) getFileMeta(fileId string) (*drive.File, error) {
+	return c.service.Files.Get(fileId).Do()
 }

@@ -24,9 +24,9 @@ var (
 	repeatedDashes    = regexp.MustCompile("-+")
 )
 
-func (p Post) GenerateSlug(path string) string {
+func (p Post) GenerateSlug(path, name string) string {
 	path = strings.ToLower(path)
-	title := strings.ToLower(p.Title)
+	title := strings.ToLower(name)
 
 	path = nonAlnumPathChars.ReplaceAllString(path, "-")
 	title = nonAlnumChars.ReplaceAllString(title, "-")

@@ -25,12 +25,32 @@ func (c Client) ChangeHookRoute() string {
 	return url.Path
 }
 
+func (c Client) handleFileChange(file File) error {
+	dir, err := ioutil.TempDir("/tmp", "exported-media-")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer os.RemoveAll(dir)
+
+	if _, err := c.processFile(file, dir); err != nil {
+		log.WithError(err).Error("failed to process file")
+		return err
+	}
+
+	return nil
+}
+
+func (c Client) handleFolderChange(folderId, path string) error {
+	return c.syncFolder(folderId, path, false)
+}
+
 // Continuously listen for file changes in Redis, processing files as
 // they appear. Applies a debounce so that multiple quick edits to the
 // same file are not consuming the worker.
 func (c Client) changeHandler() {
 	for t := time.Tick(5 * time.Second); ; <-t {
-		ch, err := c.popFileChange()
+		ch, err := c.popDriveChange()
 		if err != nil {
 			log.WithError(err).Error("failed to dequeue changes")
 			return
@@ -41,21 +61,30 @@ func (c Client) changeHandler() {
 			continue
 		}
 
-		dir, err := ioutil.TempDir("/tmp", "exported-media-")
+		file, err := c.getFileMeta(ch.FileId)
 		if err != nil {
-			log.Fatal(err)
+			log.WithError(err).
+				WithField("fileId", ch.FileId).
+				Error("failed to look up file metadata")
+
+			continue
 		}
 
-		defer os.RemoveAll(dir)
+		switch file.MimeType {
+		case MimeTypeDriveFolder:
+			_ = c.handleFolderChange(file.Id, ch.Path)
 
-		post, err := c.processFile(ch.File, dir)
-		if err != nil {
-			log.WithError(err).Error("failed to process file")
-			return
+		default:
+			f := File{
+				Id:   file.Id,
+				Path: ch.Path,
+				Name: file.Name,
+				// TODO: not passed back by default:
+				// Author: file.LastModifyingUser.DisplayName,
+			}
+
+			_ = c.handleFileChange(f)
 		}
-
-		log.WithField("post_data", post).
-			Debug("handled file data")
 
 		// Debounce
 		time.Sleep(30 * time.Second)
@@ -76,42 +105,20 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 	resourceId := resources[0]
 
 	state := headers["X-Goog-Resource-State"]
-	if len(state) < 1 {
+	if state == nil || len(state) < 1 {
 		log.WithField("headers", headers).
 			Warn("hook response from api missing resource state")
 
 		return nil
 	}
 
-	var changeKind string
-
-	switch state[0] {
-	case "sync":
-		log.WithFields(log.Fields{
-			"site":     c.site.HostPathPrefix(),
-			"resource": resourceId,
-		}).Info("registered hook successfully")
-
-		return nil
-
-	case "add":
-		changeKind = fileChangeCreated
-
-	case "update", "change":
-		changeKind = fileChangeUpdated
-
-	case "remove", "trash":
-		changeKind = fileChangeDeleted
-
-	default:
-		log.WithFields(log.Fields{
-			"site":     c.site.HostPathPrefix(),
-			"state":    state,
-			"resource": resourceId,
-		}).Warn("unknown value for resource state")
-
+	// Sync messages indicate that the webhook creation was successful,
+	// nothing to do.
+	if state[0] == "sync" {
 		return nil
 	}
+
+	// TODO: probably need to handle deletions here
 
 	fileId, err := c.getResourceFile(resourceId)
 	if err != nil {
@@ -135,19 +142,16 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 		"site":        c.site.HostPathPrefix(),
 		"file":        fileId,
 		"folder":      path,
-		"change_kind": changeKind,
+		"change_kind": state[0],
 		"resource":    resourceId,
 	}).Info("adding file change")
 
-	change := FileChange{
-		Kind: changeKind,
-		File: File{
-			Id:   fileId,
-			Path: path,
-		},
+	change := DriveChange{
+		FileId: fileId,
+		Path:   path,
 	}
 
-	return c.pushFileChange(change)
+	return c.pushDriveChange(change)
 }
 
 const webhookTimeout = 599 * time.Second

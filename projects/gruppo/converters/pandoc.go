@@ -223,6 +223,7 @@ func resizeImage(r io.Reader, w io.Writer) error {
 		log.WithError(err).Error("failed to open `convert` stderr")
 		return err
 	}
+	defer stderr.Close()
 
 	go func() {
 		defer stdin.Close()
@@ -238,19 +239,17 @@ func resizeImage(r io.Reader, w io.Writer) error {
 		}
 	}()
 
-	go func() {
-		defer stderr.Close()
-		s, e := ioutil.ReadAll(stderr)
-		log.WithError(e).Errorf("read stderr: %s", s)
-	}()
-
 	if err := cmd.Start(); err != nil {
 		log.WithError(err).Error("failed to start `convert` process")
 		return err
 	}
 
 	if err := cmd.Wait(); err != nil {
-		log.WithError(err).Error("failed to await `convert` process")
+		output, _ := ioutil.ReadAll(stderr)
+		log.WithError(err).
+			WithField("stderr", output).
+			Error("failed to await `convert` process")
+
 		return err
 	}
 

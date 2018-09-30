@@ -23,6 +23,10 @@ const (
 // Return the directory a File is contained in. Because in google drive files
 // don't know where they are.
 func (c Client) getFileFolder(fileId string) (string, error) {
+	if fileId == c.site.Drive.FolderId {
+		return "", nil
+	}
+
 	k := keyFileFolder + fileId
 	return c.db.GetKey(k)
 }
@@ -57,24 +61,19 @@ func (c Client) getOrSetSlugForFileId(fileId, slug string) (string, error) {
 	return slug, nil
 }
 
-func (c Client) getSlugForFileId(fileId string) (string, error) {
-	k := keyFileSlug + fileId
-	return c.db.GetKey(k)
-}
-
 func (c Client) addWebhookIfNotExists(fileId string, t time.Duration) (bool, error) {
 	k := keyWebhookFiles + fileId
 	return c.db.SetKeyNX(k, "true", t)
 }
 
-func (c Client) pushFileChange(fc FileChange) error {
+func (c Client) pushDriveChange(dc DriveChange) error {
 	k := store.KeyForSite(c.site, "drive:changes")
-	return c.db.AddSetJSON(k, fc)
+	return c.db.AddSetJSON(k, dc)
 }
 
-func (c Client) popFileChange() (*FileChange, error) {
+func (c Client) popDriveChange() (*DriveChange, error) {
 	k := store.KeyForSite(c.site, "drive:changes")
-	var change FileChange
+	var change DriveChange
 
 	if err := c.db.PopSetMember(k, &change); err != nil && err != redis.Nil {
 		return nil, err
