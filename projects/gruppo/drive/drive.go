@@ -51,10 +51,11 @@ type folder struct {
 }
 
 type File struct {
-	Id     string
-	Name   string `json:",omitempty"`
-	Path   string `json:",omitempty"`
-	Author string `json:",omitempty"`
+	Id          string
+	Name        string `json:",omitempty"`
+	Path        string `json:",omitempty"`
+	Author      string `json:",omitempty"`
+	CreatedTime string `json:",omitempty"` // RFC 3339
 }
 
 type DriveChange struct {
@@ -143,6 +144,8 @@ func (c Client) exportFile(file File, dir string) (*model.Post, error) {
 	}
 
 	post := converters.ExtractPost(md)
+
+	post.PublishDate = file.CreatedTime
 	post.Author = file.Author
 	post.Slug = post.GenerateSlug(file.Path, file.Name)
 
@@ -259,7 +262,7 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 		query := c.service.Files.
 			List().
 			PageSize(1000).
-			Fields("nextPageToken, files(id, name, mimeType, lastModifyingUser(displayName))").
+			Fields("nextPageToken, files(id, name, mimeType, createdTime, lastModifyingUser(displayName))").
 			Q(fmt.Sprintf("parents in \"%s\"", current.id))
 
 		// Page through results
@@ -285,11 +288,11 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 
 				case MimeTypeDriveDoc:
 					files <- File{
-						Id:     f.Id,
-						Name:   f.Name,
-						Author: f.LastModifyingUser.DisplayName,
-						Path:   current.path,
-						// TODO: Publish time (maybe from content?)
+						Id:          f.Id,
+						Name:        f.Name,
+						Author:      f.LastModifyingUser.DisplayName,
+						Path:        current.path,
+						CreatedTime: f.CreatedTime,
 					}
 
 				default:

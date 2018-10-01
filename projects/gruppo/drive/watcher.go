@@ -76,9 +76,10 @@ func (c Client) changeHandler() {
 
 		default:
 			f := File{
-				Id:   file.Id,
-				Path: ch.Path,
-				Name: file.Name,
+				Id:          file.Id,
+				Path:        ch.Path,
+				Name:        file.Name,
+				CreatedTime: file.CreatedTime,
 				// TODO: not passed back by default:
 				// Author: file.LastModifyingUser.DisplayName,
 			}
