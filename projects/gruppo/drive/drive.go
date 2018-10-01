@@ -7,6 +7,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -17,6 +19,7 @@ import (
 	"github.com/erik/gruppo/converters"
 	"github.com/erik/gruppo/model"
 	"github.com/erik/gruppo/store"
+	"github.com/erik/gruppo/util"
 )
 
 const (
@@ -52,10 +55,10 @@ type folder struct {
 
 type File struct {
 	Id          string
-	Name        string `json:",omitempty"`
-	Path        string `json:",omitempty"`
-	Author      string `json:",omitempty"`
-	CreatedTime string `json:",omitempty"` // RFC 3339
+	Name        string        `json:",omitempty"`
+	Path        string        `json:",omitempty"`
+	Author      string        `json:",omitempty"`
+	CreatedTime util.JSONTime `json:",omitempty"` // RFC 3339
 }
 
 type DriveChange struct {
@@ -220,6 +223,12 @@ func (c Client) syncFolder(folderId, folderPath string, force bool) error {
 		overview = append(overview, post.Overview())
 	}
 
+	// sort the post overviews by creation time
+	sort.Slice(overview, func(i, j int) bool {
+		return overview[j].PublishDate.Time.
+			Before(overview[i].PublishDate.Time)
+	})
+
 	return c.db.SetPostOverviews(c.site, overview)
 }
 
@@ -239,6 +248,18 @@ func (c Client) exportAsDocx(file File) (io.Reader, error) {
 	}
 
 	return res.Body, nil
+}
+
+const (
+	fileFields = "id, name, mimeType, createdTime, lastModifyingUser(displayName)"
+)
+
+func (c Client) getFileMeta(fileId string) (*drive.File, error) {
+	return c.service.
+		Files.
+		Get(fileId).
+		Fields(fileFields).
+		Do()
 }
 
 func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force bool) {
@@ -262,7 +283,7 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 		query := c.service.Files.
 			List().
 			PageSize(1000).
-			Fields("nextPageToken, files(id, name, mimeType, createdTime, lastModifyingUser(displayName))").
+			Fields("nextPageToken", "files("+fileFields+")").
 			Q(fmt.Sprintf("parents in \"%s\"", current.id))
 
 		// Page through results
@@ -287,13 +308,7 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 					})
 
 				case MimeTypeDriveDoc:
-					files <- File{
-						Id:          f.Id,
-						Name:        f.Name,
-						Author:      f.LastModifyingUser.DisplayName,
-						Path:        current.path,
-						CreatedTime: f.CreatedTime,
-					}
+					files <- fileFromAPI(f, current.path)
 
 				default:
 					log.WithFields(log.Fields{
@@ -321,6 +336,14 @@ func (c Client) list(folderId, folderPath string, force bool) <-chan FileResult 
 	return files
 }
 
-func (c Client) getFileMeta(fileId string) (*drive.File, error) {
-	return c.service.Files.Get(fileId).Do()
+func fileFromAPI(f *drive.File, path string) File {
+	ts, _ := time.Parse(time.RFC3339, f.CreatedTime)
+
+	return File{
+		Id:          f.Id,
+		Name:        f.Name,
+		Path:        path,
+		CreatedTime: util.JSONTime{ts},
+		Author:      f.LastModifyingUser.DisplayName,
+	}
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/oauth2"
+
+	"github.com/erik/gruppo/util"
 )
 
 type Post struct {
@@ -43,10 +45,10 @@ func (p Post) Overview() PostOverview {
 
 type PostOverview struct {
 	Slug        string
-	Title       string `json:",omitempty"`
-	Subtitle    string `json:",omitempty"`
-	Author      string `json:",omitempty"`
-	PublishDate string `json:",omitempty"`
+	Title       string        `json:",omitempty"`
+	Subtitle    string        `json:",omitempty"`
+	Author      string        `json:",omitempty"`
+	PublishDate util.JSONTime `json:",omitempty"`
 
 	Intro string `json:",omitempty"`
 }

@@ -75,15 +75,7 @@ func (c Client) changeHandler() {
 			_ = c.handleFolderChange(file.Id, ch.Path)
 
 		default:
-			f := File{
-				Id:          file.Id,
-				Path:        ch.Path,
-				Name:        file.Name,
-				CreatedTime: file.CreatedTime,
-				// TODO: not passed back by default:
-				// Author: file.LastModifyingUser.DisplayName,
-			}
-
+			f := fileFromAPI(file, ch.Path)
 			_ = c.handleFileChange(f)
 		}
 
