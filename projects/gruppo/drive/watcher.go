@@ -49,14 +49,13 @@ func (c Client) handleFolderChange(folderId, path string) error {
 // they appear. Applies a debounce so that multiple quick edits to the
 // same file are not consuming the worker.
 func (c Client) changeHandler() {
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
+	t := time.NewTicker(5 * time.Second)
 
-	for range timer.C {
+	for range t.C {
 		ch, err := c.popDriveChange()
 		if err != nil {
 			log.WithError(err).Error("failed to dequeue changes")
-			return
+			break
 		}
 
 		// If we don't have any work, sleep a little less
@@ -82,8 +81,10 @@ func (c Client) changeHandler() {
 			_ = c.handleFileChange(f)
 		}
 
-		// Debounce
-		time.Sleep(30 * time.Second)
+		// Throttle updates to file
+		for i := 0; i < 5; i++ {
+			<-t.C
+		}
 	}
 }
 
@@ -161,12 +162,27 @@ func (c Client) changeWatcherRefresher(fileId string) {
 	t := time.NewTicker(webhookTimeout + 1*time.Second)
 	defer t.Stop()
 
-	for range t.C {
+	for i := 0; ; <-t.C {
 		set, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
-		if !set || err != nil {
-			log.WithField("file", fileId).
-				WithError(err).
-				Debug("not refreshing watcher, already exists")
+
+		if err != nil {
+			log.WithError(err).
+				WithFields(log.Fields{
+					"site": c.site.HostPathPrefix(),
+					"file": fileId,
+				}).
+				Error("failed to add webhook key in redis")
+
+			return
+		}
+
+		// We only care if there's already a watcher if this is the
+		// first iteration
+		if i == 0 && !set {
+			log.WithFields(log.Fields{
+				"site": c.site.HostPathPrefix(),
+				"file": fileId,
+			}).Debug("not refreshing watcher, already exists")
 
 			return
 		}

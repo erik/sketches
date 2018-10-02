@@ -75,10 +75,10 @@ func (c Client) popDriveChange() (*DriveChange, error) {
 	k := store.KeyForSite(c.site, "drive:changes")
 	var change DriveChange
 
-	if err := c.db.PopSetMember(k, &change); err != nil && err != redis.Nil {
-		return nil, err
-	} else if err == redis.Nil {
+	if err := c.db.PopSetMember(k, &change); err == redis.Nil {
 		return nil, nil
+	} else if err != nil {
+		return nil, err
 	}
 
 	return &change, nil
