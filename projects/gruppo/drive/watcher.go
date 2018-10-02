@@ -49,7 +49,10 @@ func (c Client) handleFolderChange(folderId, path string) error {
 // they appear. Applies a debounce so that multiple quick edits to the
 // same file are not consuming the worker.
 func (c Client) changeHandler() {
-	for t := time.Tick(5 * time.Second); ; <-t {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	for range timer.C {
 		ch, err := c.popDriveChange()
 		if err != nil {
 			log.WithError(err).Error("failed to dequeue changes")
@@ -154,7 +157,11 @@ const webhookTimeout = 599 * time.Second
 func (c Client) changeWatcherRefresher(fileId string) {
 	key := c.site.WebhookKey()
 
-	for t := time.Tick(webhookTimeout + 1); ; <-t {
+	// FIXME: Theoretically, we could miss some updates during the 1 second.
+	t := time.NewTicker(webhookTimeout + 1*time.Second)
+	defer t.Stop()
+
+	for range t.C {
 		set, err := c.addWebhookIfNotExists(fileId, webhookTimeout)
 		if !set || err != nil {
 			log.WithField("file", fileId).
