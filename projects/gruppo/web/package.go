@@ -26,18 +26,6 @@ type Configuration struct {
 
 type siteMapping map[string][]model.Site
 
-type bySitePathLen []model.Site
-
-func (s bySitePathLen) Len() int {
-	return len(s)
-}
-func (s bySitePathLen) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-func (s bySitePathLen) Less(i, j int) bool {
-	return len(s[i].BasePath) > len(s[j].BasePath)
-}
-
 func buildSiteMap(sites []model.Site) siteMapping {
 	var m siteMapping = make(siteMapping, len(sites))
 
@@ -50,7 +38,10 @@ func buildSiteMap(sites []model.Site) siteMapping {
 	}
 
 	for _, v := range m {
-		sort.Sort(bySitePathLen(v))
+		// We want to match the longest path first.
+		sort.Slice(v, func(i, j int) bool {
+			return len(v[i].BasePath) > len(v[j].BasePath)
+		})
 	}
 
 	log.WithFields(log.Fields{"map": m}).Debug("built site map")
