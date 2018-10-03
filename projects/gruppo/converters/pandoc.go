@@ -296,6 +296,7 @@ func ConvertDocx(inputFile string, mediaDir string) (string, error) {
 		"-t", "markdown",
 		// standalone file (including meta)
 		"-s",
+		"--no-wrap",
 		"--extract-media", mediaDir,
 		"-i", inputFile,
 	}
