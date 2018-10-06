@@ -11,7 +11,7 @@ up to date on my location and state of alive-ness.
 ## setup
 
 1. Have redis-server running.
-2. Set up [https://developers.google.com/identity/protocols/OAuth2](Google OAuth).
+2. Set up [Google OAuth](https://developers.google.com/identity/protocols/OAuth2).
 3. Use the client id and client secret in the config.
 
 ``` console
