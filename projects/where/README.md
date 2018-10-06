@@ -10,15 +10,18 @@ up to date on my location and state of alive-ness.
 
 ## setup
 
-``` console
+1. Have redis-server running.
+2. Set up [https://developers.google.com/identity/protocols/OAuth2](Google OAuth).
+3. Use the client id and client secret in the config.
 
-$ redis-server
-$ git clone https://github.com/erik/where.git && cd where
+``` console
 $ npm install
 $ mv example.env .env
-$ vim .env # populate with your own values
+$ $EDITOR .env # populate with your own values
 $ node server.js
 ```
+
+Update your location by going to `/where`.
 
 ## license
 
