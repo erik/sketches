@@ -26,6 +26,9 @@ type Configuration struct {
 
 type siteMapping map[string][]model.Site
 
+// buildSiteMap generates a mapping of `host -> [site, ...]`, with sites sorted
+// by the longest base path. This is to ensure e.g. example.com/foobar/ matches
+// before example.com/foo
 func buildSiteMap(sites []model.Site) siteMapping {
 	var m siteMapping = make(siteMapping, len(sites))
 
@@ -193,11 +196,9 @@ func (w *Web) handleAsset(site *model.Site, slug string, c echo.Context) error {
 func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
 
-	// Slugs should be relative
-	if slug != "/" && strings.HasPrefix(slug, "/") {
-		slug = slug[1:]
-	} else if slug == "" {
-		slug = "/"
+	// Slugs should be absolute
+	if !strings.HasPrefix(slug, "/") {
+		slug = "/" + slug
 	}
 
 	if pg := pageForSlug(site, slug); pg != nil {

@@ -35,8 +35,13 @@ func (p Post) GenerateSlug(path, name string) string {
 
 	slug := filepath.Join(path, title)
 	slug = repeatedDashes.ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
 
-	return strings.Trim(slug, "-")
+	if !strings.HasPrefix(slug, "/") {
+		return "/" + slug
+	}
+
+	return slug
 }
 
 func (p Post) Overview() PostOverview {
