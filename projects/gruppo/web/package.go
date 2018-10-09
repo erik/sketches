@@ -49,7 +49,7 @@ func buildSiteMap(sites []model.Site) siteMapping {
 	return m
 }
 
-type web struct {
+type Web struct {
 	echo  *echo.Echo
 	db    *store.RedisStore
 	conf  *Configuration
@@ -84,7 +84,7 @@ func logger() echo.MiddlewareFunc {
 	}
 }
 
-func (w *web) RegisterDriveHooks(c *drive.Client) error {
+func (w *Web) RegisterDriveHooks(c *drive.Client) error {
 	route := c.ChangeHookRoute()
 
 	log.WithFields(log.Fields{}).Info("setting up drive hook")
@@ -104,7 +104,7 @@ func (w *web) RegisterDriveHooks(c *drive.Client) error {
 	return nil
 }
 
-func (w *web) registerRoutes(e *echo.Echo) {
+func (w *Web) registerRoutes(e *echo.Echo) {
 
 	// Site-specific
 	e.GET("/*", func(c echo.Context) error {
@@ -135,8 +135,8 @@ func assetForSlug(site *model.Site, slug string) string {
 	return ""
 }
 
-func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context) error {
-	posts, err := w.db.ListPostOverviews(*site, 0, 10)
+func (w *Web) handlePage(site *model.Site, pg *model.PageConfig, slug string, c echo.Context) error {
+	posts, err := w.db.ListPostOverviews(*site, slug, 0, 10)
 	if err != nil {
 		return err
 	}
@@ -161,16 +161,8 @@ func (w *web) handlePage(site *model.Site, pg *model.PageConfig, c echo.Context)
 	return c.HTML(http.StatusOK, html)
 }
 
-func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
-	post, err := w.db.GetPost(*site, slug)
-	if post == nil {
-		return c.String(http.StatusNotFound, "404.")
-	}
 
-	if err != nil {
-		return err
-	}
-
+func (w *Web) handlePost(site *model.Site, post *model.Post, c echo.Context) error {
 	html, err := render.Render("post", site.Theme, &render.Context{
 		Title: post.Title,
 		Post:  post,
@@ -189,7 +181,7 @@ func (w *web) handlePost(site *model.Site, slug string, c echo.Context) error {
 	return c.HTML(http.StatusOK, html)
 }
 
-func (w *web) handleAsset(site *model.Site, slug string, c echo.Context) error {
+func (w *Web) handleAsset(site *model.Site, slug string, c echo.Context) error {
 	// FIXME: this might be vulnerable to directory traversal
 	slug = filepath.Clean(slug)
 
@@ -198,7 +190,7 @@ func (w *web) handleAsset(site *model.Site, slug string, c echo.Context) error {
 	return c.File(path)
 }
 
-func (w *web) handleSiteRequest(site *model.Site, c echo.Context) error {
+func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
 
 	// Slugs should be relative
@@ -209,24 +201,41 @@ func (w *web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	}
 
 	if pg := pageForSlug(site, slug); pg != nil {
-		return w.handlePage(site, pg, c)
+		return w.handlePage(site, pg, slug, c)
 	}
 
 	if asset := assetForSlug(site, slug); asset != "" {
 		return w.handleAsset(site, asset, c)
 	}
 
-	return w.handlePost(site, slug, c)
+	if post, err := w.db.GetPost(*site, slug); post != nil {
+		return w.handlePost(site, post, c)
+	} else if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"site": site.HostPathPrefix(),
+			"slug": slug,
+		}).Error("something went wrong")
+
+		return c.String(http.StatusInternalServerError, "something went wrong")
+	}
+
+	// TODO:
+	//
+	// if existsPostWithPathPrefix(slug): showIndexPage()
+	//
+
+	return c.String(http.StatusNotFound, "404.")
 }
 
-func (w *web) registerMiddleware(e *echo.Echo) {
+func (w *Web) registerMiddleware(e *echo.Echo) {
 	// Echo's logger sucks, use a custom one
 	e.Use(logger())
 
 	e.Use(middleware.Recover())
 }
 
-func (w *web) siteFromContext(c echo.Context) *model.Site {
+func (w *Web) siteFromContext(c echo.Context) *model.Site {
 	for host, sites := range w.sites {
 		if host != c.Request().Host {
 			continue
@@ -243,13 +252,13 @@ func (w *web) siteFromContext(c echo.Context) *model.Site {
 	return nil
 }
 
-func New(sites []model.Site, conf Configuration, db *store.RedisStore) web {
+func New(sites []model.Site, conf Configuration, db *store.RedisStore) Web {
 	e := echo.New()
 	e.HideBanner = true
 
 	s := buildSiteMap(sites)
 
-	w := web{e, db, &conf, s}
+	w := Web{e, db, &conf, s}
 
 	w.registerMiddleware(e)
 	w.registerRoutes(e)
@@ -257,7 +266,7 @@ func New(sites []model.Site, conf Configuration, db *store.RedisStore) web {
 	return w
 }
 
-func (w web) Serve() error {
+func (w Web) Serve() error {
 	address := fmt.Sprintf("%s:%d", w.conf.Host, w.conf.Port)
 
 	return w.echo.Start(address)
