@@ -74,6 +74,7 @@ type Site struct {
 	BasePath  string       `json:"base_path"`
 	AssetPath string       `json:"asset_path"`
 	Host      string       `json:"host"`
+	IndexPage *PageConfig  `json:"index_page"`
 	Pages     []PageConfig `json:"pages"`
 	SiteDir   string       `json:"site_dir"`
 	Theme     string       `json:"theme"`

@@ -164,7 +164,6 @@ func (w *Web) handlePage(site *model.Site, pg *model.PageConfig, slug string, c 
 	return c.HTML(http.StatusOK, html)
 }
 
-
 func (w *Web) handlePost(site *model.Site, post *model.Post, c echo.Context) error {
 	html, err := render.Render("post", site.Theme, &render.Context{
 		Title: post.Title,
@@ -214,17 +213,24 @@ func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	} else if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
-			"site": site.HostPathPrefix(),
-			"slug": slug,
+			"site":  site.HostPathPrefix(),
+			"slug":  slug,
 		}).Error("something went wrong")
 
 		return c.String(http.StatusInternalServerError, "something went wrong")
 	}
 
-	// TODO:
-	//
-	// if existsPostWithPathPrefix(slug): showIndexPage()
-	//
+	if slugs, err := w.db.ListMatchingSlugs(*site, slug); site.IndexPage != nil && len(slugs) > 0 {
+		return w.handlePage(site, site.IndexPage, slug, c)
+	} else if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"site":  site.HostPathPrefix(),
+			"slug":  slug,
+		}).Error("something went wrong")
+
+		return c.String(http.StatusInternalServerError, "something went wrong")
+	}
 
 	return c.String(http.StatusNotFound, "404.")
 }

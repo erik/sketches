@@ -78,12 +78,11 @@ func (r RedisStore) ListPostOverviews(site model.Site, prefix string, offset, li
 		offset = l - limit
 	}
 
-	if offset + limit >= l {
+	if offset+limit >= l {
 		limit = l - offset
 	}
 
-
-	return posts[offset:offset+limit], nil
+	return posts[offset : offset+limit], nil
 }
 
 func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview) error {
@@ -179,6 +178,15 @@ func (r RedisStore) PopSetMember(k string, obj interface{}) error {
 
 	dec := json.NewDecoder(strings.NewReader(res))
 	return dec.Decode(obj)
+}
+
+func (r RedisStore) ListKeys(prefix string) ([]string, error) {
+	return r.db.Keys(prefix + "*").Result()
+}
+
+func (r RedisStore) ListMatchingSlugs(site model.Site, prefix string) ([]string, error) {
+	k := KeyForSlug(site, prefix)
+	return r.ListKeys(k)
 }
 
 func (r RedisStore) GetSite(id string) (*model.Site, error) {
