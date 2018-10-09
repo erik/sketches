@@ -26,6 +26,13 @@ type Configuration struct {
 
 type siteMapping map[string][]model.Site
 
+type Web struct {
+	echo  *echo.Echo
+	db    *store.RedisStore
+	conf  *Configuration
+	sites siteMapping // host -> [site, ...]
+}
+
 // buildSiteMap generates a mapping of `host -> [site, ...]`, with sites sorted
 // by the longest base path. This is to ensure e.g. example.com/foobar/ matches
 // before example.com/foo
@@ -52,12 +59,6 @@ func buildSiteMap(sites []model.Site) siteMapping {
 	return m
 }
 
-type Web struct {
-	echo  *echo.Echo
-	db    *store.RedisStore
-	conf  *Configuration
-	sites siteMapping // host -> [site, ...]
-}
 
 func logger() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -111,7 +112,7 @@ func (w *Web) registerRoutes(e *echo.Echo) {
 
 	// Site-specific
 	e.GET("/*", func(c echo.Context) error {
-		site := w.siteFromContext(c)
+		site := w.siteForContext(c)
 
 		if site == nil {
 			return c.String(http.StatusNotFound, "unknown site")
@@ -119,6 +120,25 @@ func (w *Web) registerRoutes(e *echo.Echo) {
 
 		return w.handleSiteRequest(site, c)
 	})
+}
+
+// Look up the correct Site configuration for a given request by matching host
+// and path.
+func (w *Web) siteForContext(c echo.Context) *model.Site {
+	for host, sites := range w.sites {
+		if host != c.Request().Host {
+			continue
+		}
+
+		for _, site := range sites {
+			path := c.Request().URL.String()
+			if strings.HasPrefix(path, site.BasePath) {
+				return &site
+			}
+		}
+	}
+
+	return nil
 }
 
 func pageForSlug(site *model.Site, slug string) *model.PageConfig {
@@ -192,6 +212,7 @@ func (w *Web) handleAsset(site *model.Site, slug string, c echo.Context) error {
 	return c.File(path)
 }
 
+// Main URL routing dispatch.
 func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
 
@@ -242,22 +263,6 @@ func (w *Web) registerMiddleware(e *echo.Echo) {
 	e.Use(middleware.Recover())
 }
 
-func (w *Web) siteFromContext(c echo.Context) *model.Site {
-	for host, sites := range w.sites {
-		if host != c.Request().Host {
-			continue
-		}
-
-		for _, site := range sites {
-			path := c.Request().URL.String()
-			if strings.HasPrefix(path, site.BasePath) {
-				return &site
-			}
-		}
-	}
-
-	return nil
-}
 
 func New(sites []model.Site, conf Configuration, db *store.RedisStore) Web {
 	e := echo.New()
