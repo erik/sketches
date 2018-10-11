@@ -228,7 +228,7 @@ func (w Web) handleSiteRequest(site model.Site, c echo.Context) error {
 
 	if post, err := w.db.GetPost(site, slug); post != nil {
 		return w.handlePost(site, *post, c)
-	} else if err != nil {
+	} else if err != store.NotFound {
 		log.WithFields(log.Fields{
 			"error": err,
 			"site":  site.HostPathPrefix(),
