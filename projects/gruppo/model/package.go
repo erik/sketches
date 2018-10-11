@@ -49,7 +49,9 @@ func (p Post) Overview() PostOverview {
 }
 
 type PostOverview struct {
-	Slug        string
+	Slug     string
+	FullPath string
+
 	Title       string        `json:",omitempty"`
 	Subtitle    string        `json:",omitempty"`
 	Author      string        `json:",omitempty"`
@@ -74,7 +76,7 @@ type Site struct {
 	BasePath  string       `json:"base_path"`
 	AssetPath string       `json:"asset_path"`
 	Host      string       `json:"host"`
-	IndexPage *PageConfig  `json:"index_page"`
+	IndexPage *PageConfig  `json:"index_page,omitempty"`
 	Pages     []PageConfig `json:"pages"`
 	SiteDir   string       `json:"site_dir"`
 	Theme     string       `json:"theme"`

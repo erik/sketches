@@ -29,7 +29,7 @@ type siteMapping map[string][]model.Site
 type Web struct {
 	echo  *echo.Echo
 	db    *store.RedisStore
-	conf  *Configuration
+	conf  Configuration
 	sites siteMapping // host -> [site, ...]
 }
 
@@ -58,7 +58,6 @@ func buildSiteMap(sites []model.Site) siteMapping {
 
 	return m
 }
-
 
 func logger() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -108,13 +107,12 @@ func (w *Web) RegisterDriveHooks(c *drive.Client) error {
 	return nil
 }
 
-func (w *Web) registerRoutes(e *echo.Echo) {
-
+func (w *Web) registerRoutes() {
 	// Site-specific
-	e.GET("/*", func(c echo.Context) error {
-		site := w.siteForContext(c)
+	w.echo.GET("/*", func(c echo.Context) error {
+		site, found := w.siteForContext(c)
 
-		if site == nil {
+		if !found {
 			return c.String(http.StatusNotFound, "unknown site")
 		}
 
@@ -124,7 +122,7 @@ func (w *Web) registerRoutes(e *echo.Echo) {
 
 // Look up the correct Site configuration for a given request by matching host
 // and path.
-func (w *Web) siteForContext(c echo.Context) *model.Site {
+func (w Web) siteForContext(c echo.Context) (model.Site, bool) {
 	for host, sites := range w.sites {
 		if host != c.Request().Host {
 			continue
@@ -133,40 +131,41 @@ func (w *Web) siteForContext(c echo.Context) *model.Site {
 		for _, site := range sites {
 			path := c.Request().URL.String()
 			if strings.HasPrefix(path, site.BasePath) {
-				return &site
+				return site, true
 			}
 		}
 	}
 
-	return nil
+	return model.Site{}, false
 }
 
-func pageForSlug(site *model.Site, slug string) *model.PageConfig {
+func pageForSlug(site model.Site, slug string) (model.PageConfig, bool) {
 	for _, pg := range site.Pages {
 		if pg.URL == slug {
-			return &pg
+			return pg, true
 		}
 	}
-	return nil
+
+	return model.PageConfig{}, false
 }
 
-func assetForSlug(site *model.Site, slug string) string {
+func assetForSlug(site model.Site, slug string) (string, bool) {
 	if strings.HasPrefix(slug, site.AssetPath) {
-		return strings.TrimPrefix(slug, site.AssetPath)
+		return strings.TrimPrefix(slug, site.AssetPath), true
 	}
 
-	return ""
+	return "", false
 }
 
-func (w *Web) handlePage(site *model.Site, pg *model.PageConfig, slug string, c echo.Context) error {
-	posts, err := w.db.ListPostOverviews(*site, slug, 0, 10)
+func (w Web) handlePage(site model.Site, pg model.PageConfig, slug string, c echo.Context) error {
+	posts, err := w.db.ListPostOverviews(site, slug, 0, 10)
 	if err != nil {
 		return err
 	}
 
 	html, err := render.Render(pg.Template, site.Theme, &render.Context{
 		Title: pg.Title,
-		Site:  site,
+		Site:  &site,
 		Posts: posts,
 	})
 
@@ -184,10 +183,10 @@ func (w *Web) handlePage(site *model.Site, pg *model.PageConfig, slug string, c 
 	return c.HTML(http.StatusOK, html)
 }
 
-func (w *Web) handlePost(site *model.Site, post *model.Post, c echo.Context) error {
+func (w Web) handlePost(site model.Site, post model.Post, c echo.Context) error {
 	html, err := render.Render("post", site.Theme, &render.Context{
 		Title: post.Title,
-		Post:  post,
+		Post:  &post,
 	})
 
 	if err != nil {
@@ -203,17 +202,15 @@ func (w *Web) handlePost(site *model.Site, post *model.Post, c echo.Context) err
 	return c.HTML(http.StatusOK, html)
 }
 
-func (w *Web) handleAsset(site *model.Site, slug string, c echo.Context) error {
+func (w Web) handleAsset(site model.Site, slug string, c echo.Context) error {
 	// FIXME: this might be vulnerable to directory traversal
 	slug = filepath.Clean(slug)
-
 	path := filepath.Join(site.SiteDir, "assets", slug)
-
 	return c.File(path)
 }
 
 // Main URL routing dispatch.
-func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
+func (w Web) handleSiteRequest(site model.Site, c echo.Context) error {
 	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
 
 	// Slugs should be absolute
@@ -221,28 +218,37 @@ func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 		slug = "/" + slug
 	}
 
-	if pg := pageForSlug(site, slug); pg != nil {
+	if pg, found := pageForSlug(site, slug); found {
 		return w.handlePage(site, pg, slug, c)
 	}
 
-	if asset := assetForSlug(site, slug); asset != "" {
+	if asset, found := assetForSlug(site, slug); found {
 		return w.handleAsset(site, asset, c)
 	}
 
-	if post, err := w.db.GetPost(*site, slug); post != nil {
-		return w.handlePost(site, post, c)
+	if post, err := w.db.GetPost(site, slug); post != nil {
+		return w.handlePost(site, *post, c)
 	} else if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
 			"site":  site.HostPathPrefix(),
 			"slug":  slug,
-		}).Error("something went wrong")
+		}).Error("failed to fetch post")
 
 		return c.String(http.StatusInternalServerError, "something went wrong")
 	}
 
-	if slugs, err := w.db.ListMatchingSlugs(*site, slug); site.IndexPage != nil && len(slugs) > 0 {
-		return w.handlePage(site, site.IndexPage, slug, c)
+	if slugs, err := w.db.ListMatchingSlugs(site, slug); len(slugs) > 0 {
+		if site.IndexPage != nil && len(slugs) > 0 {
+			pg := model.PageConfig{
+				URL:      slug,
+				Template: site.IndexPage.Template,
+				Title:    site.IndexPage.Title,
+			}
+
+			return w.handlePage(site, pg, slug, c)
+		}
+
 	} else if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -256,24 +262,25 @@ func (w *Web) handleSiteRequest(site *model.Site, c echo.Context) error {
 	return c.String(http.StatusNotFound, "404.")
 }
 
-func (w *Web) registerMiddleware(e *echo.Echo) {
+func (w *Web) registerMiddleware() {
 	// Echo's logger sucks, use a custom one
-	e.Use(logger())
-
-	e.Use(middleware.Recover())
+	w.echo.Use(logger())
+	w.echo.Use(middleware.Recover())
 }
-
 
 func New(sites []model.Site, conf Configuration, db *store.RedisStore) Web {
 	e := echo.New()
 	e.HideBanner = true
 
-	s := buildSiteMap(sites)
+	w := Web{
+		echo:  e,
+		db:    db,
+		conf:  conf,
+		sites: buildSiteMap(sites),
+	}
 
-	w := Web{e, db, &conf, s}
-
-	w.registerMiddleware(e)
-	w.registerRoutes(e)
+	w.registerMiddleware()
+	w.registerRoutes()
 
 	return w
 }

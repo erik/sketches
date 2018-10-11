@@ -14,7 +14,7 @@ import (
 	"github.com/erik/gruppo/model"
 )
 
-func HandlePostMedia(s *model.Site, p *model.Post) error {
+func HandlePostMedia(s model.Site, p *model.Post) error {
 	assetPath := filepath.Join(s.SiteDir, "assets", p.Slug)
 
 	if err := os.MkdirAll(assetPath, os.ModePerm); err != nil {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -152,7 +153,7 @@ func (c Client) exportFile(file File, dir string) (*model.Post, error) {
 	post.Author = file.Author
 	post.Slug = post.GenerateSlug(file.Path, file.Name)
 
-	if err := converters.HandlePostMedia(&c.site, &post); err != nil {
+	if err := converters.HandlePostMedia(c.site, &post); err != nil {
 		return nil, err
 	}
 
@@ -177,6 +178,8 @@ func (c Client) processFile(file File, tmpDir string) (*model.Post, error) {
 		return nil, err
 	}
 
+	// FIXME: This is an ugly way to do this
+	post.FullPath = strings.Replace(c.site.BasePath+"/"+slug, "//", "/", -1)
 	post.Slug = slug
 
 	if err := c.addOrUpdatePost(*post); err != nil {
