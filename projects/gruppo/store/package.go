@@ -15,6 +15,7 @@ import (
 
 type Configuration struct {
 	Addr string
+	DB   int
 }
 
 type RedisStore struct {
@@ -29,7 +30,7 @@ func New(conf Configuration) (*RedisStore, error) {
 	redis := redis.NewClient(&redis.Options{
 		Addr:     conf.Addr,
 		Password: "",
-		DB:       0,
+		DB:       conf.DB,
 	})
 
 	// Make sure we can actually hit redis
