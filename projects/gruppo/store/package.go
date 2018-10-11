@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,10 @@ type Configuration struct {
 type RedisStore struct {
 	db *redis.Client
 }
+
+var (
+	NotFound = errors.New("item not found")
+)
 
 func New(conf Configuration) (*RedisStore, error) {
 	redis := redis.NewClient(&redis.Options{
@@ -112,7 +117,7 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 	var post model.Post
 
 	if err := r.GetJSON(k, &post); err == redis.Nil {
-		return nil, nil
+		return nil, NotFound
 	} else if err != nil {
 		return nil, err
 	}
@@ -122,7 +127,9 @@ func (r RedisStore) GetPost(site model.Site, slug string) (*model.Post, error) {
 
 func (r RedisStore) GetJSON(k string, obj interface{}) error {
 	res, err := r.db.Get(k).Result()
-	if err != nil {
+	if err == redis.Nil {
+		return NotFound
+	} else if err != nil {
 		return err
 	}
 
@@ -151,7 +158,14 @@ func (r RedisStore) SetKeyNX(k, v string, t time.Duration) (bool, error) {
 }
 
 func (r RedisStore) GetKey(k string) (string, error) {
-	return r.db.Get(k).Result()
+	v, err := r.db.Get(k).Result()
+	if err == redis.Nil {
+		return "", NotFound
+	} else if err != nil {
+		return "", err
+	}
+
+	return v, nil
 }
 
 // TODO: This name is nonsense.
@@ -168,13 +182,10 @@ func (r RedisStore) AddSetJSON(k string, obj interface{}) error {
 
 func (r RedisStore) PopSetMember(k string, obj interface{}) error {
 	res, err := r.db.SPop(k).Result()
-	if err != nil {
+	if err == redis.Nil {
+		return NotFound
+	} else if err != nil {
 		return err
-	}
-
-	if res == "" {
-		obj = nil
-		return nil
 	}
 
 	dec := json.NewDecoder(strings.NewReader(res))

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/erik/gruppo/model"
@@ -50,7 +49,7 @@ func (c Client) getOrSetSlugForFileId(fileId, slug string) (string, error) {
 	k := keyFileSlug + fileId
 
 	// Exclude key not found errors
-	if val, err := c.db.GetKey(k); val != "" || (err != nil && err != redis.Nil) {
+	if val, err := c.db.GetKey(k); val != "" || (err != nil && err != store.NotFound) {
 		return val, err
 	}
 
@@ -75,7 +74,7 @@ func (c Client) popDriveChange() (*DriveChange, error) {
 	k := store.KeyForSite(c.site, "drive:changes")
 	var change DriveChange
 
-	if err := c.db.PopSetMember(k, &change); err == redis.Nil {
+	if err := c.db.PopSetMember(k, &change); err == store.NotFound {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -93,7 +92,7 @@ func (c Client) addOrUpdatePost(p model.Post) error {
 	// be, because go.
 	// FIXME: also, it doesn't work.
 	orig, err := c.db.GetPost(c.site, p.Slug)
-	if err != nil && err != redis.Nil {
+	if err != nil && err != store.NotFound {
 		return err
 	} else if orig != nil {
 		post = *orig
