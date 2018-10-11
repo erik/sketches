@@ -22,7 +22,7 @@ const (
 
 // Return the directory a File is contained in. Because in google drive files
 // don't know where they are.
-func (c Client) getFileFolder(fileId string) (string, error) {
+func (c Client) getFileFolder(fileId string) (folderId string, err error) {
 	if fileId == c.site.Drive.FolderId {
 		return "", nil
 	}
@@ -41,7 +41,7 @@ func (c Client) setResourceFile(fileId, resourceId string) error {
 	return c.db.SetKey(k, fileId)
 }
 
-func (c Client) getResourceFile(resourceId string) (string, error) {
+func (c Client) getResourceFile(resourceId string) (fileId string, err error) {
 	k := keyResourceFile + resourceId
 	return c.db.GetKey(k)
 }

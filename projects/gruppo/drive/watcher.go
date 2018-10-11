@@ -73,7 +73,7 @@ func (c Client) changeHandler() {
 		}
 
 		switch file.MimeType {
-		case MimeTypeDriveFolder:
+		case mimeTypeDriveFolder:
 			_ = c.handleFolderChange(file.Id, ch.Path)
 
 		default:

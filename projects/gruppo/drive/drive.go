@@ -23,55 +23,8 @@ import (
 	"github.com/erik/gruppo/util"
 )
 
-const (
-	MimeTypeDocx        = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	MimeTypeDriveFolder = "application/vnd.google-apps.folder"
-	MimeTypeDriveDoc    = "application/vnd.google-apps.document"
-)
-
-type Configuration struct {
-	ClientId             string
-	ClientSecret         string
-	RedirectURI          string
-	WatchNotificationURI string
-}
-
-type GoogleDriveProvider struct {
-	oauth  *oauth2.Config
-	config *Configuration
-	db     *store.RedisStore
-}
-
-type Client struct {
-	service *drive.Service
-	config  *Configuration
-	db      *store.RedisStore
-	site    model.Site
-}
-
-type folder struct {
-	path string
-	id   string
-}
-
-type File struct {
-	Id          string
-	Name        string        `json:",omitempty"`
-	Path        string        `json:",omitempty"`
-	Author      string        `json:",omitempty"`
-	CreatedTime util.JSONTime `json:",omitempty"` // RFC 3339
-}
-
-type DriveChange struct {
-	FileId string
-	Path   string
-}
-
-// Either `File` or an error. It's like a union type, but fucking stupid.
-type FileResult interface{}
-
 func NewGoogleDriveProvider(conf Configuration, db *store.RedisStore) GoogleDriveProvider {
-	oauth := &oauth2.Config{
+	oauth := oauth2.Config{
 		ClientID:     conf.ClientId,
 		ClientSecret: conf.ClientSecret,
 		RedirectURL:  conf.RedirectURI,
@@ -80,7 +33,7 @@ func NewGoogleDriveProvider(conf Configuration, db *store.RedisStore) GoogleDriv
 		Endpoint: google.Endpoint,
 	}
 
-	return GoogleDriveProvider{oauth, &conf, db}
+	return GoogleDriveProvider{oauth, conf, db}
 }
 
 func (p GoogleDriveProvider) ClientForSite(site model.Site) (*Client, error) {
@@ -243,7 +196,7 @@ func (c Client) exportAsDocx(file File) (io.Reader, error) {
 
 	// TODO: Support large file download via chunked transfer.
 	res, err := c.service.Files.
-		Export(file.Id, MimeTypeDocx).
+		Export(file.Id, mimeTypeDocx).
 		Download()
 
 	if err != nil {
@@ -263,6 +216,11 @@ func (c Client) getFileMeta(fileId string) (*drive.File, error) {
 		Get(fileId).
 		Fields(fileFields).
 		Do()
+}
+
+type folder struct {
+	path string
+	id   string
 }
 
 func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force bool) {
@@ -304,13 +262,13 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 				}
 
 				switch f.MimeType {
-				case MimeTypeDriveFolder:
+				case mimeTypeDriveFolder:
 					folders = append(folders, folder{
 						id:   f.Id,
 						path: filepath.Join(current.path, f.Name),
 					})
 
-				case MimeTypeDriveDoc:
+				case mimeTypeDriveDoc:
 					files <- fileFromAPI(f, current.path)
 
 				default:

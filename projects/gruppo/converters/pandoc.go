@@ -109,7 +109,7 @@ func ExtractPost(markdown string) model.Post {
 
 	post.ImagePaths = extractImagePaths(content)
 
-	html, err := markdownToHtml(content)
+	html, err := markdownToHTML(content)
 	if err != nil {
 		log.WithError(err).Error("failed to render markdown to html")
 		html = "error"
@@ -128,7 +128,7 @@ func ExtractPost(markdown string) model.Post {
 	// strip all the images out of the intro
 	content = markdownImageRe.ReplaceAllString(content, "")
 
-	intro, err := markdownToHtml(content)
+	intro, err := markdownToHTML(content)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"intro": intro,
@@ -141,7 +141,7 @@ func ExtractPost(markdown string) model.Post {
 	return post
 }
 
-func markdownToHtml(input string) (string, error) {
+func markdownToHTML(input string) (string, error) {
 	args := []string{
 		// from markdown
 		"-f", "markdown",
