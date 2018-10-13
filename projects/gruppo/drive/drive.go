@@ -58,8 +58,10 @@ func (c Client) Start(forceSync bool, conf Configuration) {
 	go c.changeWatcherRefresher(c.site.Drive.FolderId)
 	go c.changeHandler()
 
-	log.WithField("site", c.site.HostPathPrefix()).
-		Info("starting sync for site")
+	log.WithFields(log.Fields{
+		"site":  c.site.HostPathPrefix(),
+		"force": forceSync,
+	}).Info("starting sync for site")
 
 	root := c.site.Drive.FolderId
 	if err := c.syncFolder(root, "", forceSync); err != nil {
@@ -139,11 +141,6 @@ func (c Client) processFile(file File, tmpDir string) (*model.Post, error) {
 		return nil, err
 	}
 
-	log.WithFields(log.Fields{
-		"site": c.site.HostPathPrefix(),
-		"slug": post.Slug,
-	}).Debug("extracted post")
-
 	return post, nil
 }
 
@@ -189,11 +186,6 @@ func (c Client) syncFolder(folderId, folderPath string, force bool) error {
 }
 
 func (c Client) exportAsDocx(file File) (io.Reader, error) {
-	log.WithFields(log.Fields{
-		"site": c.site.HostPathPrefix(),
-		"file": file.Name,
-	}).Debug("exporting from drive as a .docx")
-
 	// TODO: Support large file download via chunked transfer.
 	res, err := c.service.Files.
 		Export(file.Id, mimeTypeDocx).

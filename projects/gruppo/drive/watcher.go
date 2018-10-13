@@ -141,7 +141,7 @@ func (c Client) HandleChangeHook(req *http.Request) error {
 		"folder":      path,
 		"change_kind": state[0],
 		"resource":    resourceId,
-	}).Info("adding file change")
+	}).Info("queuing file change")
 
 	change := DriveChange{
 		FileId: fileId,
