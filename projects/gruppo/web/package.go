@@ -157,8 +157,16 @@ func assetForSlug(site model.Site, slug string) (string, bool) {
 	return "", false
 }
 
+const pageSize = 10
+
 func (w Web) handlePage(site model.Site, pg model.PageConfig, slug string, c echo.Context) error {
-	posts, err := w.db.ListPostOverviews(site, slug, 0, 10)
+	var page int
+	if _, err := fmt.Sscanf(c.QueryParam("page"), "%d", &page); err != nil {
+		page = 0
+	}
+
+	offset := page * pageSize
+	posts, err := w.db.ListPostOverviews(site, slug, offset, pageSize)
 	if err != nil {
 		return err
 	}
@@ -211,7 +219,7 @@ func (w Web) handleAsset(site model.Site, slug string, c echo.Context) error {
 
 // Main URL routing dispatch.
 func (w Web) handleSiteRequest(site model.Site, c echo.Context) error {
-	slug := strings.TrimPrefix(c.Request().URL.String(), site.BasePath)
+	slug := strings.TrimPrefix(c.Request().URL.Path, site.BasePath)
 
 	// Slugs should be absolute
 	if !strings.HasPrefix(slug, "/") {

@@ -59,17 +59,17 @@ func (r RedisStore) ClearSiteData(s model.Site) error {
 }
 
 // lol, go
-func min(x, y int64) int64 {
+func min(x, y int) int {
 	if x < y {
 		return x
 	}
 	return y
 }
 
-func (r RedisStore) ListPostOverviews(site model.Site, prefix string, offset, limit int64) ([]model.PostOverview, error) {
+func (r RedisStore) ListPostOverviews(site model.Site, prefix string, offset, limit int) ([]model.PostOverview, error) {
 	k := KeyForSite(site, "slugs")
 
-	objs, err := r.db.ZRange(k, offset, offset+limit).Result()
+	objs, err := r.db.ZRange(k, int64(offset), int64(offset+limit)).Result()
 	if err != nil {
 		return []model.PostOverview{}, err
 	}
@@ -86,12 +86,7 @@ func (r RedisStore) ListPostOverviews(site model.Site, prefix string, offset, li
 		}
 	}
 
-	// Make sure we don't scroll out of bounds
-	l := int64(len(posts))
-	start := min(offset, l)
-	end := min(offset+limit, l)
-
-	return posts[start:end], nil
+	return posts, nil
 }
 
 func (r RedisStore) SetPostOverviews(site model.Site, posts []model.PostOverview) error {
