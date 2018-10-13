@@ -176,13 +176,16 @@ func (c Client) changeWatcherRefresher(fileId string) {
 			return
 		}
 
-		// We only care if there's already a watcher if this is the
-		// first iteration
-		if i == 0 && !set {
+		// On the first attempt, we just sleep and try adding the hook again later.
+		// After that, exit. This is so when we start the program multiple times
+		// quickly something sane happens.
+		if !set && i == 0 {
+			continue
+		} else if !set {
 			log.WithFields(log.Fields{
 				"site": c.site.HostPathPrefix(),
 				"file": fileId,
-			}).Debug("not refreshing watcher, already exists")
+			}).Debug("not refreshing watcher for file, already exists")
 
 			return
 		}
