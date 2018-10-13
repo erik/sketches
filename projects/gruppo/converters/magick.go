@@ -44,14 +44,6 @@ func HandlePostMedia(s model.Site, p *model.Post) error {
 		}
 
 		newURI := filepath.Join(s.BasePath, s.AssetPath, p.Slug, name)
-
-		log.WithFields(log.Fields{
-			"site":      s.HostPathPrefix(),
-			"post_slug": p.Slug,
-			"from":      path,
-			"to":        newURI,
-		}).Debug("rewrote media location")
-
 		p.Content = strings.Replace(p.Content, path, newURI, -1)
 	}
 

@@ -236,11 +236,6 @@ func (c Client) listFolder(rootId, rootPath string, files chan FileResult, force
 	for len(folders) > 0 {
 		current, folders = folders[0], folders[1:]
 
-		log.WithFields(log.Fields{
-			"site":   c.site.HostPathPrefix(),
-			"folder": current,
-		}).Debug("exploring folder")
-
 		query := c.service.Files.
 			List().
 			PageSize(1000).
