@@ -1,7 +1,19 @@
-# Gruppo
+# gruppo
 
-![](https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Cycling_art%2C_energy_and_locomotion-_a_series_of_remarks_on_the_development_of_bicycles%2C_tricycles%2C_and_man-motor_carriages_%281889%29_%2814761407011%29.jpg/623px-Cycling_art%2C_energy_and_locomotion-_a_series_of_remarks_on_the_development_of_bicycles%2C_tricycles%2C_and_man-motor_carriages_%281889%29_%2814761407011%29.jpg)
+Blog generator using Google Drive for storage and Google Docs as a
+WYSIWYG editor.
 
-Static site generator / blog thing.
+The idea is that Google Docs is actually not awful to use on a phone,
+and works offline, so you can write a post with spotty cell service and
+it will automatically get synced next time you're online.
 
-Uses Google Drive as a backing store.
+Works as a proof of concept, but a lot of core functionality is missing.
+I don't suggest actually using this.
+
+![](https://i.imgur.com/MyuE7uU.png)
+⬇ ⬇ ⬇ ⬇ ⬇ ⬇ ⬇ ⬇ ⬇
+![](https://i.imgur.com/Gb40JSh.png)
+
+## setup
+
+it's not worth it.
