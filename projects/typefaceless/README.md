@@ -12,6 +12,7 @@ Not a replacement for an adblocker.
 
 - [x] Rewrite requests
 - [ ] Add basic UI elements
+  - [ ] Create / hook up icons
   - [ ] Toggle enabled / disabled
   - [ ] Basic request counting (per page, all time, most common fonts?)
 - [ ] Minimal configurable rewriting (for UA / host)
