@@ -1,0 +1,25 @@
+{
+  "description": "todo: write me",
+  "manifest_version": 2,
+  "name": "typefaceless",
+  "version": "1.0.0",
+  "homepage_url": "https://github.com/erik/typefaceless",
+  "icons": {},
+
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "browser_action": {
+    "default_icon": "icons/todo.png",
+    "default_title": "todo: title",
+    "default_popup": "popup/todo.html"
+  }
+
+}

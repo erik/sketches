@@ -1,0 +1,12 @@
+{
+  "name": "typefaceless",
+  "version": "1.0.0",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "web-ext": "^2.9.1"
+  },
+  "scripts": {
+    "release": "web-ext build -s ./addon",
+    "web-ext": "web-ext run -s ./addon"
+  }
+}
