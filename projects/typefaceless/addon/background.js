@@ -1,5 +1,6 @@
 'use strict';
 
+browser = typeof 'browser' === 'undefined' ? chrome : browser;
 
 const CAPTURED_URLS = [
   'https://fonts.googleapis.com/*',
@@ -28,11 +29,6 @@ function rewriteHeaders(e) {
   return {
     requestHeaders: e.requestHeaders
   };
-}
-
-// backcompat for chrome
-if (typeof browser === 'undefined') {
-  browser = chrome;
 }
 
 browser.webRequest.onBeforeSendHeaders.addListener(
