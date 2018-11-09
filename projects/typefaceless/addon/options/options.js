@@ -25,7 +25,7 @@ function saveOptions(e) {
     const value = document.querySelector(selector);
 
     // TODO: more sanity checking
-    settings[key] = value || default_value
+    settings[key] = value || default_value;
   }
 
   browser.storage.sync.set(settings);

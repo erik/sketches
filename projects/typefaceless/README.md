@@ -15,6 +15,6 @@ Not a replacement for an adblocker.
   - [ ] Create / hook up icons
   - [ ] Toggle enabled / disabled
   - [ ] Basic request counting (per page, all time, most common fonts?)
-- [ ] Minimal configurable rewriting (for UA / host)
+- [x] Minimal configurable rewriting (for UA / host)
 - [ ] Tutorial on install, what it does, what it doesn't
 - [ ] Publish to AMO/Chrome Extensions

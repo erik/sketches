@@ -10,28 +10,52 @@ const CAPTURED_URLS = [
 ];
 
 // TODO: Pick something more general.
-const FACELESS_UA = 'typefaceless';
-const FACELESS_REFERRER = 'https://google.com';
+const DEFAULT_FACELESS_UA = 'typefaceless';
+const DEFAULT_FACELESS_REFERRER = 'https://google.com';
 
-const HEADER_REWRITE_RULES = {
-  'user-agent': FACELESS_UA,
-  'referer': FACELESS_REFERRER,
-};
+function rewriteHeaders(rewriteRules) {
+  return function(evt) {
+    for (let header of evt.requestHeaders) {
+      const value = rewriteRules[header.name.toLowerCase()];
 
-function rewriteHeaders(e) {
-  for (let header of e.requestHeaders) {
-    let value = HEADER_REWRITE_RULES[header.name.toLowerCase()];
-    if (typeof value !== 'undefined') {
-      header.value = value;
+      if (typeof value !== 'undefined') {
+        header.value = value;
+      }
     }
-  }
 
-  return {
-    requestHeaders: e.requestHeaders
-  };
+    browser.runtime.sendMessage({
+      type: 'request.rewritten',
+      host: 'todo',
+    });
+
+    return {requestHeaders: evt.requestHeaders};
+  }
 }
 
-browser.webRequest.onBeforeSendHeaders.addListener(
-  rewriteHeaders,
-  {urls: CAPTURED_URLS},
-  ['blocking', 'requestHeaders']);
+browser.storage.get('typefaceless.options')
+  .then((options) => {
+    const rewriteRules = {
+      'user-agent': options['faceless_ua'] || DEFAULT_FACELESS_UA,
+      'referer': options['faceless_referrer'] || DEFAULT_FACELESS_REFERRER,
+    };
+
+    browser.webRequest.onBeforeSendHeaders.addListener(
+      rewriteHeaders(rewriteRules),
+      {urls: CAPTURED_URLS},
+      ['blocking', 'requestHeaders']);
+  });
+
+browser.runtime.onMessage.addListener((msg, sender) => {
+  const tabId = sender.tab.id;
+
+  switch (msg.type) {
+  case 'request.rewritten':
+    // TODO: update metrics
+    // TODO: enable icon
+    break;
+  }
+});
+
+
+// browser.tabs.onChanged() ->
+//   handle switching tabs, maintaining state between tabs
