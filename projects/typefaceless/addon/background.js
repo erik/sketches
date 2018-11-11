@@ -13,23 +13,21 @@ const CAPTURED_URLS = [
 const DEFAULT_FACELESS_UA = 'typefaceless';
 const DEFAULT_FACELESS_REFERRER = 'https://google.com';
 
-function rewriteHeaders(rewriteRules) {
-  return function(evt) {
-    for (let header of evt.requestHeaders) {
-      const value = rewriteRules[header.name.toLowerCase()];
+function rewriteHeaders(rewriteRules, event) {
+  for (let header of event.requestHeaders) {
+    const value = rewriteRules[header.name.toLowerCase()];
 
-      if (typeof value !== 'undefined') {
-        header.value = value;
-      }
+    if (typeof value !== 'undefined') {
+      header.value = value;
     }
-
-    browser.runtime.sendMessage({
-      type: 'request.rewritten',
-      host: 'todo',
-    });
-
-    return {requestHeaders: evt.requestHeaders};
   }
+
+  browser.runtime.sendMessage({
+    type: 'request.rewritten',
+    host: 'todo',
+  });
+
+  return {requestHeaders: event.requestHeaders};
 }
 
 browser.storage.get('typefaceless.options')
@@ -40,7 +38,7 @@ browser.storage.get('typefaceless.options')
     };
 
     browser.webRequest.onBeforeSendHeaders.addListener(
-      rewriteHeaders(rewriteRules),
+      (event) => rewriteHeaders(rewriteRules, event),
       {urls: CAPTURED_URLS},
       ['blocking', 'requestHeaders']);
   });
