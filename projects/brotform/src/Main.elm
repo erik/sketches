@@ -44,7 +44,9 @@ type alias Formula =
 
 
 type alias Model =
-    { formula : Formula }
+    { formula : Formula
+    , ingredientIndex : Maybe Int
+    }
 
 
 initModel : Model
@@ -56,6 +58,7 @@ initModel =
         , { name = "Salt", isFlour = False, weight = 10 }
         , { name = "Yeast", isFlour = False, weight = 1 }
         ]
+    , ingredientIndex = Nothing
     }
 
 
@@ -100,6 +103,7 @@ bakersPercentage ingredient totalFlour =
 type Msg
     = NoOp
     | AddIngredient
+    | EditingIngredient Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,6 +114,11 @@ update msg model =
 
         AddIngredient ->
             ( model, Cmd.none )
+
+        EditingIngredient index ->
+            ( { model | ingredientIndex = Just index }
+            , Cmd.none
+            )
 
 
 
@@ -135,19 +144,23 @@ viewFormula formula =
             , name = "Total"
             }
 
+        totalIngredients =
+            viewIngredient flourWeight totalIngredient
+
         ingredients =
             formula
                 |> List.map (viewIngredient flourWeight)
     in
         div [ class "formula" ]
             [ div [ class "ingredient-list" ] ingredients
-            , viewIngredient flourWeight totalIngredient
+            , totalIngredients
             ]
 
 
 viewIngredient : Weight -> Ingredient -> Html a
 viewIngredient flourWeight ingredient =
-    div []
+    div
+        []
         [ span [] [ text <| (String.fromInt ingredient.weight) ++ "g" ]
         , span [] [ text <| ingredient.name ]
         , span [] [ text <| (String.fromInt <| bakersPercentage ingredient flourWeight) ++ "%" ]
