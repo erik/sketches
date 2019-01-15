@@ -1,0 +1,67 @@
+<!doctype html>
+
+<head>
+    <title>ntsb aviation wrecks</title>
+    <meta charset="utf-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.3/dist/leaflet.css"
+      integrity="sha512-Rksm5RenBEKSKFjgI3a41vrjkw4EVPlJ3+OiI65vTjIdo9brlAacEuKOiQ5OFh7cOI1bkDwLqdLw3Zg0cRJAAQ=="
+      crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.3.3/dist/leaflet.js"
+      integrity="sha512-tAGcCfR4Sc5ZP5ZoVz0quoZDYX5aCtEm/eu1KhSLj2c9eFrylXZknQYmxUssFaVJKvvc0dJQixhGjG2yXWiV9Q=="
+      crossorigin=""></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.22.2/moment.min.js"></script>
+
+    <style>
+     html, body, #map { height: 100%; width: 100vw; }
+     body { padding: 0; margin: 0; }
+    </style>
+</head>
+
+<div id="map"></div>
+
+<script type="text/javascript">
+ let dataset = 'wrecks.sangabriels.json';
+ if (window.location.hash === '#all') {
+   dataset = 'wrecks.all.json';
+ }
+ const map = L.map('map').setView([34, -118], 10);
+
+ L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+   attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="http://cartodb.com/attributions">CartoDB</a>',
+   subdomains: 'abcd',
+   maxZoom: 19
+ }).addTo(map);
+
+ fetch(dataset)
+   .then(res => res.json())
+   .then(data => {
+     const features = data.features.map(f => {
+       f.properties = {
+         title: f.properties.title,
+         // http://ntsb.secretsauce.net/20001212X21348 -> 20001212X21348
+         description: f.properties.description.split('/').pop()
+       }
+       return {
+         type: 'Feature',
+         ...f
+       };
+     });
+
+     L.geoJSON(features, {
+       style: (feature) => ({color: '#F00'})
+     })
+      .bindPopup(layer => {
+        const {title, description} = layer.feature.properties;
+
+        return `
+<h3>${title}</h3>
+<p><a href="https://app.ntsb.gov/pdfgenerator/ReportGeneratorFile.ashx?EventID=${description}&amp;AKey=1&amp;RType=HTML&amp;IType=CA">Summary</a></p>
+<p><a href="https://www.ntsb.gov/_layouts/ntsb.aviation/brief.aspx?ev_id=${description}&amp;key=1">Brief report</a></p>
+<p><a href="https://www.ntsb.gov/_layouts/ntsb.aviation/brief2.aspx?ev_id=${description}&amp;akey=1">Full report</a></p>`
+      })
+      .addTo(map);
+   });
+</script>
