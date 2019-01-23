@@ -10,6 +10,9 @@ use Mix.Config
 config :standup,
   ecto_repos: [Standup.Repo]
 
+config :standup, Standup.Mailer,
+  adapter: Bamboo.LocalAdapter
+
 # Configures the endpoint
 config :standup, StandupWeb.Endpoint,
   url: [host: "localhost"],
