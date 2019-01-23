@@ -2,7 +2,7 @@ defmodule Standup.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @required_fields ~w(email name)
+  @required_fields ~w(email name)a
   @optional_fields ~w(bio location image_url)a
 
   schema "users" do

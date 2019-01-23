@@ -18,7 +18,9 @@ defmodule StandupWeb.Router do
 
     get "/", PageController, :index
 
-    resources "/users", UserController
+    resources "/user", UserController
+    resources "/story", StoryController
+    resources "/update", UpdateController
   end
 
   scope "/api", StandupWeb do

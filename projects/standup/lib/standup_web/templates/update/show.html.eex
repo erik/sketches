@@ -1,0 +1,18 @@
+<h1>Show Update</h1>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @update.title %>
+  </li>
+
+  <li>
+    <strong>Body:</strong>
+    <%= @update.body %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: Routes.update_path(@conn, :edit, @update) %></span>
+<span><%= link "Back", to: Routes.update_path(@conn, :index) %></span>

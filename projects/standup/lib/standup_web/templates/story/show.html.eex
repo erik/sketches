@@ -1,0 +1,18 @@
+<h1>Show Story</h1>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @story.title %>
+  </li>
+
+  <li>
+    <strong>Description:</strong>
+    <%= @story.description %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: Routes.story_path(@conn, :edit, @story) %></span>
+<span><%= link "Back", to: Routes.story_path(@conn, :index) %></span>

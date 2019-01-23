@@ -2,9 +2,7 @@ defmodule Standup.Account.User do
   use Ecto.Schema
   import Ecto.Changeset
 
-
   schema "users" do
-
     timestamps()
   end
 
