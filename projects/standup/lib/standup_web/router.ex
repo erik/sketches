@@ -17,6 +17,13 @@ defmodule StandupWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :index
+
+    resources "/users", UserController
+    resources "/journals", JournalsController do
+      resources "/entries", EntryController do
+        resources "/replies", ReplyController
+      end
+    end
   end
 
   # Other scopes may use custom stacks.
