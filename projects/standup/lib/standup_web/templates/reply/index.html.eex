@@ -1,0 +1,26 @@
+<h1>Listing Replies</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Body</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+<%= for reply <- @replies do %>
+    <tr>
+      <td><%= reply.body %></td>
+
+      <td>
+        <%= link "Show", to: Routes.reply_path(@conn, :show, reply) %>
+        <%= link "Edit", to: Routes.reply_path(@conn, :edit, reply) %>
+        <%= link "Delete", to: Routes.reply_path(@conn, :delete, reply), method: :delete, data: [confirm: "Are you sure?"] %>
+      </td>
+    </tr>
+<% end %>
+  </tbody>
+</table>
+
+<span><%= link "New Reply", to: Routes.reply_path(@conn, :new) %></span>

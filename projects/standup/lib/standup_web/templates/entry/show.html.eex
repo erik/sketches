@@ -1,0 +1,23 @@
+<h1>Show Entry</h1>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @entry.title %>
+  </li>
+
+  <li>
+    <strong>Body:</strong>
+    <%= @entry.body %>
+  </li>
+
+  <li>
+    <strong>Public:</strong>
+    <%= @entry.public %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: Routes.entry_path(@conn, :edit, @entry) %></span>
+<span><%= link "Back", to: Routes.entry_path(@conn, :index) %></span>

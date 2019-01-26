@@ -1,0 +1,36 @@
+<h1>Listing Journals</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Description</th>
+      <th>Tags</th>
+      <th>Public</th>
+      <th>Started at</th>
+      <th>Completed at</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+<%= for journal <- @journals do %>
+    <tr>
+      <td><%= journal.title %></td>
+      <td><%= journal.description %></td>
+      <td><%= journal.tags %></td>
+      <td><%= journal.public %></td>
+      <td><%= journal.started_at %></td>
+      <td><%= journal.completed_at %></td>
+
+      <td>
+        <%= link "Show", to: Routes.journal_path(@conn, :show, journal) %>
+        <%= link "Edit", to: Routes.journal_path(@conn, :edit, journal) %>
+        <%= link "Delete", to: Routes.journal_path(@conn, :delete, journal), method: :delete, data: [confirm: "Are you sure?"] %>
+      </td>
+    </tr>
+<% end %>
+  </tbody>
+</table>
+
+<span><%= link "New Journal", to: Routes.journal_path(@conn, :new) %></span>

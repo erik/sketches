@@ -1,0 +1,30 @@
+<h1>Listing Entries</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Body</th>
+      <th>Public</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+<%= for entry <- @entries do %>
+    <tr>
+      <td><%= entry.title %></td>
+      <td><%= entry.body %></td>
+      <td><%= entry.public %></td>
+
+      <td>
+        <%= link "Show", to: Routes.entry_path(@conn, :show, entry) %>
+        <%= link "Edit", to: Routes.entry_path(@conn, :edit, entry) %>
+        <%= link "Delete", to: Routes.entry_path(@conn, :delete, entry), method: :delete, data: [confirm: "Are you sure?"] %>
+      </td>
+    </tr>
+<% end %>
+  </tbody>
+</table>
+
+<span><%= link "New Entry", to: Routes.entry_path(@conn, :new) %></span>

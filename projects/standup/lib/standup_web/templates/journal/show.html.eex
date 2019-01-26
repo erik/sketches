@@ -1,0 +1,38 @@
+<h1>Show Journal</h1>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @journal.title %>
+  </li>
+
+  <li>
+    <strong>Description:</strong>
+    <%= @journal.description %>
+  </li>
+
+  <li>
+    <strong>Tags:</strong>
+    <%= @journal.tags %>
+  </li>
+
+  <li>
+    <strong>Public:</strong>
+    <%= @journal.public %>
+  </li>
+
+  <li>
+    <strong>Started at:</strong>
+    <%= @journal.started_at %>
+  </li>
+
+  <li>
+    <strong>Completed at:</strong>
+    <%= @journal.completed_at %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: Routes.journal_path(@conn, :edit, @journal) %></span>
+<span><%= link "Back", to: Routes.journal_path(@conn, :index) %></span>

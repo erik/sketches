@@ -1,0 +1,13 @@
+<h1>Show Reply</h1>
+
+<ul>
+
+  <li>
+    <strong>Body:</strong>
+    <%= @reply.body %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: Routes.reply_path(@conn, :edit, @reply) %></span>
+<span><%= link "Back", to: Routes.reply_path(@conn, :index) %></span>

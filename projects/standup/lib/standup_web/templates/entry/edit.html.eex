@@ -1,0 +1,5 @@
+<h1>Edit Entry</h1>
+
+<%= render "form.html", Map.put(assigns, :action, Routes.entry_path(@conn, :update, @entry)) %>
+
+<span><%= link "Back", to: Routes.entry_path(@conn, :index) %></span>
