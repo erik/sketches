@@ -40,7 +40,7 @@ defmodule StandupWeb.Endpoint do
   plug Plug.Session,
     store: :cookie,
     key: "_standup_key",
-    signing_salt: "z9xd8sd5"
+    signing_salt: "KU/TFxB8"
 
   plug StandupWeb.Router
 end

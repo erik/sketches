@@ -1,5 +1,0 @@
-<h1>New Update</h1>
-
-<%= render "form.html", Map.put(assigns, :action, Routes.update_path(@conn, :create)) %>
-
-<span><%= link "Back", to: Routes.update_path(@conn, :index) %></span>

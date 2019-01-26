@@ -17,18 +17,10 @@ defmodule StandupWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :index
-
-    resources "/user", UserController
-    post "/user/login", SessionController, :create
-
-    resources "/story", StoryController do
-      resources "/update", UpdateController
-    end
   end
 
-  scope "/api", StandupWeb do
-    pipe_through :api
-
-    # TODO: define API interface??
-  end
+  # Other scopes may use custom stacks.
+  # scope "/api", StandupWeb do
+  #   pipe_through :api
+  # end
 end

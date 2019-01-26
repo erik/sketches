@@ -10,13 +10,10 @@ use Mix.Config
 config :standup,
   ecto_repos: [Standup.Repo]
 
-config :standup, Standup.Mailer,
-  adapter: Bamboo.LocalAdapter
-
 # Configures the endpoint
 config :standup, StandupWeb.Endpoint,
   url: [host: "localhost"],
-  secret_key_base: "gc67AyeTMGhAEbFbLq+GMo7oPIANFQIkzgoNtijRQPat7HqjpOfnkvUKK3yLd9la",
+  secret_key_base: "QvMzpHh48GqtNIgqEMQhwP2d6Wz6IhP2R9nJTrOXBPiadXpOaxKVMMWm0hEF8E1g",
   render_errors: [view: StandupWeb.ErrorView, accepts: ~w(html json)],
   pubsub: [name: Standup.PubSub, adapter: Phoenix.PubSub.PG2]
 
