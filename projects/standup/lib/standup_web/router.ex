@@ -18,8 +18,13 @@ defmodule StandupWeb.Router do
 
     get "/", PageController, :index
 
+    get "/login", AuthController, :new
+    get "/logout", AuthController, :destroy
+
     resources "/users", UserController
-    resources "/journals", JournalsController do
+    resources "/authors", AuthorController
+
+    resources "/journals", JournalController do
       resources "/entries", EntryController do
         resources "/replies", ReplyController
       end

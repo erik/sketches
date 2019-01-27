@@ -20,7 +20,8 @@ defmodule Standup.Repo.Migrations.Seed do
       add :bio, :text
       add :location, :text
 
-      add :user_id, references(:users, on_delete: :nothing)
+      add :user_id, references(:users, on_delete: :delete_all),
+        null: false
 
       timestamps()
     end
@@ -36,7 +37,8 @@ defmodule Standup.Repo.Migrations.Seed do
       add :started_at, :utc_datetime
       add :completed_at, :utc_datetime
 
-      add :author_id, references(:authors, on_delete: :nothing)
+      add :author_id, references(:authors, on_delete: :nothing),
+        null: false
 
       timestamps()
     end
@@ -47,10 +49,12 @@ defmodule Standup.Repo.Migrations.Seed do
     create table(:entries) do
       add :title, :text
       add :body, :text
-      add :public, :boolean, default: true, null: false
 
-      add :author_id, references(:authors, on_delete: :nothing)
-      add :journal_id, references(:journals, on_delete: :nothing)
+      add :author_id, references(:authors, on_delete: :nothing),
+        null: false
+
+      add :journal_id, references(:journals, on_delete: :nothing),
+        null: false
 
       timestamps()
     end
@@ -62,8 +66,10 @@ defmodule Standup.Repo.Migrations.Seed do
     create table(:replies) do
       add :body, :text
 
-      add :user_id, references(:users, on_delete: :nothing)
-      add :entry_id, references(:entries, on_delete: :nothing)
+      add :user_id, references(:users, on_delete: :nothing),
+        null: false
+      add :entry_id, references(:entries, on_delete: :nothing),
+        null: false
       add :parent_id, references(:replies, on_delete: :nothing)
 
       timestamps()

@@ -13,6 +13,23 @@
   <%= datetime_select f, :email_verified_at %>
   <%= error_tag f, :email_verified_at %>
 
+  <div class="form-group">
+    <%= inputs_for f, :author, fn af -> %>
+    <%=   label af, :name %>
+    <%=   text_input af, :name %>
+    <%=   error_tag af, :name %>
+
+    <%=   label af, :bio %>
+    <%=   text_input af, :bio %>
+    <%=   error_tag af, :bio %>
+
+    <%=   label af, :location %>
+    <%=   text_input af, :location %>
+    <%=   error_tag af, :location %>
+    <% end %>
+  </div>
+
+
   <div>
     <%= submit "Save" %>
   </div>

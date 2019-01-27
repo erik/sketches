@@ -2,13 +2,18 @@ defmodule Standup.Content.Entry do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Standup.Accounts.Author
+  alias Standup.Content.Journal
+
+  @required ~w(title body)a
+  @optional ~w()a
 
   schema "entries" do
-    field :body, :string
-    field :public, :boolean, default: false
     field :title, :string
-    field :author_id, :id
-    field :journal_id, :id
+    field :body, :string
+
+    belongs_to :author, Author
+    belongs_to :journal, Journal
 
     timestamps()
   end
@@ -16,7 +21,7 @@ defmodule Standup.Content.Entry do
   @doc false
   def changeset(entry, attrs) do
     entry
-    |> cast(attrs, [:title, :body, :public])
-    |> validate_required([:title, :body, :public])
+    |> cast(attrs, @required ++ @optional)
+    |> validate_required(@required)
   end
 end

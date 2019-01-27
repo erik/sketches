@@ -11,7 +11,7 @@ defmodule Standup.Accounts.User do
     field :email, :string
     field :email_verified_at, :utc_datetime
 
-    has_one(:author, Author)
+    has_one :author, Author
 
     timestamps()
   end
