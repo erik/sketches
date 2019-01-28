@@ -1,0 +1,11 @@
+<p class="lead">
+  Eventually, you can check your email for a magic link to log in.
+</p>
+
+<p>
+  In the mean time, here's your JWT
+</p>
+
+<pre style="width:80ch;white-space:pre-wrap;word-wrap:break-word;">
+  <%= @magic %>
+</pre>

@@ -17,9 +17,13 @@ config :standup, StandupWeb.Endpoint,
   render_errors: [view: StandupWeb.ErrorView, accepts: ~w(html json)],
   pubsub: [name: Standup.PubSub, adapter: Phoenix.PubSub.PG2]
 
-config :standup, Standup.Guardian,
+config :standup, StandupWeb.Guardian,
   issuer: "standup",
-  secret_key: "a super secret value"
+  secret_key: "2tCXvpOdD6dT0J8NsYb8EuBKv2M31VOlci/DZtFJ1vyiRMmhpKQt0JPjKyMF9tl0",
+  token_ttl: %{
+    "magic" => {30, :minutes},
+    "access" => {1, :years}
+  }
 
 # Configures Elixir's Logger
 config :logger, :console,

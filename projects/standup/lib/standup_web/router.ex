@@ -7,6 +7,13 @@ defmodule StandupWeb.Router do
     plug :fetch_flash
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+
+    plug Guardian.Plug.Pipeline,
+      module: StandupWeb.Guardian,
+      error_handler: StandupWeb.AuthController
+
+    plug Guardian.Plug.VerifySession
+    plug Guardian.Plug.LoadResource, allow_blank: true
   end
 
   pipeline :api do
@@ -32,9 +39,4 @@ defmodule StandupWeb.Router do
       end
     end
   end
-
-  # Other scopes may use custom stacks.
-  # scope "/api", StandupWeb do
-  #   pipe_through :api
-  # end
 end
