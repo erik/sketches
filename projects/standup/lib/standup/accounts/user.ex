@@ -2,7 +2,7 @@ defmodule Standup.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Standup.Accounts.Author
+  alias Standup.Authors.Author
 
   @required ~w(email)a
   @optional ~w(email_verified_at)a

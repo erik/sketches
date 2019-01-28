@@ -2,7 +2,7 @@ defmodule Standup.Content.Journal do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Standup.Accounts.Author
+  alias Standup.Authors.Author
   alias Standup.Content.Entry
 
   @required ~w(title description public tags)a

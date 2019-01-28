@@ -1,4 +1,4 @@
-defmodule Standup.Accounts.Author do
+defmodule Standup.Authors.Author do
   use Ecto.Schema
   import Ecto.Changeset
 
