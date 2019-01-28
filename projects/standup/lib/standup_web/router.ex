@@ -33,10 +33,8 @@ defmodule StandupWeb.Router do
     resources "/users", UserController
     resources "/authors", AuthorController
 
-    resources "/journals", JournalController do
-      resources "/entries", EntryController do
-        resources "/replies", ReplyController
-      end
-    end
+    resources "/replies", ReplyController
+    resources "/entries", EntryController
+    resources "/journals", JournalController
   end
 end

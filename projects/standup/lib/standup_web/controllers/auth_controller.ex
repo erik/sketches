@@ -15,7 +15,7 @@ defmodule StandupWeb.AuthController do
   def create(conn, %{"user" => %{"email" => email}}) do
     case Accounts.get_or_create_user_by_email(email) do
       {:ok, user} ->
-        {:ok, token, claims} = Guardian.encode_magic(user)
+        {:ok, token, _claims} = Guardian.encode_magic(user)
         render(conn, "create.html", magic: token)
 
       {:error, changeset} ->
@@ -28,17 +28,27 @@ defmodule StandupWeb.AuthController do
   def destroy(conn, _params) do
     conn
     |> Guardian.Plug.sign_out()
-    |> redirect(to: Helpers.page_path(conn, :index))
+    |> redirect(to: Routes.page_path(conn, :index))
   end
 
-  def callback(conn, _params) do
-    conn
+  def callback(conn, %{"magic_token" => magic_token}) do
+    case Guardian.decode_magic(magic_token) do
+      {:ok, user, _claims} ->
+        conn
+        |> Guardian.Plug.sign_in(user)
+        |> redirect(to: Routes.page_path(conn, :index))
+
+      _ ->
+        conn
+        |> put_flash(:error, "Invalid magic link.")
+        |> redirect(to: Routes.auth_path(conn, :new))
+    end
   end
 
-  def auth_error(conn, error, _opts) do
+  def auth_error(conn, _error, _opts) do
     conn
     |> put_flash(:error, "Failed to sign in.")
-    |> redirect(to: Helpers.auth_path(conn, :new))
+    |> redirect(to: Routes.auth_path(conn, :new))
     |> halt()
   end
 end

@@ -22,7 +22,7 @@ config :standup, StandupWeb.Guardian,
   secret_key: "2tCXvpOdD6dT0J8NsYb8EuBKv2M31VOlci/DZtFJ1vyiRMmhpKQt0JPjKyMF9tl0",
   token_ttl: %{
     "magic" => {30, :minutes},
-    "access" => {1, :years}
+    "access" => {52, :weeks}
   }
 
 # Configures Elixir's Logger

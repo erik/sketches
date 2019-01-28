@@ -4,6 +4,7 @@ defmodule Standup.Accounts do
   alias Standup.Repo
 
   alias Standup.Accounts.User
+  alias Standup.Authors.Author
 
   #
   # Users
