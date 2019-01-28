@@ -19,6 +19,8 @@ defmodule StandupWeb.Router do
     get "/", PageController, :index
 
     get "/login", AuthController, :new
+    post "/login", AuthController, :create
+    get "/login/:magic_token", AuthController, :callback
     get "/logout", AuthController, :destroy
 
     resources "/users", UserController
