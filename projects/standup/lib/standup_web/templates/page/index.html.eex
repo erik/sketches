@@ -1,10 +1,19 @@
 <section class="row">
   <h1>Hello</h1>
+</section>
 
+<section>
   <%= if Guardian.Plug.authenticated?(@conn, []) do %>
   <p>
     You are logged in as:
     <b><%= Guardian.Plug.current_resource(@conn).email %></b>
   </p>
   <% end %>
+
+  <h2>TODO</h2>
+  <ol>
+  <%= for todo <- @todo do %>
+      <li><%= todo %></li>
+  <% end %>
+  </ol>
 </section>
