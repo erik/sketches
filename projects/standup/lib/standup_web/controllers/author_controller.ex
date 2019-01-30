@@ -4,6 +4,8 @@ defmodule StandupWeb.AuthorController do
   alias Standup.Authors
   alias Standup.Authors.Author
 
+  alias StandupWeb.Guardian
+
   def index(conn, _params) do
     authors = Authors.list_authors()
     render(conn, "index.html", authors: authors)
@@ -15,6 +17,12 @@ defmodule StandupWeb.AuthorController do
   end
 
   def create(conn, %{"author" => author_params}) do
+    user = Guardian.Plug.current_resource(conn, [])
+
+    author_params =
+      author_params
+      |> Map.put("user_id", user.id)
+
     case Authors.create_author(author_params) do
       {:ok, author} ->
         conn

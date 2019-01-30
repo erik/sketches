@@ -3,6 +3,7 @@ defmodule StandupWeb.AuthController do
 
   alias Standup.Accounts
   alias Standup.Accounts.User
+  alias Standup.Authors
 
   alias StandupWeb.Guardian
 
@@ -34,9 +35,20 @@ defmodule StandupWeb.AuthController do
   def callback(conn, %{"magic_token" => magic_token}) do
     case Guardian.decode_magic(magic_token) do
       {:ok, user, _claims} ->
+        # If this is the first login (no author), we want to redirect to the
+        # author page first.
+        route =
+          case Authors.get_author_by_user_id(user.id) do
+            nil ->
+              Routes.author_path(conn, :new)
+
+            _ ->
+              Routes.page_path(conn, :index)
+          end
+
         conn
         |> Guardian.Plug.sign_in(user)
-        |> redirect(to: Routes.page_path(conn, :index))
+        |> redirect(to: route)
 
       _ ->
         conn

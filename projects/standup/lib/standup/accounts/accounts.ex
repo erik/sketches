@@ -29,14 +29,12 @@ defmodule Standup.Accounts do
   def create_user(attrs \\ %{}) do
     %User{}
     |> User.changeset(attrs)
-    |> Ecto.Changeset.cast_assoc(:author, with: &Author.changeset/2)
     |> Repo.insert()
   end
 
   def update_user(%User{} = user, attrs) do
     user
     |> User.changeset(attrs)
-    |> Ecto.Changeset.cast_assoc(:author, with: &Author.changeset/2)
     |> Repo.update()
   end
 
