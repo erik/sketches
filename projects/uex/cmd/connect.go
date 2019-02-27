@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gopkg.in/sorcix/irc.v2"
@@ -179,28 +181,24 @@ func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
 
 func (c *client) bufferInputHandler(bufName, path string) {
 	name := filepath.Join(path, "__in")
-	mode := os.O_RDONLY | os.O_CREATE | os.O_SYNC
-	perm := os.ModeNamedPipe | os.ModePerm
-
-	file, err := os.OpenFile(name, mode, perm)
-	if err != nil {
+	if err := syscall.Mkfifo(name, 0777); err != nil {
 		log.Fatal(err)
 	}
 
-	defer file.Close()
-
 	for {
-		contents, err := ioutil.ReadAll(file)
+		buf, err := ioutil.ReadFile(name)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if len(contents) == 0 {
+		if len(buf) == 0 {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
-		fmt.Printf(">>>>>>>>>>>>>> %s\n<<<<<<<", contents)
+		contents := strings.TrimSpace(string(buf))
+		fmt.Printf(">> %s\n", contents)
+
 	}
 }
 
