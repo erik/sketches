@@ -181,7 +181,10 @@ func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
 
 func (c *client) bufferInputHandler(bufName, path string) {
 	name := filepath.Join(path, "__in")
-	if err := syscall.Mkfifo(name, 0777); err != nil {
+	err := syscall.Mkfifo(name, 0777)
+
+	// Doesn't matter if the FIFO already exists from a previous run.
+	if err != nil && err != syscall.EEXIST {
 		log.Fatal(err)
 	}
 
