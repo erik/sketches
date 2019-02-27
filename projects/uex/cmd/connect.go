@@ -22,6 +22,8 @@ type client struct {
 	directory string
 }
 
+const serverBufferName = "$server"
+
 func Connect() {
 	hostname := "irc.freenode.net"
 	port := 6667
@@ -67,6 +69,7 @@ func createClient(hostname string, port int, baseDir string) (*client, error) {
 	client := &client{
 		conn:      conn,
 		directory: filepath.Join(baseDir, server),
+		buffers:   make(map[string]chan *irc.Message),
 	}
 
 	return client, nil
@@ -95,7 +98,7 @@ func (c *client) send(cmd string, params ...string) {
 }
 
 func (c *client) handleMessage(msg *irc.Message) {
-	buf := c.getBuffer("server")
+	buf := c.getBuffer(serverBufferName)
 
 	switch msg.Command {
 	case irc.PING:
@@ -132,7 +135,7 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 	defer c.mux.Unlock()
 
 	if name == "*" {
-		name = "server"
+		name = serverBufferName
 	}
 
 	if ch, exists := c.buffers[name]; exists {
@@ -145,35 +148,60 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 	}
 
 	ch := make(chan *irc.Message)
-	go c.bufferInputHandler(path)
+	c.buffers[name] = ch
+
+	go c.bufferInputHandler(name, path)
 	go c.bufferOutputHandler(path, ch)
 
 	return ch
 }
 
 func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
-	n := filepath.Join(path, "__out")
-	m := os.O_APPEND | os.O_RDWR | os.O_CREATE
-	f, err := os.OpenFile(n, m, 0644)
+	name := filepath.Join(path, "__out")
+	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
+	file, err := os.OpenFile(name, mode, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	defer f.Close()
+	defer file.Close()
 
 	// TODO: better serialization?? colors?? etc.
 	for msg := range ch {
-		if _, err := f.WriteString(fmt.Sprintf(">> %+v\n", msg)); err != nil {
+		if _, err := file.WriteString(fmt.Sprintf(">> %+v\n", msg)); err != nil {
 			log.Fatal(err)
 		}
-		if err := f.Sync(); err != nil {
+		if err := file.Sync(); err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func (c *client) bufferInputHandler(path string) {
+func (c *client) bufferInputHandler(bufName, path string) {
+	name := filepath.Join(path, "__in")
+	mode := os.O_RDONLY | os.O_CREATE | os.O_SYNC
+	perm := os.ModeNamedPipe | os.ModePerm
 
+	file, err := os.OpenFile(name, mode, perm)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer file.Close()
+
+	for {
+		contents, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if len(contents) == 0 {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		fmt.Printf(">>>>>>>>>>>>>> %s\n<<<<<<<", contents)
+	}
 }
 
 func (c *client) runLoop() error {
