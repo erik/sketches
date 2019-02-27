@@ -8,18 +8,15 @@ import (
 	"github.com/erik/uex/cmd"
 )
 
-const USAGE = `usage: uex [-t SESSION] COMMAND
+const USAGE = `usage: uex COMMAND
 
 Commands:
 
-  connect
-  bufl
-  nickl
-  chatl
+  daemon
+  client [-list]
 `
 
 func main() {
-	var _ = flag.String("t", "", "Session to attach to.")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
@@ -28,15 +25,12 @@ func main() {
 	}
 
 	switch flag.Arg(0) {
-	case "connect":
-		fmt.Println("choosing connect")
+	case "daemon":
 		cmd.Connect()
-	case "bufl":
+	case "client":
 		// TODO:
-	case "nickl":
-		// TODO:
-	case "chat":
-		// TODO:
+		fmt.Println("client not yet written")
+		os.Exit(1)
 	default:
 		flag.Usage()
 		os.Exit(2)
