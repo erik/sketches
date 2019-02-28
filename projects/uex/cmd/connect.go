@@ -123,8 +123,19 @@ func (c *client) handleMessage(msg *irc.Message) {
 		buf = c.getBuffer(msg.Params[0])
 
 	case irc.PRIVMSG, irc.NOTICE:
-		// TODO: direct messages
-		buf = c.getBuffer(msg.Params[0])
+		target := msg.Params[0]
+
+		// Group all messages sent by the server together,
+		// regardless of server name.
+		//
+		// For direct messages, we want to look at the sender.
+		if msg.Prefix.IsServer() {
+			target = serverBufferName
+		} else if !isChannel(target) {
+			target = msg.Prefix.Name
+		}
+
+		buf = c.getBuffer(target)
 	}
 
 	if buf != nil {
@@ -136,6 +147,7 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
+	// Sent early on, at least by freenode.
 	if name == "*" {
 		name = serverBufferName
 	}
@@ -144,7 +156,14 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 		return ch
 	}
 
-	path := filepath.Join(c.directory, name)
+	path := c.directory
+
+	// We want to write __in, __out top level for the server, and
+	// as a child for every other buffer.
+	if name != serverBufferName {
+		path = filepath.Join(path, name)
+	}
+
 	if err := os.MkdirAll(path, os.ModePerm); err != nil {
 		log.Fatal(err)
 	}
@@ -152,7 +171,7 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 	ch := make(chan *irc.Message)
 	c.buffers[name] = ch
 
-	go c.bufferInputHandler(name, path)
+	go c.bufferInputHandler(path, name)
 	go c.bufferOutputHandler(path, ch)
 
 	return ch
@@ -179,7 +198,7 @@ func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
 	}
 }
 
-func (c *client) bufferInputHandler(bufName, path string) {
+func (c *client) bufferInputHandler(path, bufName string) {
 	name := filepath.Join(path, "__in")
 	err := syscall.Mkfifo(name, 0777)
 
@@ -199,9 +218,77 @@ func (c *client) bufferInputHandler(bufName, path string) {
 			continue
 		}
 
-		contents := strings.TrimSpace(string(buf))
-		fmt.Printf(">> %s\n", contents)
+		lines := strings.Split(string(buf), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
 
+			c.handleInputLine(bufName, line)
+		}
+	}
+}
+
+func isChannel(target string) bool {
+	if target == "" {
+		return false
+	}
+
+	return target[0] == '#' || target[0] == '&'
+}
+
+func splitInputCommand(bufName, line string) (string, string) {
+	// Without a prefix, it's just a regular PRIVMSG
+	if !strings.HasPrefix(line, "/") {
+		return "/msg", bufName + " " + line
+	}
+	// Double slash at start means privmsg with leading slash
+	if strings.HasPrefix(line, "//") {
+		return "/msg", bufName + " " + line[1:]
+	}
+
+	s := strings.SplitN(line, " ", 2)
+	cmd := strings.ToLower(s[0])
+
+	if len(s) == 1 {
+		return cmd, ""
+	}
+
+	return cmd, s[1]
+}
+
+func (c *client) handleInputLine(bufName, line string) {
+	fmt.Printf("%s >> %s\n", bufName, line)
+
+	cmd, rest := splitInputCommand(bufName, line)
+
+	switch cmd {
+	case "/m", "/msg":
+		s := strings.SplitN(rest, " ", 2)
+		if len(s) != 2 {
+			fmt.Printf("expected: /msg TARGET MESSAGE")
+			return
+		}
+		c.send("PRIVMSG", s...)
+
+	case "/j", "/join":
+		if !isChannel(rest) {
+			fmt.Printf("expected: /join TARGET")
+			return
+		}
+		c.send("JOIN", rest)
+
+	case "/quote":
+		params := strings.Split(rest, " ")
+		if len(params) == 1 {
+			c.send(params[1])
+		} else {
+			c.send(params[1], params[1:]...)
+		}
+
+	default:
+		fmt.Printf("Unknown command: %s %s\n", cmd, rest)
 	}
 }
 
