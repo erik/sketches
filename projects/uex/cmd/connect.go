@@ -19,9 +19,19 @@ type client struct {
 	mux  sync.Mutex
 
 	nick    string
-	buffers map[string]chan *irc.Message
+	buffers map[string]buffer
 
 	directory string
+}
+
+type buffer struct {
+	ch     chan *irc.Message
+	client *client
+	path   string
+
+	name  string
+	topic string
+	users map[string]string
 }
 
 const serverBufferName = "$server"
@@ -71,7 +81,7 @@ func createClient(hostname string, port int, baseDir string) (*client, error) {
 	client := &client{
 		conn:      conn,
 		directory: filepath.Join(baseDir, server),
-		buffers:   make(map[string]chan *irc.Message),
+		buffers:   make(map[string]buffer),
 	}
 
 	return client, nil
@@ -136,14 +146,21 @@ func (c *client) handleMessage(msg *irc.Message) {
 		}
 
 		buf = c.getBuffer(target)
+
+	case irc.RPL_TOPIC:
+		target := msg.Params[1]
+		topic := msg.Params[2]
+
+		buf = c.getBuffer(target)
+		buf.topic = topic
 	}
 
 	if buf != nil {
-		buf <- msg
+		buf.ch <- msg
 	}
 }
 
-func (c *client) getBuffer(name string) chan *irc.Message {
+func (c *client) getBuffer(name string) *buffer {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
@@ -152,8 +169,8 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 		name = serverBufferName
 	}
 
-	if ch, exists := c.buffers[name]; exists {
-		return ch
+	if buf, exists := c.buffers[name]; exists {
+		return &buf
 	}
 
 	path := c.directory
@@ -168,17 +185,26 @@ func (c *client) getBuffer(name string) chan *irc.Message {
 		log.Fatal(err)
 	}
 
-	ch := make(chan *irc.Message)
-	c.buffers[name] = ch
+	c.buffers[name] = buffer{
+		ch:     make(chan *irc.Message),
+		client: c,
+		path:   path,
 
-	go c.bufferInputHandler(path, name)
-	go c.bufferOutputHandler(path, ch)
+		name:  name,
+		topic: "",
+		users: make(map[string]string),
+	}
 
-	return ch
+	b := c.buffers[name]
+
+	go b.inputHandler()
+	go b.outputHandler()
+
+	return &b
 }
 
-func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
-	name := filepath.Join(path, "__out")
+func (b *buffer) outputHandler() {
+	name := filepath.Join(b.path, "__out")
 	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
 	file, err := os.OpenFile(name, mode, 0644)
 	if err != nil {
@@ -188,7 +214,7 @@ func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
 	defer file.Close()
 
 	// TODO: better serialization?? colors?? etc.
-	for msg := range ch {
+	for msg := range b.ch {
 		if _, err := file.WriteString(fmt.Sprintf(">> %+v\n", msg)); err != nil {
 			log.Fatal(err)
 		}
@@ -198,8 +224,8 @@ func (c *client) bufferOutputHandler(path string, ch chan *irc.Message) {
 	}
 }
 
-func (c *client) bufferInputHandler(path, bufName string) {
-	name := filepath.Join(path, "__in")
+func (b *buffer) inputHandler() {
+	name := filepath.Join(b.path, "__in")
 	err := syscall.Mkfifo(name, 0777)
 
 	// Doesn't matter if the FIFO already exists from a previous run.
@@ -225,7 +251,7 @@ func (c *client) bufferInputHandler(path, bufName string) {
 				continue
 			}
 
-			c.handleInputLine(bufName, line)
+			b.client.handleInputLine(b.name, line)
 		}
 	}
 }
