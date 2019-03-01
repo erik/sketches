@@ -26,7 +26,7 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "daemon":
-		cmd.Connect()
+		cmd.Daemon()
 	case "client":
 		// TODO:
 		fmt.Println("client not yet written")

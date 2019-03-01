@@ -1,4 +1,4 @@
-package cmd
+package irc
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ import (
 	"gopkg.in/sorcix/irc.v2"
 )
 
-type client struct {
+type Client struct {
 	conn *irc.Conn
 	mux  sync.Mutex
 
@@ -26,7 +26,7 @@ type client struct {
 
 type buffer struct {
 	ch     chan *irc.Message
-	client *client
+	client *Client
 	path   string
 
 	name  string
@@ -36,41 +36,7 @@ type buffer struct {
 
 const serverBufferName = "$server"
 
-func Connect() {
-	hostname := "irc.freenode.net"
-	port := 6667
-	nick := "ep`uex"
-
-	baseDir, err := ioutil.TempDir("", hostname)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer os.RemoveAll(baseDir)
-
-	fmt.Printf("==> Output to %s\n", baseDir)
-
-	for {
-		client, err := createClient(hostname, port, baseDir)
-		if err != nil {
-			fmt.Printf("connect failed: %+v\n", err)
-			goto retry
-		}
-
-		client.initialize(nick, "")
-
-		// If we exit `runLoop` cleanly, it was an intentional process exit.
-		if err := client.runLoop(); err == nil {
-			break
-		}
-
-		fmt.Printf("IRC connection errored: %+v\n", err)
-	retry:
-		fmt.Println("... sleeping 5 seconds before reconnecting")
-		time.Sleep(5 * time.Second)
-	}
-}
-
-func createClient(hostname string, port int, baseDir string) (*client, error) {
+func NewClient(hostname string, port int, baseDir string) (*Client, error) {
 	server := fmt.Sprintf("%s:%d", hostname, port)
 	// TODO: handle TLS connection here as well
 	conn, err := irc.Dial(server)
@@ -78,7 +44,7 @@ func createClient(hostname string, port int, baseDir string) (*client, error) {
 		return nil, err
 	}
 
-	client := &client{
+	client := &Client{
 		conn:      conn,
 		directory: filepath.Join(baseDir, server),
 		buffers:   make(map[string]buffer),
@@ -87,7 +53,7 @@ func createClient(hostname string, port int, baseDir string) (*client, error) {
 	return client, nil
 }
 
-func (c *client) initialize(nick, pass string) {
+func (c *Client) Initialize(nick, pass string) {
 	if pass != "" {
 		c.send("PASS", pass)
 	}
@@ -98,7 +64,7 @@ func (c *client) initialize(nick, pass string) {
 	c.nick = nick
 }
 
-func (c *client) send(cmd string, params ...string) {
+func (c *Client) send(cmd string, params ...string) {
 	msg := &irc.Message{
 		Command: cmd,
 		Params:  params,
@@ -109,7 +75,7 @@ func (c *client) send(cmd string, params ...string) {
 	fmt.Printf("--> %+v\n", msg)
 }
 
-func (c *client) handleMessage(msg *irc.Message) {
+func (c *Client) handleMessage(msg *irc.Message) {
 	buf := c.getBuffer(serverBufferName)
 
 	switch msg.Command {
@@ -160,7 +126,7 @@ func (c *client) handleMessage(msg *irc.Message) {
 	}
 }
 
-func (c *client) getBuffer(name string) *buffer {
+func (c *Client) getBuffer(name string) *buffer {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
@@ -284,7 +250,7 @@ func splitInputCommand(bufName, line string) (string, string) {
 	return cmd, s[1]
 }
 
-func (c *client) handleInputLine(bufName, line string) {
+func (c *Client) handleInputLine(bufName, line string) {
 	fmt.Printf("%s >> %s\n", bufName, line)
 
 	cmd, rest := splitInputCommand(bufName, line)
@@ -318,7 +284,7 @@ func (c *client) handleInputLine(bufName, line string) {
 	}
 }
 
-func (c *client) runLoop() error {
+func (c *Client) RunLoop() error {
 	for {
 		message, err := c.conn.Decode()
 		if err != nil {
