@@ -119,6 +119,11 @@ func (c *Client) handleMessage(msg *irc.Message) {
 
 		buf = c.getBuffer(target)
 		buf.topic = topic
+
+	case irc.ERR_NICKNAMEINUSE:
+		c.nick = c.nick + "`"
+		fmt.Printf("Nick in use, trying '%s'\n", c.nick)
+		c.send("NICK", c.nick)
 	}
 
 	if buf != nil {
