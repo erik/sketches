@@ -2,11 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
-	"log"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -15,30 +12,21 @@ import (
 
 // TODO: this should support multiple clients
 func Daemon() {
-	// TODO: shouldn't need to do this.
-	baseDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer func() {
-		fmt.Println("cleaning up!")
-		if err := os.RemoveAll(baseDir); err != nil {
-			fmt.Printf("CLEANUP FAILED: %+v\n", err)
-		}
-		fmt.Println("done!")
-	}()
-
 	cfg := irc.Config{
 		Host:  "irc.freenode.net",
 		Port:  6697,
 		IsTLS: true,
 
+		Directory: "/tmp/uex/",
+
 		Nick:     "ep`uex",
 		RealName: "erik",
-	}
 
-	fmt.Printf("==> Output to %s\n", baseDir)
+		OnConnect: []string{
+			"PING hello",
+			"PING world",
+		},
+	}
 
 	go connectClient(cfg)
 
@@ -70,11 +58,8 @@ func connectClient(cfg irc.Config) {
 	}
 }
 
-// Attempt to make sure we have a chance to call all `defer`
-// statements before exiting the process.
-//
-// FIXME: This is super jank and doesn't work as expected. Only kills
-// CURRENT goroutine (main), but leaves everything else running.
+// TODO: Make sure we have a chance to call `defer` statements before
+// we shutdown...
 func awaitInterrupt() {
 	c := make(chan os.Signal)
 
@@ -84,11 +69,5 @@ func awaitInterrupt() {
 	<-c
 	fmt.Println("!!! caught interrupt. starting shutdown.")
 
-	go func() {
-		fmt.Println("... 5 seconds please")
-		time.Sleep(5 * time.Second)
-		os.Exit(0)
-	}()
-
-	runtime.Goexit()
+	os.Exit(0)
 }

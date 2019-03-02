@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -118,6 +119,22 @@ func (c *Client) handleMessage(msg *irc.Message) {
 	case irc.PING:
 		c.send(irc.PONG, msg.Params...)
 
+	case irc.PONG:
+		if len(msg.Params) != 2 {
+			break
+		}
+
+		s := strings.SplitN(msg.Params[1], " ", 2)
+		if len(s) != 2 {
+			break
+		}
+
+		// TODO: Write this to buffer.
+		if ts, err := strconv.ParseInt(s[1], 10, 64); err == nil {
+			delta := time.Duration(time.Now().UnixNano()-ts) / time.Millisecond
+			fmt.Printf("PONG from %s: %d ms\n", msg.Params[0], delta)
+		}
+
 	case irc.NICK:
 		from := msg.Prefix.Name
 		to := msg.Params[0]
@@ -215,7 +232,7 @@ func (b *buffer) outputHandler() {
 	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
 	file, err := os.OpenFile(name, mode, 0644)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to create output file: %+v\n", err)
 	}
 
 	defer file.Close()
@@ -311,6 +328,10 @@ func (c *Client) handleInputLine(bufName, line string) {
 			return
 		}
 		c.send("JOIN", rest)
+
+	case "/ping":
+		ts := time.Now().UnixNano()
+		c.send("PING", fmt.Sprintf("%s %d", bufName, ts))
 
 	case "/quote":
 		params := strings.Split(rest, " ")
