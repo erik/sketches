@@ -14,11 +14,25 @@ import (
 	"gopkg.in/sorcix/irc.v2"
 )
 
+type Config struct {
+	Host  string
+	Port  int
+	IsTLS bool
+
+	Directory string
+
+	Nick       string
+	RealName   string
+	ServerPass string
+	OnConnect  []string
+}
+
 type Client struct {
+	Config
+
 	conn *irc.Conn
 	mux  sync.Mutex
 
-	nick    string
 	buffers map[string]buffer
 
 	directory string
@@ -36,32 +50,44 @@ type buffer struct {
 
 const serverBufferName = "$server"
 
-func NewClient(hostname string, port int, baseDir string) (*Client, error) {
-	server := fmt.Sprintf("%s:%d", hostname, port)
-	// TODO: handle TLS connection here as well
-	conn, err := irc.Dial(server)
+func NewClient(cfg Config) (*Client, error) {
+	var conn *irc.Conn
+	var err error
+
+	server := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	if cfg.IsTLS {
+		conn, err = irc.DialTLS(server, nil)
+	} else {
+		conn, err = irc.Dial(server)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
 	client := &Client{
+		Config: cfg,
+
 		conn:      conn,
-		directory: filepath.Join(baseDir, server),
+		directory: filepath.Join(cfg.Directory, server),
 		buffers:   make(map[string]buffer),
 	}
 
 	return client, nil
 }
 
-func (c *Client) Initialize(nick, pass string) {
-	if pass != "" {
-		c.send("PASS", pass)
+func (c *Client) Initialize() {
+	if c.ServerPass != "" {
+		c.send("PASS", c.ServerPass)
 	}
 
-	c.send("NICK", nick)
-	c.send("USER", nick, "*", "*", "real name")
+	r := c.RealName
+	if r == "" {
+		r = c.Nick
+	}
 
-	c.nick = nick
+	c.send("NICK", c.Nick)
+	c.send("USER", c.Nick, "*", "*", c.RealName)
 }
 
 func (c *Client) send(cmd string, params ...string) {
@@ -75,10 +101,20 @@ func (c *Client) send(cmd string, params ...string) {
 	fmt.Printf("--> %+v\n", msg)
 }
 
+func (c *Client) sendRaw(msg string) {
+	c.conn.Write([]byte(msg))
+	fmt.Printf("--> %+v\n", msg)
+}
+
 func (c *Client) handleMessage(msg *irc.Message) {
 	buf := c.getBuffer(serverBufferName)
 
 	switch msg.Command {
+	case irc.RPL_WELCOME:
+		for _, msg := range c.OnConnect {
+			c.sendRaw(msg)
+		}
+
 	case irc.PING:
 		c.send(irc.PONG, msg.Params...)
 
@@ -86,9 +122,9 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		from := msg.Prefix.Name
 		to := msg.Params[0]
 
-		if from == c.nick {
+		if from == c.Nick {
 			fmt.Printf("updating my nick to %s\n", to)
-			c.nick = to
+			c.Nick = to
 		} else {
 			// TODO: broadcast renames to all bufs having that user?
 			// requires more tracking
@@ -121,9 +157,9 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		buf.topic = topic
 
 	case irc.ERR_NICKNAMEINUSE:
-		c.nick = c.nick + "`"
-		fmt.Printf("Nick in use, trying '%s'\n", c.nick)
-		c.send("NICK", c.nick)
+		c.Nick = c.Nick + "`"
+		fmt.Printf("Nick in use, trying '%s'\n", c.Nick)
+		c.send("NICK", c.Nick)
 	}
 
 	if buf != nil {
