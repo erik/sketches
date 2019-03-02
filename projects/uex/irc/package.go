@@ -279,9 +279,9 @@ func (c *Client) handleInputLine(bufName, line string) {
 	case "/quote":
 		params := strings.Split(rest, " ")
 		if len(params) == 1 {
-			c.send(params[1])
+			c.send(params[0])
 		} else {
-			c.send(params[1], params[1:]...)
+			c.send(params[0], params[1:]...)
 		}
 
 	default:
