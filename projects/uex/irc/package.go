@@ -15,12 +15,10 @@ import (
 	"gopkg.in/sorcix/irc.v2"
 )
 
-type Config struct {
+type ClientConfiguration struct {
 	Host  string
 	Port  int
 	IsTLS bool
-
-	Directory string
 
 	Nick       string
 	RealName   string
@@ -29,7 +27,7 @@ type Config struct {
 }
 
 type Client struct {
-	Config
+	ClientConfiguration
 
 	conn *irc.Conn
 	mux  sync.Mutex
@@ -51,7 +49,7 @@ type buffer struct {
 
 const serverBufferName = "$server"
 
-func NewClient(cfg Config) (*Client, error) {
+func NewClient(baseDir string, cfg ClientConfiguration) (*Client, error) {
 	var conn *irc.Conn
 	var err error
 
@@ -67,10 +65,10 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 
 	client := &Client{
-		Config: cfg,
+		ClientConfiguration: cfg,
 
 		conn:      conn,
-		directory: filepath.Join(cfg.Directory, server),
+		directory: filepath.Join(baseDir, server),
 		buffers:   make(map[string]buffer),
 	}
 

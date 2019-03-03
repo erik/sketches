@@ -12,12 +12,11 @@ import (
 
 // TODO: this should support multiple clients
 func Daemon() {
-	cfg := irc.Config{
+	baseDir := "/tmp/uex/"
+	cfg := irc.ClientConfiguration{
 		Host:  "irc.freenode.net",
 		Port:  6697,
 		IsTLS: true,
-
-		Directory: "/tmp/uex/",
 
 		Nick:     "ep`uex",
 		RealName: "erik",
@@ -28,16 +27,16 @@ func Daemon() {
 		},
 	}
 
-	go connectClient(cfg)
+	go connectClient(baseDir, cfg)
 
 	// Wait until process receives a SIGINT or SIGTERM, and allow
 	// `defer`ed statements to run.
 	awaitInterrupt()
 }
 
-func connectClient(cfg irc.Config) {
+func connectClient(baseDir string, cfg irc.ClientConfiguration) {
 	for {
-		client, err := irc.NewClient(cfg)
+		client, err := irc.NewClient(baseDir, cfg)
 		if err != nil {
 			fmt.Printf("connect failed: %+v\n", err)
 			goto retry

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -o nounset
+set -o pipefail
+
+SCRIPT_NAME="$0"
+
+die () {
+    echo "$*"
+    exit 1
+}
+
+usage () {
+    echo "usage: $SCRIPT_NAME path"
+}
+
+main () {
+    if [ "$#" != "1" ]; then
+        die "$(usage)"
+    fi
+
+    dir="$1"
+    inp="$1/__in"
+    outp="$1/__out"
+
+    if [ ! -e "$inp" ] || [ ! -e "$outp" ]; then
+        die "invalid directory '$dir'"
+    fi
+
+    buffer=$(basename "$dir")
+
+    echo "let's go! $buffer"
+
+    tail_output "$outp" &
+    capture_input "$inp" "$buffer" &
+
+    for pid in `jobs -p`; do
+        wait $pid
+    done
+}
+
+tail_output () {
+    tail -100 -F "$1"
+}
+
+capture_input () {
+    pipe="$1"
+    buf="$2"
+
+    while read -ep "[$buf] "; do
+        echo "$REPLY" > "$pipe"
+    done
+}
+
+main $*
