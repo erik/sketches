@@ -35,14 +35,14 @@ func Daemon() {
 }
 
 func connectClient(baseDir string, cfg irc.ClientConfiguration) {
+	client := irc.NewClient(baseDir, cfg)
+
 	for {
-		client, err := irc.NewClient(baseDir, cfg)
+		err := client.Initialize()
 		if err != nil {
 			fmt.Printf("connect failed: %+v\n", err)
 			goto retry
 		}
-
-		client.Initialize()
 
 		// If we exit `RunLoop` cleanly, it was an intentional
 		// process exit.

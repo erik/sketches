@@ -32,7 +32,7 @@ main () {
     echo "let's go! $buffer"
 
     tail_output "$outp" &
-    capture_input "$inp" "$buffer" &
+    capture_input "$inp" "$buffer"
 
     for pid in `jobs -p`; do
         wait $pid
@@ -40,7 +40,9 @@ main () {
 }
 
 tail_output () {
-    tail -100 -F "$1"
+    tail -100 -F "$1" | while read -r; do
+        echo -e "\033[2K\r\033[1F\r$REPLY"
+    done
 }
 
 capture_input () {
@@ -48,7 +50,11 @@ capture_input () {
     buf="$2"
 
     while read -ep "[$buf] "; do
-        echo "$REPLY" > "$pipe"
+        if [ -z "$REPLY" ]; then
+            echo -en "\033[2K\r\033[1F\r"
+        else
+            echo "$REPLY" > "$pipe"
+        fi
     done
 }
 

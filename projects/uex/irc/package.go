@@ -49,33 +49,32 @@ type buffer struct {
 
 const serverBufferName = "$server"
 
-func NewClient(baseDir string, cfg ClientConfiguration) (*Client, error) {
-	var conn *irc.Conn
-	var err error
-
+func NewClient(baseDir string, cfg ClientConfiguration) *Client {
 	server := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	if cfg.IsTLS {
-		conn, err = irc.DialTLS(server, nil)
-	} else {
-		conn, err = irc.Dial(server)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
 	client := &Client{
 		ClientConfiguration: cfg,
 
-		conn:      conn,
 		directory: filepath.Join(baseDir, server),
 		buffers:   make(map[string]buffer),
 	}
 
-	return client, nil
+	return client
 }
 
-func (c *Client) Initialize() {
+func (c *Client) Initialize() error {
+	server := fmt.Sprintf("%s:%d", c.Host, c.Port)
+
+	var err error
+	if c.IsTLS {
+		c.conn, err = irc.DialTLS(server, nil)
+	} else {
+		c.conn, err = irc.Dial(server)
+	}
+
+	if err != nil {
+		return err
+	}
+
 	if c.ServerPass != "" {
 		c.send("PASS", c.ServerPass)
 	}
@@ -87,6 +86,8 @@ func (c *Client) Initialize() {
 
 	c.send("NICK", c.Nick)
 	c.send("USER", c.Nick, "*", "*", c.RealName)
+
+	return nil
 }
 
 func (c *Client) send(cmd string, params ...string) {
@@ -337,6 +338,11 @@ func (c *Client) handleInputLine(bufName, line string) {
 			c.send(params[0])
 		} else {
 			c.send(params[0], params[1:]...)
+		}
+
+	case "/r", "/reconnect":
+		if err := c.conn.Close(); err != nil {
+			fmt.Printf("failed to close: %+v\n", err)
 		}
 
 	default:
