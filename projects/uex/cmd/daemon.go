@@ -25,6 +25,8 @@ func Daemon() {
 			"PING hello",
 			"PING world",
 		},
+
+		RejoinExisting: true,
 	}
 
 	go connectClient(baseDir, cfg)

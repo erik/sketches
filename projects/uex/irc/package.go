@@ -20,10 +20,11 @@ type ClientConfiguration struct {
 	Port  int
 	IsTLS bool
 
-	Nick       string
-	RealName   string
-	ServerPass string
-	OnConnect  []string
+	Nick           string
+	RealName       string
+	ServerPass     string
+	OnConnect      []string
+	RejoinExisting bool
 }
 
 type Client struct {
@@ -106,6 +107,23 @@ func (c *Client) sendRaw(msg string) {
 	fmt.Printf("--> %+v\n", msg)
 }
 
+func (c *Client) listExistingChannels() []string {
+	files, err := ioutil.ReadDir(c.directory)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	channels := []string{}
+	for _, file := range files {
+		name := file.Name()
+		if isChannel(name) {
+			channels = append(channels, name)
+		}
+	}
+
+	return channels
+}
+
 func (c *Client) handleMessage(msg *irc.Message) {
 	buf := c.getBuffer(serverBufferName)
 
@@ -113,6 +131,12 @@ func (c *Client) handleMessage(msg *irc.Message) {
 	case irc.RPL_WELCOME:
 		for _, msg := range c.OnConnect {
 			c.sendRaw(msg)
+		}
+
+		if c.RejoinExisting {
+			for _, ch := range c.listExistingChannels() {
+				c.send(irc.JOIN, ch)
+			}
 		}
 
 	case irc.PING:
