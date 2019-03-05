@@ -6,6 +6,7 @@ import readline
 import subprocess
 import sys
 import threading
+import time
 
 
 def init_readline():
@@ -30,7 +31,11 @@ class ANSI:
 
     @control_code
     def clear_line():
-        return '\x1B[0J'
+        return '\x1B[2K'
+
+    @control_code
+    def start_of_line():
+        return '\x1B[0G'
 
     @control_code
     def start_of_prev():
@@ -48,14 +53,19 @@ class ANSI:
     def cursor_down(amt):
         return '\r\x1B[%sB' % amt
 
-    @staticmethod
-    def reset_line():
-        ANSI.start_of_line()
-        ANSI.clear_line()
-
     @control_code
     def reset():
         return '\x1Bc'
+
+
+_LOCK = threading.Lock()
+
+class sync_write:
+    def __enter__(self):
+        _LOCK.acquire()
+    def __exit__(self, type, value, traceback):
+        readline.redisplay()
+        _LOCK.release()
 
 
 def _tail_buffer(buf):
@@ -66,13 +76,14 @@ def _tail_buffer(buf):
 
     for line in proc.stdout:
         line = line.decode('utf-8').rstrip()
-        ANSI.start_of_prev()
-        ANSI.clear_line()
-        print(line)
-        ANSI.start_of_next()
-        ANSI.start_of_next()
 
-        readline.redisplay()
+        with sync_write():
+            ANSI.clear_line()
+            ANSI.start_of_line()
+            print(line)
+            ANSI.start_of_next()
+
+            readline.redisplay()
 
 
 def tail_buffer(buf):
@@ -92,10 +103,16 @@ def _input_loop(buf):
 
     while True:
         try:
-            ANSI.start_of_next()
             line = input(prompt).strip()
+
+            with sync_write():
+                ANSI.start_of_prev()
+                ANSI.clear_line()
+                ANSI.start_of_next()
+
             if line == '':
                 continue
+
             write_line(line)
 
         except EOFError:
@@ -118,7 +135,7 @@ def main():
 
     init_readline()
 
-    print('...')
+    print('placeholder > ')
 
     input_loop(buf)
     tail_buffer(buf)
