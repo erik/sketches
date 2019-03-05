@@ -1,61 +1,128 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 
-set -o nounset
-set -o pipefail
+import os
+import os.path
+import readline
+import subprocess
+import sys
+import threading
 
-SCRIPT_NAME="$0"
 
-die () {
-    echo "$*"
-    exit 1
-}
+def init_readline():
+    # TODO: tab completer
+    readline.parse_and_bind('tab: complete')
 
-usage () {
-    echo "usage: $SCRIPT_NAME path"
-}
 
-main () {
-    if [ "$#" != "1" ]; then
-        die "$(usage)"
-    fi
+def control_code(fn):
+    def wrap(*args, **kw):
+        ch = fn(*args)
+        sys.stdout.write(ch)
+    return wrap
 
-    dir="$1"
-    inp="$1/__in"
-    outp="$1/__out"
+class ANSI:
+    @control_code
+    def save_cursor():
+        return '\x1B[s'
 
-    if [ ! -e "$inp" ] || [ ! -e "$outp" ]; then
-        die "invalid directory '$dir'"
-    fi
+    @control_code
+    def restore_cursor():
+        return '\x1B[u'
 
-    buffer=$(basename "$dir")
+    @control_code
+    def clear_line():
+        return '\x1B[0J'
 
-    echo "let's go! $buffer"
+    @control_code
+    def start_of_prev():
+        return '\x1B[1F'
 
-    tail_output "$outp" &
-    capture_input "$inp" "$buffer"
+    @control_code
+    def start_of_next():
+        return '\x1B[1E'
 
-    for pid in `jobs -p`; do
-        wait $pid
-    done
-}
+    @control_code
+    def cursor_up(amt):
+        return '\r\x1B[%sA' % amt
 
-tail_output () {
-    tail -100 -F "$1" | while read -r; do
-        echo -e "\033[2K\r\033[1F\r$REPLY"
-    done
-}
+    @control_code
+    def cursor_down(amt):
+        return '\r\x1B[%sB' % amt
 
-capture_input () {
-    pipe="$1"
-    buf="$2"
+    @staticmethod
+    def reset_line():
+        ANSI.start_of_line()
+        ANSI.clear_line()
 
-    while read -ep "[$buf] "; do
-        if [ -z "$REPLY" ]; then
-            echo -en "\033[2K\r\033[1F\r"
-        else
-            echo "$REPLY" > "$pipe"
-        fi
-    done
-}
+    @control_code
+    def reset():
+        return '\x1Bc'
 
-main $*
+
+def _tail_buffer(buf):
+    out = os.path.join(buf, '__out')
+    proc = subprocess.Popen(
+        ['tail', '-1000', '-F', out],
+        stdout=subprocess.PIPE)
+
+    for line in proc.stdout:
+        line = line.decode('utf-8').rstrip()
+        ANSI.start_of_prev()
+        ANSI.clear_line()
+        print(line)
+        ANSI.start_of_next()
+        ANSI.start_of_next()
+
+        readline.redisplay()
+
+
+def tail_buffer(buf):
+    threading.Thread(target=_tail_buffer, args=[buf], daemon=True).start()
+
+
+def _input_loop(buf):
+    inp = os.path.join(buf, '__in')
+    base = os.path.basename(buf.rstrip('/'))
+
+    prompt = '\x1B[40m\x1B[37m[%s]\x1B[0m ' % base
+
+    def write_line(line):
+        b = (line + '\n').encode('utf-8')
+        with open(inp, 'wb', buffering=0) as fifo:
+            fifo.write(b)
+
+    while True:
+        try:
+            ANSI.start_of_next()
+            line = input(prompt).strip()
+            if line == '':
+                continue
+            write_line(line)
+
+        except EOFError:
+            break
+
+
+def input_loop(buf):
+    threading.Thread(target=_input_loop, args=[buf]).start()
+
+
+def main():
+    if len(sys.argv) != 2:
+        print('usage: %s PATH' % sys.argv[0])
+        sys.exit(1)
+
+    buf = sys.argv[1]
+    if not os.path.exists(buf):
+        print('%s: no such directory' % buf)
+        sys.exit(1)
+
+    init_readline()
+
+    print('...')
+
+    input_loop(buf)
+    tail_buffer(buf)
+
+
+if __name__ == '__main__':
+    main()
