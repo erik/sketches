@@ -1,38 +1,96 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/erik/uex/cmd"
+	"github.com/erik/uex/irc"
 )
 
-const USAGE = `usage: uex COMMAND
-
-Commands:
-
-  daemon
-  client [-list]
-`
+// Configuration is the on-disk representation of `uex`'s
+// daemon configuration.
+type Configuration struct {
+	Networks  []irc.ClientConfiguration `json:"networks"`
+	Directory string                    `json:"directory"`
+}
 
 func main() {
+	path := flag.String("-c", "", "Configuration file to use for connection [default: ./uex.config.json]")
 	flag.Parse()
 
-	if flag.NArg() != 1 {
-		flag.Usage()
-		os.Exit(2)
+	if *path == "" {
+		*path = "./uex.config.json"
 	}
 
-	switch flag.Arg(0) {
-	case "daemon":
-		cmd.Daemon()
-	case "client":
-		// TODO:
-		fmt.Println("client not yet written")
+	config, err := loadConfig(*path)
+	if err != nil {
+		fmt.Printf("failed to load config: %+v\n", err)
 		os.Exit(1)
-	default:
-		flag.Usage()
-		os.Exit(2)
 	}
+
+	runClients(config)
+}
+
+func loadConfig(path string) (Configuration, error) {
+	var config Configuration
+
+	b, err := ioutil.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(b, &config)
+	}
+
+	return config, err
+}
+
+func runClients(cfg Configuration) {
+	for _, netCfg := range cfg.Networks {
+		go runClient(cfg.Directory, netCfg)
+	}
+
+	// Wait until process receives a SIGINT or SIGTERM, and allow
+	// `defer`ed statements to run.
+	awaitInterrupt()
+}
+
+func runClient(baseDir string, cfg irc.ClientConfiguration) {
+	client := irc.NewClient(baseDir, cfg)
+
+	for {
+		err := client.Initialize()
+		if err != nil {
+			fmt.Printf("connect failed: %+v\n", err)
+			goto retry
+		}
+
+		// If we exit `RunLoop` cleanly, it was an intentional
+		// process exit.
+		if err := client.RunLoop(); err == nil {
+			break
+		}
+
+		fmt.Printf("IRC connection errored: %+v\n", err)
+	retry:
+		fmt.Println("... sleeping 5 seconds before reconnecting")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// TODO: Make sure we have a chance to call `defer` statements before
+// we shutdown...
+func awaitInterrupt() {
+	c := make(chan os.Signal)
+
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(c, os.Interrupt, syscall.SIGINT)
+
+	<-c
+	fmt.Println("!!! caught interrupt. starting shutdown.")
+
+	os.Exit(0)
 }

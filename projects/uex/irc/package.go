@@ -1,6 +1,7 @@
 package irc
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,15 +17,17 @@ import (
 )
 
 type ClientConfiguration struct {
-	Host  string
-	Port  int
-	IsTLS bool
+	Name                 string `json:"name"`
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	IsTLS                bool   `json:"is_tls"`
+	SkipCertificateCheck bool   `json:"skip_certificate_check,omitempty"`
 
-	Nick           string
-	RealName       string
-	ServerPass     string
-	OnConnect      []string
-	RejoinExisting bool
+	Nick           string   `json:"nick"`
+	RealName       string   `json:"real_name"`
+	ServerPass     string   `json:"server_pass,omitempty"`
+	OnConnect      []string `json:"on_connect"`
+	RejoinExisting bool     `json:"rejoin_existing"`
 }
 
 type Client struct {
@@ -51,11 +54,10 @@ type buffer struct {
 const serverBufferName = "$server"
 
 func NewClient(baseDir string, cfg ClientConfiguration) *Client {
-	server := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	client := &Client{
 		ClientConfiguration: cfg,
 
-		directory: filepath.Join(baseDir, server),
+		directory: filepath.Join(baseDir, cfg.Name),
 		buffers:   make(map[string]buffer),
 	}
 
@@ -67,7 +69,8 @@ func (c *Client) Initialize() error {
 
 	var err error
 	if c.IsTLS {
-		c.conn, err = irc.DialTLS(server, nil)
+		t := &tls.Config{InsecureSkipVerify: c.SkipCertificateCheck}
+		c.conn, err = irc.DialTLS(server, t)
 	} else {
 		c.conn, err = irc.Dial(server)
 	}
@@ -99,12 +102,12 @@ func (c *Client) send(cmd string, params ...string) {
 
 	c.conn.Encode(msg)
 
-	fmt.Printf("--> %+v\n", msg)
+	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
 }
 
 func (c *Client) sendRaw(msg string) {
 	c.conn.Write([]byte(msg))
-	fmt.Printf("--> %+v\n", msg)
+	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
 }
 
 func (c *Client) listExistingChannels() []string {
@@ -262,7 +265,12 @@ func (b *buffer) outputHandler() {
 
 	// TODO: better serialization?? colors?? etc.
 	for msg := range b.ch {
-		if _, err := file.WriteString(fmt.Sprintf(">> %+v\n", msg)); err != nil {
+		text := formatMessage(msg)
+		if text == "" {
+			continue
+		}
+
+		if _, err := file.WriteString(text + "\n"); err != nil {
 			log.Fatal(err)
 		}
 		if err := file.Sync(); err != nil {
@@ -332,7 +340,7 @@ func splitInputCommand(bufName, line string) (string, string) {
 }
 
 func (c *Client) handleInputLine(bufName, line string) {
-	fmt.Printf("%s >> %s\n", bufName, line)
+	fmt.Printf("[%s/%s] >> %s\n", c.Name, bufName, line)
 
 	cmd, rest := splitInputCommand(bufName, line)
 
@@ -381,7 +389,7 @@ func (c *Client) RunLoop() error {
 			return err
 		}
 
-		fmt.Printf("<-- %+v\n", message)
+		fmt.Printf("[%s] <-- %+v\n", c.Name, message)
 		c.handleMessage(message)
 	}
 }
