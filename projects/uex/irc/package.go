@@ -65,6 +65,8 @@ func NewClient(baseDir string, cfg ClientConfiguration) *Client {
 }
 
 func (c *Client) Initialize() error {
+	c.serverBuffer().writeInfoMessage("connecting ...")
+
 	server := fmt.Sprintf("%s:%d", c.Host, c.Port)
 
 	var err error
@@ -167,7 +169,7 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		// TODO: Write this to buffer.
 		if ts, err := strconv.ParseInt(s[1], 10, 64); err == nil {
 			delta := time.Duration(time.Now().UnixNano()-ts) / time.Millisecond
-			text := fmt.Sprintf("PONG from %s: %d ms\n", msg.Params[0], delta)
+			text := fmt.Sprintf("PONG from %s: %d ms", msg.Params[0], delta)
 
 			buf.writeInfoMessage(text)
 		}
@@ -221,6 +223,10 @@ func (c *Client) handleMessage(msg *irc.Message) {
 	if buf != nil {
 		buf.ch <- msg
 	}
+}
+
+func (c *Client) serverBuffer() *buffer {
+	return c.getBuffer(serverBufferName)
 }
 
 func (c *Client) getBuffer(name string) *buffer {
@@ -361,14 +367,27 @@ func (c *Client) handleInputLine(bufName, line string) {
 	case "/m", "/msg":
 		s := strings.SplitN(rest, " ", 2)
 		if len(s) != 2 {
-			fmt.Printf("expected: /msg TARGET MESSAGE")
+			c.serverBuffer().writeInfoMessage("expected: /msg TARGET MESSAGE")
+			return
+		} else if s[0] == serverBufferName {
+			c.serverBuffer().writeInfoMessage("can't PRIVMSG a server.")
 			return
 		}
-		c.send("PRIVMSG", s...)
+
+		buf := c.getBuffer(s[0])
+
+		// TODO: pull this out into simple `buf.AddMessage` or so
+		buf.ch <- &irc.Message{
+			Prefix:  &irc.Prefix{User: c.Nick},
+			Command: irc.PRIVMSG,
+			Params:  []string{s[1]},
+		}
+
+		c.send("PRIVMSG", s[0], s[1])
 
 	case "/j", "/join":
 		if !isChannel(rest) {
-			fmt.Printf("expected: /join TARGET")
+			c.getBuffer(bufName).writeInfoMessage("expected: /join TARGET")
 			return
 		}
 		c.send("JOIN", rest)
@@ -394,12 +413,14 @@ func (c *Client) handleInputLine(bufName, line string) {
 		}
 
 	case "/r", "/reconnect":
+		c.serverBuffer().writeInfoMessage("... disconnecting")
 		if err := c.conn.Close(); err != nil {
 			fmt.Printf("failed to close: %+v\n", err)
 		}
 
 	default:
-		fmt.Printf("Unknown command: %s %s\n", cmd, rest)
+		text := fmt.Sprintf("Unknown command: %s %s", cmd, rest)
+		c.getBuffer(bufName).writeInfoMessage(text)
 	}
 }
 
