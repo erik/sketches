@@ -127,6 +127,15 @@ func (c *Client) listExistingChannels() []string {
 	return channels
 }
 
+func (b *buffer) writeInfoMessage(msg string) {
+	b.ch <- &irc.Message{
+		Prefix:  &irc.Prefix{Name: "uex"},
+		Command: "*",
+		Params:  []string{msg},
+	}
+
+}
+
 func (c *Client) handleMessage(msg *irc.Message) {
 	buf := c.getBuffer(serverBufferName)
 
@@ -158,7 +167,9 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		// TODO: Write this to buffer.
 		if ts, err := strconv.ParseInt(s[1], 10, 64); err == nil {
 			delta := time.Duration(time.Now().UnixNano()-ts) / time.Millisecond
-			fmt.Printf("PONG from %s: %d ms\n", msg.Params[0], delta)
+			text := fmt.Sprintf("PONG from %s: %d ms\n", msg.Params[0], delta)
+
+			buf.writeInfoMessage(text)
 		}
 
 	case irc.NICK:
@@ -166,8 +177,10 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		to := msg.Params[0]
 
 		if from == c.Nick {
-			fmt.Printf("updating my nick to %s\n", to)
 			c.Nick = to
+
+			text := fmt.Sprintf("changed nick from %s to %s", from, to)
+			buf.writeInfoMessage(text)
 		} else {
 			// TODO: broadcast renames to all bufs having that user?
 			// requires more tracking
@@ -359,6 +372,14 @@ func (c *Client) handleInputLine(bufName, line string) {
 			return
 		}
 		c.send("JOIN", rest)
+
+	case "/l", "/list":
+		buf := c.getBuffer(bufName)
+
+		buf.writeInfoMessage("~~ buffers ~~")
+		for k, _ := range c.buffers {
+			buf.writeInfoMessage(" " + k)
+		}
 
 	case "/ping":
 		ts := time.Now().UnixNano()
