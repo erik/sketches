@@ -166,7 +166,6 @@ func (c *Client) handleMessage(msg *irc.Message) {
 			break
 		}
 
-		// TODO: Write this to buffer.
 		if ts, err := strconv.ParseInt(s[1], 10, 64); err == nil {
 			delta := time.Duration(time.Now().UnixNano()-ts) / time.Millisecond
 			text := fmt.Sprintf("PONG from %s: %d ms", msg.Params[0], delta)
@@ -211,8 +210,7 @@ func (c *Client) handleMessage(msg *irc.Message) {
 		target := msg.Params[1]
 		topic := msg.Params[2]
 
-		buf = c.getBuffer(target)
-		buf.topic = topic
+		c.getBuffer(target).topic = topic
 
 	case irc.ERR_NICKNAMEINUSE:
 		c.Nick = c.Nick + "`"
