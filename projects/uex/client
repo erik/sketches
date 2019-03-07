@@ -21,6 +21,7 @@ def control_code(fn):
     return wrap
 
 class ANSI:
+    '''FIXME: this is really ugly.'''
     @control_code
     def save_cursor():
         return '\x1B[s'
@@ -60,7 +61,8 @@ class ANSI:
 
 _LOCK = threading.Lock()
 
-class sync_write:
+
+class sync_writes:
     def __enter__(self):
         _LOCK.acquire()
     def __exit__(self, type, value, traceback):
@@ -68,16 +70,22 @@ class sync_write:
         _LOCK.release()
 
 
-def _tail_buffer(buf):
-    out = os.path.join(buf, '__out')
-    proc = subprocess.Popen(
-        ['tail', '-1000', '-F', out],
-        stdout=subprocess.PIPE)
+def tail_file(path, nlines=1000):
+    return subprocess.Popen([
+        'tail',
+        '-%d' % nlines,
+        '-F',
+        path
+    ], stdout=subprocess.PIPE)
 
-    for line in proc.stdout:
+def _print_lines(out):
+    with sync_writes():
+        ANSI.reset()
+
+    for line in out:
         line = line.decode('utf-8').rstrip()
 
-        with sync_write():
+        with sync_writes():
             ANSI.clear_line()
             ANSI.start_of_line()
             print(line)
@@ -86,15 +94,22 @@ def _tail_buffer(buf):
             readline.redisplay()
 
 
-def tail_buffer(buf):
-    threading.Thread(target=_tail_buffer, args=[buf], daemon=True).start()
+def print_lines(proc):
+    return threading.Thread(
+        target=_print_lines,
+        args=[proc],
+        daemon=True
+    ).start()
 
 
-def _input_loop(buf):
-    inp = os.path.join(buf, '__in')
-    base = os.path.basename(buf.rstrip('/'))
+BG_BLACK = '\x1B[40m'
+FG_WHITE = '\x1B[37m'
+RESET = '\x1B[0m'
 
-    prompt = '\x1B[40m\x1B[37m[%s]\x1B[0m ' % base
+def input_loop(path, name):
+    inp = os.path.join(path, '__in')
+
+    prompt = '%s%s[ %s ]%s ' % (BG_BLACK, FG_WHITE, name, RESET)
 
     def write_line(line):
         b = (line + '\n').encode('utf-8')
@@ -105,22 +120,38 @@ def _input_loop(buf):
         try:
             line = input(prompt).strip()
 
-            with sync_write():
+            with sync_writes():
                 ANSI.start_of_prev()
                 ANSI.clear_line()
                 ANSI.start_of_next()
 
             if line == '':
                 continue
+            elif line.startswith('/switch'):
+                _, buf = line.split(' ', 2)
+                return buf
 
             write_line(line)
 
-        except EOFError:
+        except (KeyboardInterrupt, EOFError):
             break
 
 
-def input_loop(buf):
-    threading.Thread(target=_input_loop, args=[buf]).start()
+def select_buffer_path(path, name):
+    for f in ['__in', '__out']:
+        f = os.path.join(path, f)
+
+        if not os.path.exists(f):
+            print('%s: no such directory' % f)
+            sys.exit(1)
+
+    proc = tail_file(os.path.join(path, '__out'))
+    print_lines(proc.stdout)
+
+    next_buf = input_loop(path, name)
+    proc.kill()
+
+    return next_buf
 
 
 def main():
@@ -128,17 +159,31 @@ def main():
         print('usage: %s PATH' % sys.argv[0])
         sys.exit(1)
 
-    buf = sys.argv[1]
-    if not os.path.exists(buf):
-        print('%s: no such directory' % buf)
+    full_path = sys.argv[1].rstrip('/')
+
+    name = os.path.basename(full_path)
+    path = os.path.dirname(full_path)
+
+    while name is not None:
+        name = run_client(path, name)
+
+
+def run_client(path, name):
+    init_readline()
+    print('~~~ %s ~~~' % name)
+
+    full_path = os.path.join(path, name)
+    if not os.path.exists(full_path):
+        print('%s: no such directory' % full_path)
         sys.exit(1)
 
-    init_readline()
+    name = select_buffer_path(full_path, name)
 
-    print('placeholder > ')
+    # Special case: server buffer is top level in directory
+    if name == '$server':
+        return ''
 
-    input_loop(buf)
-    tail_buffer(buf)
+    return name
 
 
 if __name__ == '__main__':
