@@ -14,28 +14,23 @@ const (
 	resetColors     = "\x1B[0m"
 )
 
+// TODO: Maybe use 256 color mode? \x1b[38;5;NUMBERm
 var nickColors = []string{
-	"\x1B[30;1m",
-	"\x1B[31;1m",
-	"\x1B[32;1m",
-	"\x1B[33;1m",
-	"\x1B[34;1m",
-	"\x1B[35;1m",
-	"\x1B[36;1m",
-	"\x1B[30m",
-	"\x1B[31m",
-	"\x1B[32m",
-	"\x1B[33m",
-	"\x1B[34m",
-	"\x1B[35m",
-	"\x1B[36m",
+	"\x1B[30m", "\x1B[30;1m", "\x1B[30;2m",
+	"\x1B[31m", "\x1B[31;1m", "\x1B[31;2m",
+	"\x1B[32m", "\x1B[32;1m", "\x1B[32;2m",
+	"\x1B[33m", "\x1B[33;1m", "\x1B[33;2m",
+	"\x1B[34m", "\x1B[34;1m", "\x1B[34;2m",
+	"\x1B[35m", "\x1B[35;1m", "\x1B[35;2m",
+	"\x1B[36m", "\x1B[36;1m", "\x1B[36;2m",
 }
 
 func colorizeNick(nick string) string {
 	h := fnv.New32a()
 	h.Write([]byte(nick))
 
-	i := int(h.Sum32()) % len(nickColors)
+	// Don't want negative indices, so do the mod on unsigned numbers.
+	i := int(h.Sum32() % uint32(len(nickColors)))
 	col := nickColors[i]
 
 	return fmt.Sprintf("%s%15s%s", col, nick, resetColors)
