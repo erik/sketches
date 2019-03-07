@@ -83,6 +83,7 @@ def _print_lines(out):
         ANSI.reset()
 
     for line in out:
+        # TODO: possibly wrap lines if they're wider than the term?
         line = line.decode('utf-8').rstrip()
 
         with sync_writes():
@@ -127,9 +128,15 @@ def input_loop(path, name):
 
             if line == '':
                 continue
+
+            # Jump to another buffer
             elif line.startswith('/switch'):
                 _, buf = line.split(' ', 2)
                 return buf
+
+            # Force full re-render
+            elif line == '/refresh':
+                return name
 
             write_line(line)
 
