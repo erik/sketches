@@ -376,7 +376,7 @@ func (c *Client) handleInputLine(bufName, line string) {
 
 		// TODO: pull this out into simple `buf.AddMessage` or so
 		buf.ch <- &irc.Message{
-			Prefix:  &irc.Prefix{User: c.Nick},
+			Prefix:  &irc.Prefix{Name: c.Nick},
 			Command: irc.PRIVMSG,
 			Params:  []string{s[1]},
 		}
