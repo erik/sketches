@@ -24,14 +24,6 @@ def control_code(fn):
 class ANSI:
     '''FIXME: this is really ugly.'''
     @control_code
-    def save_cursor():
-        return '\x1B[s'
-
-    @control_code
-    def restore_cursor():
-        return '\x1B[u'
-
-    @control_code
     def clear_line():
         return '\x1B[2K'
 
@@ -48,27 +40,19 @@ class ANSI:
         return '\x1B[1E'
 
     @control_code
-    def cursor_up(amt):
-        return '\r\x1B[%sA' % amt
-
-    @control_code
-    def cursor_down(amt):
-        return '\r\x1B[%sB' % amt
-
-    @control_code
     def reset():
         return '\x1Bc'
 
 
-_LOCK = threading.Lock()
-
-
 class sync_writes:
+    _LOCK = threading.Lock()
+
     def __enter__(self):
-        _LOCK.acquire()
+        self._LOCK.acquire()
+
     def __exit__(self, type, value, traceback):
         readline.redisplay()
-        _LOCK.release()
+        self._LOCK.release()
 
 
 def tail_file(path, nlines=1000):
@@ -160,7 +144,6 @@ def input_loop(path, name):
             with sync_writes():
                 ANSI.start_of_prev()
                 ANSI.clear_line()
-                ANSI.start_of_next()
 
             if line == '':
                 continue
@@ -192,6 +175,8 @@ def select_buffer_path(path, name):
     print_lines(proc.stdout)
 
     next_buf = input_loop(path, name)
+
+    # Kill the `tail` command to clean up after ourselves.
     proc.kill()
 
     return next_buf
