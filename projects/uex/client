@@ -79,6 +79,41 @@ def tail_file(path, nlines=1000):
         path
     ], stdout=subprocess.PIPE)
 
+
+_next_redraw_at = None
+_redraw_event = threading.Event()
+
+
+def _redraw_debouncer():
+    '''readline.redisplay() doesn't force a redraw, but SIGWINCH does.
+
+    Also, debounce by deferring the SIGWINCH until we haven't received
+    a new line for a few ms (to prevent a flood of kill calls on
+    startup).
+    '''
+
+    while True:
+        _redraw_event.wait()
+        _redraw_event.clear()
+
+        time.sleep(max(_next_redraw_at - time.time(), 0))
+
+        if _redraw_event.is_set():
+            continue
+
+        # Don't want to trip this in the middle of a write
+        with sync_writes():
+            os.kill(os.getpid(), signal.SIGWINCH)
+            time.sleep(0.250)
+
+
+def schedule_redraw(delay_ms=200):
+    global _next_redraw_at
+
+    _next_redraw_at = time.time() + (delay_ms / 1000.0)
+    _redraw_event.set()
+
+
 def _print_lines(out):
     with sync_writes():
         ANSI.reset()
@@ -93,9 +128,7 @@ def _print_lines(out):
             print(line)
             ANSI.start_of_next()
 
-            # readline.redisplay() doesn't force a redraw, but SIGWINCH does.
-            # FIXME: this is real bad.
-            os.kill(os.getpid(), signal.SIGWINCH)
+            schedule_redraw()
 
 
 def print_lines(proc):
@@ -173,6 +206,11 @@ def main():
 
     name = os.path.basename(full_path)
     path = os.path.dirname(full_path)
+
+    threading.Thread(
+        target=_redraw_debouncer,
+        daemon=True
+    ).start()
 
     while name is not None:
         name = run_client(path, name)
