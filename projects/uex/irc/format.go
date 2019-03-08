@@ -43,7 +43,7 @@ func formatMessage(m *irc.Message) string {
 
 	switch m.Command {
 	case irc.PRIVMSG, irc.NOTICE:
-		sender = colorizeNick(m.Prefix.Name)
+		sender = m.Prefix.Name
 		line = m.Trailing()
 
 	case irc.RPL_TOPIC:
@@ -64,6 +64,6 @@ func formatMessage(m *irc.Message) string {
 		return ""
 	}
 
-	return fmt.Sprintf("%s %s %s", ts, sender, line)
+	return fmt.Sprintf("%s %s %s", ts, colorizeNick(sender), line)
 
 }
