@@ -4,6 +4,7 @@ import os
 import os.path
 import readline
 import subprocess
+import signal
 import sys
 import threading
 import time
@@ -92,7 +93,9 @@ def _print_lines(out):
             print(line)
             ANSI.start_of_next()
 
-            readline.redisplay()
+            # readline.redisplay() doesn't force a redraw, but SIGWINCH does.
+            # FIXME: this is real bad.
+            os.kill(os.getpid(), signal.SIGWINCH)
 
 
 def print_lines(proc):
