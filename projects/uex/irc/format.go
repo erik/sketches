@@ -50,6 +50,14 @@ func formatMessage(m *irc.Message) string {
 		sender = m.Prefix.Name
 		line = fmt.Sprintf("%s: topic is \"%s\"", m.Params[1], m.Trailing())
 
+	case irc.JOIN:
+		nick := m.Prefix.Name
+		line = fmt.Sprintf("%s joined", nick)
+
+	case irc.PART:
+		nick := m.Prefix.Name
+		line = fmt.Sprintf("%s left: %s", nick, m.Trailing())
+
 	case irc.PING, irc.RPL_TOPICWHOTIME,
 		irc.RPL_NAMREPLY, irc.RPL_ENDOFNAMES:
 		// These are the skippable ones.
