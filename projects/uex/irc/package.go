@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,22 +65,41 @@ func NewClient(baseDir string, cfg ClientConfiguration) *Client {
 	return client
 }
 
-func (c *Client) Initialize() error {
+func (c *Client) connect() (*net.Conn, error) {
 	c.serverBuffer().writeInfoMessage("connecting ...")
 
 	server := fmt.Sprintf("%s:%d", c.Host, c.Port)
 
-	var err error
-	if c.IsTLS {
-		t := &tls.Config{InsecureSkipVerify: c.SkipCertificateCheck}
-		c.conn, err = irc.DialTLS(server, t)
-	} else {
-		c.conn, err = irc.Dial(server)
+	conn, err := net.Dial("tcp", server)
+	if err != nil {
+		return nil, err
 	}
 
+	tcpc := conn.(*net.TCPConn)
+	if err = tcpc.SetKeepAlive(true); err != nil {
+		return nil, err
+	}
+	if err = tcpc.SetKeepAlivePeriod(5 * time.Minute); err != nil {
+		return nil, err
+	}
+
+	if c.IsTLS {
+		conn = tls.Client(conn, &tls.Config{
+			ServerName:         c.Host,
+			InsecureSkipVerify: c.SkipCertificateCheck,
+		})
+	}
+
+	return &conn, nil
+}
+
+func (c *Client) Initialize() error {
+	conn, err := c.connect()
 	if err != nil {
 		return err
 	}
+
+	c.conn = irc.NewConn(*conn)
 
 	if c.ServerPass != "" {
 		c.send("PASS", c.ServerPass)
