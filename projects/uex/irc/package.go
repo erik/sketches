@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gopkg.in/sorcix/irc.v2"
+	"unicode"
 )
 
 type ClientConfiguration struct {
@@ -105,13 +106,13 @@ func (c *Client) Initialize() error {
 		c.send("PASS", c.ServerPass)
 	}
 
-	r := c.RealName
-	if r == "" {
-		r = c.Nick
+	realName := c.RealName
+	if realName == "" {
+		realName = c.Nick
 	}
 
 	c.send("NICK", c.Nick)
-	c.send("USER", c.Nick, "*", "*", c.RealName)
+	c.send("USER", c.Nick, "*", "*", realName)
 
 	return nil
 }
@@ -147,15 +148,6 @@ func (c *Client) listExistingChannels() []string {
 	}
 
 	return channels
-}
-
-func (b *buffer) writeInfoMessage(msg string) {
-	b.ch <- &irc.Message{
-		Prefix:  &irc.Prefix{Name: "uex"},
-		Command: "*",
-		Params:  []string{msg},
-	}
-
 }
 
 func (c *Client) handleMessage(msg *irc.Message) {
@@ -251,6 +243,8 @@ func (c *Client) getBuffer(name string) *buffer {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
+	name = normalizeBufferName(name)
+
 	// Sent early on, at least by freenode.
 	if name == "*" {
 		name = serverBufferName
@@ -288,92 +282,6 @@ func (c *Client) getBuffer(name string) *buffer {
 	go b.outputHandler()
 
 	return &b
-}
-
-func (b *buffer) outputHandler() {
-	name := filepath.Join(b.path, "__out")
-	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
-	file, err := os.OpenFile(name, mode, 0644)
-	if err != nil {
-		log.Fatalf("failed to create output file: %+v\n", err)
-	}
-
-	defer file.Close()
-
-	// TODO: better serialization?? colors?? etc.
-	for msg := range b.ch {
-		text := formatMessage(msg)
-		if text == "" {
-			continue
-		}
-
-		if _, err := file.WriteString(text + "\n"); err != nil {
-			log.Fatal(err)
-		}
-		if err := file.Sync(); err != nil {
-			log.Fatal(err)
-		}
-	}
-}
-
-func (b *buffer) inputHandler() {
-	name := filepath.Join(b.path, "__in")
-	err := syscall.Mkfifo(name, 0777)
-
-	// Doesn't matter if the FIFO already exists from a previous run.
-	if err != nil && err != syscall.EEXIST {
-		log.Fatal(err)
-	}
-
-	for {
-		buf, err := ioutil.ReadFile(name)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if len(buf) == 0 {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		lines := strings.Split(string(buf), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-
-			b.client.handleInputLine(b.name, line)
-		}
-	}
-}
-
-func isChannel(target string) bool {
-	if target == "" {
-		return false
-	}
-
-	return target[0] == '#' || target[0] == '&'
-}
-
-func splitInputCommand(bufName, line string) (string, string) {
-	// Without a prefix, it's just a regular PRIVMSG
-	if !strings.HasPrefix(line, "/") {
-		return "/msg", bufName + " " + line
-	}
-	// Double slash at start means privmsg with leading slash
-	if strings.HasPrefix(line, "//") {
-		return "/msg", bufName + " " + line[1:]
-	}
-
-	s := strings.SplitN(line, " ", 2)
-	cmd := strings.ToLower(s[0])
-
-	if len(s) == 1 {
-		return cmd, ""
-	}
-
-	return cmd, s[1]
 }
 
 func (c *Client) handleInputLine(bufName, line string) {
@@ -452,4 +360,113 @@ func (c *Client) RunLoop() error {
 		fmt.Printf("[%s] <-- %+v\n", c.Name, message)
 		c.handleMessage(message)
 	}
+}
+
+func (b *buffer) writeInfoMessage(msg string) {
+	b.ch <- &irc.Message{
+		Prefix:  &irc.Prefix{Name: "uex"},
+		Command: "*",
+		Params:  []string{msg},
+	}
+}
+
+func (b *buffer) outputHandler() {
+	name := filepath.Join(b.path, "__out")
+	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
+	file, err := os.OpenFile(name, mode, 0644)
+	if err != nil {
+		log.Fatalf("failed to create output file: %+v\n", err)
+	}
+
+	defer file.Close()
+
+	// TODO: better serialization?? colors?? etc.
+	for msg := range b.ch {
+		text := formatMessage(msg)
+		if text == "" {
+			continue
+		}
+
+		if _, err := file.WriteString(text + "\n"); err != nil {
+			log.Fatal(err)
+		}
+		if err := file.Sync(); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func (b *buffer) inputHandler() {
+	name := filepath.Join(b.path, "__in")
+	err := syscall.Mkfifo(name, 0777)
+
+	// Doesn't matter if the FIFO already exists from a previous run.
+	if err != nil && err != syscall.EEXIST {
+		log.Fatal(err)
+	}
+
+	for {
+		buf, err := ioutil.ReadFile(name)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if len(buf) == 0 {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		lines := strings.Split(string(buf), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			b.client.handleInputLine(b.name, line)
+		}
+	}
+}
+
+func isChannel(target string) bool {
+	if target == "" {
+		return false
+	}
+
+	return target[0] == '#' || target[0] == '&'
+}
+
+// normalizeBufferName strips out illegal characters and standardizes
+// naming so that it's safe to write as a directory name to the file
+// system.
+func normalizeBufferName(buffer string) string {
+	return strings.Map(func(ch rune) rune {
+		if unicode.IsLetter(ch) || unicode.IsNumber(ch) {
+			return unicode.ToLower(ch)
+		} else if strings.ContainsRune(".#&+!-", ch) {
+			return ch
+		}
+
+		return '_'
+	}, buffer)
+}
+
+func splitInputCommand(bufName, line string) (string, string) {
+	// Without a prefix, it's just a regular PRIVMSG
+	if !strings.HasPrefix(line, "/") {
+		return "/msg", bufName + " " + line
+	}
+	// Double slash at start means privmsg with leading slash
+	if strings.HasPrefix(line, "//") {
+		return "/msg", bufName + " " + line[1:]
+	}
+
+	s := strings.SplitN(line, " ", 2)
+	cmd := strings.ToLower(s[0])
+
+	if len(s) == 1 {
+		return cmd, ""
+	}
+
+	return cmd, s[1]
 }
