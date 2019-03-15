@@ -2,6 +2,7 @@
 
 import os
 import os.path
+import re
 import readline
 import subprocess
 import signal
@@ -124,6 +125,23 @@ def schedule_redraw(delay_ms=200):
     _redraw_event.set()
 
 
+# "22:14:03 \x1b[23mNICK\x1b[0m message"
+_NICK_REGEX = re.compile('^\\S+ \x1b[^m]+m\\s*(.*?)\x1b')
+
+
+def _extract_nick(line):
+    """
+    Try to strip out the color codes etc from the line, returning only
+    the nick (or None)
+    """
+
+    match = _NICK_REGEX.match(line)
+    if not match:
+        return
+
+    return match.group(1)
+
+
 def _print_lines(out, nicks):
     with sync_writes():
         ANSI.reset()
@@ -132,12 +150,7 @@ def _print_lines(out, nicks):
         # TODO: possibly wrap lines if they're wider than the term?
         line = line.decode('utf-8').rstrip()
 
-        # FIXME: this is so bad.
-        nick = [
-            word for word in line.split(' ')
-            if word != ''
-        ][2][:-4]
-        nicks.add(nick)
+        nicks.add(_extract_nick(line))
 
         with sync_writes():
             ANSI.clear_line()
