@@ -18,7 +18,11 @@ import (
 	"unicode"
 )
 
-type ClientConfiguration struct {
+const serverBufferName = "$server"
+
+// NetworkConfiguration contains the configuration for a connection to
+// a single IRC network. Used by Client.
+type NetworkConfiguration struct {
 	Name                 string `json:"name"`
 	Host                 string `json:"host"`
 	Port                 int    `json:"port"`
@@ -32,8 +36,10 @@ type ClientConfiguration struct {
 	RejoinExisting bool     `json:"rejoin_existing"`
 }
 
+// Client stores connection information and metadata for a connection
+// to an IRC network.
 type Client struct {
-	ClientConfiguration
+	NetworkConfiguration
 
 	conn *irc.Conn
 	mux  sync.Mutex
@@ -53,11 +59,9 @@ type buffer struct {
 	users map[string]string
 }
 
-const serverBufferName = "$server"
-
-func NewClient(baseDir string, cfg ClientConfiguration) *Client {
+func NewClient(baseDir string, cfg NetworkConfiguration) *Client {
 	client := &Client{
-		ClientConfiguration: cfg,
+		NetworkConfiguration: cfg,
 
 		directory: filepath.Join(baseDir, cfg.Name),
 		buffers:   make(map[string]buffer),
@@ -66,7 +70,49 @@ func NewClient(baseDir string, cfg ClientConfiguration) *Client {
 	return client
 }
 
-func (c *Client) connect() (*net.Conn, error) {
+// Connect opens a TCP connection to the IRC network and sends `NICK`,
+// `USER`, and `PASS` commands to authenticate the connection.
+func (c *Client) Connect() error {
+	conn, err := c.dial()
+	if err != nil {
+		return err
+	}
+
+	c.conn = irc.NewConn(*conn)
+
+	if c.ServerPass != "" {
+		c.send("PASS", c.ServerPass)
+	}
+
+	realName := c.RealName
+	if realName == "" {
+		realName = c.Nick
+	}
+
+	c.send("NICK", c.Nick)
+	c.send("USER", c.Nick, "*", "*", realName)
+
+	return nil
+}
+
+// Listen loops through all IRC messages sent to the client as long as
+// the connection remains open, dispatching to handlers. Will return
+// an error if the connection is interrupted, or an unparseable
+// message is returned.
+func (c *Client) Listen() error {
+	for {
+		message, err := c.conn.Decode()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("[%s] <-- %+v\n", c.Name, message)
+		c.handleMessage(message)
+	}
+}
+
+// dial handles the TCP/TLS details of connecting to an IRC network.
+func (c *Client) dial() (*net.Conn, error) {
 	c.serverBuffer().writeInfoMessage("connecting ...")
 
 	server := fmt.Sprintf("%s:%d", c.Host, c.Port)
@@ -94,29 +140,6 @@ func (c *Client) connect() (*net.Conn, error) {
 	return &conn, nil
 }
 
-func (c *Client) Initialize() error {
-	conn, err := c.connect()
-	if err != nil {
-		return err
-	}
-
-	c.conn = irc.NewConn(*conn)
-
-	if c.ServerPass != "" {
-		c.send("PASS", c.ServerPass)
-	}
-
-	realName := c.RealName
-	if realName == "" {
-		realName = c.Nick
-	}
-
-	c.send("NICK", c.Nick)
-	c.send("USER", c.Nick, "*", "*", realName)
-
-	return nil
-}
-
 func (c *Client) send(cmd string, params ...string) {
 	msg := &irc.Message{
 		Command: cmd,
@@ -133,6 +156,8 @@ func (c *Client) sendRaw(msg string) {
 	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
 }
 
+// listExistingChannels returns a list of channel names that were
+// found in the client's output directory.
 func (c *Client) listExistingChannels() []string {
 	files, err := ioutil.ReadDir(c.directory)
 	if err != nil {
@@ -322,7 +347,7 @@ func (c *Client) handleInputLine(bufName, line string) {
 		buf := c.getBuffer(bufName)
 
 		buf.writeInfoMessage("~~ buffers ~~")
-		for k, _ := range c.buffers {
+		for k := range c.buffers {
 			buf.writeInfoMessage(" " + k)
 		}
 
@@ -347,18 +372,6 @@ func (c *Client) handleInputLine(bufName, line string) {
 	default:
 		text := fmt.Sprintf("Unknown command: %s %s", cmd, rest)
 		c.getBuffer(bufName).writeInfoMessage(text)
-	}
-}
-
-func (c *Client) RunLoop() error {
-	for {
-		message, err := c.conn.Decode()
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("[%s] <-- %+v\n", c.Name, message)
-		c.handleMessage(message)
 	}
 }
 
@@ -451,6 +464,9 @@ func normalizeBufferName(buffer string) string {
 	}, buffer)
 }
 
+// splitInputCommand returns `(command, param)` for a line of input
+// received from the user. If no command is explicitly specified,
+// assume "/msg" (i.e. PRIVMSG).
 func splitInputCommand(bufName, line string) (string, string) {
 	// Without a prefix, it's just a regular PRIVMSG
 	if !strings.HasPrefix(line, "/") {

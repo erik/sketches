@@ -26,6 +26,9 @@ var nickColors = []string{
 	"\x1B[36m", "\x1B[36;1m", "\x1B[36;2m",
 }
 
+// colorizeNick takes the given nick and wraps it with ANSI terminal
+// codes to colorize it. The nick is hashed to make sure that the
+// coloring is stable.
 func colorizeNick(nick string) string {
 	h := fnv.New32a()
 	h.Write([]byte(nick))
@@ -98,6 +101,7 @@ func stylizeLine(line string) string {
 	return line + "\x1B[0m"
 }
 
+// formatMessage returns a string fit for printing to a terminal.
 func formatMessage(m *irc.Message) string {
 	ts := time.Now().Format(timestampFormat)
 	sender := alertSender

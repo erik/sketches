@@ -16,16 +16,20 @@ import (
 // Configuration is the on-disk representation of `uex`'s
 // daemon configuration.
 type Configuration struct {
-	Networks  []irc.ClientConfiguration `json:"networks"`
-	Directory string                    `json:"directory"`
+	Networks  []irc.NetworkConfiguration `json:"networks"`
+	Directory string                     `json:"directory"`
 }
+
+const (
+	defaultConfigPath = "./uex.config.json"
+)
 
 func main() {
 	path := flag.String("-c", "", "Configuration file to use for connection [default: ./uex.config.json]")
 	flag.Parse()
 
 	if *path == "" {
-		*path = "./uex.config.json"
+		*path = defaultConfigPath
 	}
 
 	config, err := loadConfig(*path)
@@ -49,8 +53,8 @@ func loadConfig(path string) (Configuration, error) {
 }
 
 func runClients(cfg Configuration) {
-	for _, netCfg := range cfg.Networks {
-		go runClient(cfg.Directory, netCfg)
+	for i := range cfg.Networks {
+		go runClient(cfg.Directory, cfg.Networks[i])
 	}
 
 	// Wait until process receives a SIGINT or SIGTERM, and allow
@@ -58,26 +62,26 @@ func runClients(cfg Configuration) {
 	awaitInterrupt()
 }
 
-func runClient(baseDir string, cfg irc.ClientConfiguration) {
+func runClient(baseDir string, cfg irc.NetworkConfiguration) {
 	client := irc.NewClient(baseDir, cfg)
 
 	for {
-		err := client.Initialize()
+		err := client.Connect()
 		if err != nil {
 			fmt.Printf("connect failed: %+v\n", err)
 			goto retry
 		}
 
-		// If we exit `RunLoop` cleanly, it was an intentional
+		// If we exit `Listen` cleanly, it was an intentional
 		// process exit.
-		if err := client.RunLoop(); err == nil {
+		if err := client.Listen(); err == nil {
 			break
 		}
 
 		fmt.Printf("IRC connection errored: %+v\n", err)
 	retry:
-		fmt.Println("... sleeping 5 seconds before reconnecting")
-		time.Sleep(5 * time.Second)
+		fmt.Println("... sleeping 3 seconds before reconnecting")
+		time.Sleep(3 * time.Second)
 	}
 }
 
