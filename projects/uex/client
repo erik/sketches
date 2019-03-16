@@ -11,6 +11,7 @@ import threading
 import time
 
 
+# TODO: This should also complete channels?
 class NickCompleter:
     def __init__(self):
         self._nicks = set()
@@ -48,38 +49,29 @@ def control_code(fn):
     return wrap
 
 
-class ANSI:
-    '''FIXME: this is really ugly.'''
-    @control_code
-    def clear_line():
-        return '\x1B[2K'
+class Term:
+    CLEAR_LINE = '\x1B[2K'
+    START_OF_LINE = '\x1B[0G'
+    START_OF_PREV = '\x1B[1F'
+    START_OF_NEXT = '\x1B[1E'
+    RESET = '\x1Bc'
 
-    @control_code
-    def start_of_line():
-        return '\x1B[0G'
-
-    @control_code
-    def start_of_prev():
-        return '\x1B[1F'
-
-    @control_code
-    def start_of_next():
-        return '\x1B[1E'
-
-    @control_code
-    def reset():
-        return '\x1Bc'
+    @staticmethod
+    def write(*args):
+        for c in args:
+            sys.stdout.write(c)
 
 
-class sync_writes:
-    _LOCK = threading.Lock()
+_WRITE_LOCK = threading.Lock()
 
+
+class synchronized_writes:
     def __enter__(self):
-        self._LOCK.acquire()
+        _WRITE_LOCK.acquire()
 
     def __exit__(self, type, value, traceback):
         readline.redisplay()
-        self._LOCK.release()
+        _WRITE_LOCK.release()
 
 
 def tail_file(path, nlines=1000):
@@ -96,12 +88,13 @@ _redraw_event = threading.Event()
 
 
 def _redraw_debouncer():
-    '''readline.redisplay() doesn't force a redraw, but SIGWINCH does.
+    """
+    readline.redisplay() doesn't force a redraw, but SIGWINCH does.
 
     Also, debounce by deferring the SIGWINCH until we haven't received
     a new line for a few ms (to prevent a flood of kill calls on
     startup).
-    '''
+    """
 
     while True:
         _redraw_event.wait()
@@ -113,7 +106,7 @@ def _redraw_debouncer():
             continue
 
         # Don't want to trip this in the middle of a write
-        with sync_writes():
+        with synchronized_writes():
             os.kill(os.getpid(), signal.SIGWINCH)
             time.sleep(0.250)
 
@@ -132,7 +125,7 @@ _NICK_REGEX = re.compile('^\\S+ \x1b[^m]+m\\s*(.*?)\x1b')
 def _extract_nick(line):
     """
     Try to strip out the color codes etc from the line, returning only
-    the nick (or None)
+    the nick (or None).
     """
 
     match = _NICK_REGEX.match(line)
@@ -143,8 +136,8 @@ def _extract_nick(line):
 
 
 def _print_lines(out, nicks):
-    with sync_writes():
-        ANSI.reset()
+    with synchronized_writes():
+        Term.write(Term.RESET)
 
     for line in out:
         # TODO: possibly wrap lines if they're wider than the term?
@@ -152,11 +145,13 @@ def _print_lines(out, nicks):
 
         nicks.add(_extract_nick(line))
 
-        with sync_writes():
-            ANSI.clear_line()
-            ANSI.start_of_line()
-            print(line)
-            ANSI.start_of_next()
+        with synchronized_writes():
+            Term.write(
+                Term.CLEAR_LINE,
+                Term.START_OF_LINE,
+                line, '\n',
+                Term.START_OF_NEXT
+            )
 
             schedule_redraw()
 
@@ -173,6 +168,7 @@ BG_BLACK = '\x1B[40m'
 FG_WHITE = '\x1B[37m'
 RESET = '\x1B[0m'
 
+
 def input_loop(path, name):
     inp = os.path.join(path, '__in')
 
@@ -187,9 +183,11 @@ def input_loop(path, name):
         try:
             line = input(prompt).strip()
 
-            with sync_writes():
-                ANSI.start_of_prev()
-                ANSI.clear_line()
+            with synchronized_writes():
+                Term.write(
+                    Term.START_OF_PREV,
+                    Term.CLEAR_LINE
+                )
 
             if line == '':
                 continue
