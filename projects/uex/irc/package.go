@@ -156,15 +156,16 @@ func (c *Client) send(cmd string, params ...string) {
 	}
 
 	c.sendRaw(msg.Bytes())
-	c.sendRaw([]byte{'\r', '\n'})
 }
 
 func (c *Client) sendRaw(msg []byte) {
-	if _, err := c.conn.Write(msg); err != nil {
+	line := append(msg, '\r', '\n')
+
+	if _, err := c.conn.Write(line); err != nil {
 		log.Printf("Failed to write... %+v\n", err)
 	}
 
-	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
+	fmt.Printf("[%s] --> %+v\n", c.Name, string(msg))
 }
 
 // listExistingChannels returns a list of channel names that were
