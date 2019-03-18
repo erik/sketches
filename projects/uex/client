@@ -11,35 +11,36 @@ import threading
 import time
 
 
-# TODO: This should also complete channels?
-class NickCompleter:
+class TabCompleter:
     def __init__(self):
-        self._nicks = set()
+        self._completions = set()
         self._last_seen = {}
 
-    def add(self, nick):
-        self._nicks.add(nick)
-        self._last_seen[nick] = time.time()
+    def add(self, completion):
+        self._completions.add(completion)
+        self._last_seen[completion] = time.time()
 
-    def completions(self, prefix):
-        matching = [n for n in self._nicks if n.startswith(prefix)]
-        return sorted(matching, key=lambda n: self._last_seen[n])
+    def complete(self, prefix):
+        matching = [c for c in self._completions if c.startswith(prefix)]
+        return sorted(matching, key=lambda c: self._last_seen[c])
 
-    def completer(self):
-        nicks = []
+    def rl_completer(self):
+        completions = []
 
-        def wrap(text, state):
-            nonlocal nicks
+        def wrap(prefix, state):
+            nonlocal completions
             if state == 0:
-                nicks = self.completions(text)
+                completions = self.complete(prefix)
 
-            return nicks[state] if state < len(nicks) else None
+            if state < len(completions):
+                return completions[state]
+
         return wrap
 
 
-def init_readline(nicks):
+def init_readline(completer):
     readline.parse_and_bind('tab: complete')
-    readline.set_completer(nicks.completer())
+    readline.set_completer(completer.rl_completer())
 
 
 def control_code(fn):
@@ -125,17 +126,17 @@ _NICK_REGEX = re.compile('^\\S+ \x1b[^m]+m\\s*(.*?)\x1b')
 def _extract_nick(line):
     """
     Try to strip out the color codes etc from the line, returning only
-    the nick (or None).
+    the nick (or '').
     """
 
     match = _NICK_REGEX.match(line)
     if not match:
-        return
+        return ''
 
     return match.group(1)
 
 
-def _print_lines(out, nicks):
+def _print_lines(out, completer):
     with synchronized_writes():
         Term.write(Term.RESET)
 
@@ -143,7 +144,7 @@ def _print_lines(out, nicks):
         # TODO: possibly wrap lines if they're wider than the term?
         line = line.decode('utf-8').rstrip()
 
-        nicks.add(_extract_nick(line))
+        completer.add(_extract_nick(line))
 
         with synchronized_writes():
             Term.write(
@@ -156,10 +157,10 @@ def _print_lines(out, nicks):
             schedule_redraw()
 
 
-def print_lines(proc, nicks):
+def print_lines(proc, completer):
     return threading.Thread(
         target=_print_lines,
-        args=[proc, nicks],
+        args=[proc, completer],
         daemon=True
     ).start()
 
@@ -215,11 +216,11 @@ def select_buffer_path(path, name):
             print('%s: no such directory' % f)
             sys.exit(1)
 
-    nicks = NickCompleter()
-    init_readline(nicks)
+    completer = TabCompleter()
+    init_readline(completer)
 
     proc = tail_file(os.path.join(path, 'out'))
-    print_lines(proc.stdout, nicks)
+    print_lines(proc.stdout, completer)
 
     next_buf = input_loop(path, name)
 
