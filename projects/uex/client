@@ -170,7 +170,7 @@ RESET = '\x1B[0m'
 
 
 def input_loop(path, name):
-    inp = os.path.join(path, '__in')
+    inp = os.path.join(path, 'in')
 
     prompt = '%s%s[ %s ]%s ' % (BG_BLACK, FG_WHITE, name, RESET)
 
@@ -208,7 +208,7 @@ def input_loop(path, name):
 
 
 def select_buffer_path(path, name):
-    for f in ['__in', '__out']:
+    for f in ['in', 'out']:
         f = os.path.join(path, f)
 
         if not os.path.exists(f):
@@ -218,7 +218,7 @@ def select_buffer_path(path, name):
     nicks = NickCompleter()
     init_readline(nicks)
 
-    proc = tail_file(os.path.join(path, '__out'))
+    proc = tail_file(os.path.join(path, 'out'))
     print_lines(proc.stdout, nicks)
 
     next_buf = input_loop(path, name)

@@ -18,7 +18,11 @@ import (
 	"unicode"
 )
 
-const serverBufferName = "$server"
+const (
+	serverBufferName = "$server"
+	inputFileName    = "in"
+	outputFileName   = "out"
+)
 
 // NetworkConfiguration contains the configuration for a connection to
 // a single IRC network. Used by Client.
@@ -281,7 +285,7 @@ func (c *Client) getBuffer(name string) *buffer {
 
 	path := c.directory
 
-	// We want to write __in, __out top level for the server, and
+	// We want to write `in`, `out` top level for the server, and
 	// as a child for every other buffer.
 	if name != serverBufferName {
 		path = filepath.Join(path, name)
@@ -384,7 +388,7 @@ func (b *buffer) writeInfoMessage(msg string) {
 }
 
 func (b *buffer) outputHandler() {
-	name := filepath.Join(b.path, "__out")
+	name := filepath.Join(b.path, outputFileName)
 	mode := os.O_APPEND | os.O_RDWR | os.O_CREATE
 	file, err := os.OpenFile(name, mode, 0644)
 	if err != nil {
@@ -410,7 +414,7 @@ func (b *buffer) outputHandler() {
 }
 
 func (b *buffer) inputHandler() {
-	name := filepath.Join(b.path, "__in")
+	name := filepath.Join(b.path, inputFileName)
 	err := syscall.Mkfifo(name, 0777)
 
 	// Doesn't matter if the FIFO already exists from a previous run.

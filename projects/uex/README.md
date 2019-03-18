@@ -9,17 +9,17 @@ input through a named pipe.
 /path/to/uex/directory
 ├── freenode
 │   ├── #ascii.town
-│   │   ├── __in
-│   │   └── __out
+│   │   ├── in
+│   │   └── out
 │   ├── #lobsters
-│   │   ├── __in
-│   │   └── __out
+│   │   ├── in
+│   │   └── out
 │   ├── #python
-│   │   └── __in
-│   │   └── __out
+│   │   └── in
+│   │   └── out
 │   └── _server
-│       ├── __in
-│       └── __out
+│       ├── in
+│       └── out
 ```
 
 Inspired by suckless' [ii], but with less of a focus on being as
