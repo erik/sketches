@@ -1,8 +1,10 @@
 package irc
 
 import (
+	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -13,9 +15,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"gopkg.in/sorcix/irc.v2"
-	"unicode"
 )
 
 const (
@@ -45,7 +47,7 @@ type NetworkConfiguration struct {
 type Client struct {
 	NetworkConfiguration
 
-	conn *irc.Conn
+	conn io.ReadWriteCloser
 	mux  sync.Mutex
 
 	buffers map[string]buffer
@@ -77,12 +79,9 @@ func NewClient(baseDir string, cfg NetworkConfiguration) *Client {
 // Connect opens a TCP connection to the IRC network and sends `NICK`,
 // `USER`, and `PASS` commands to authenticate the connection.
 func (c *Client) Connect() error {
-	conn, err := c.dial()
-	if err != nil {
+	if err := c.dial(); err != nil {
 		return err
 	}
-
-	c.conn = irc.NewConn(*conn)
 
 	if c.ServerPass != "" {
 		c.send("PASS", c.ServerPass)
@@ -104,34 +103,39 @@ func (c *Client) Connect() error {
 // an error if the connection is interrupted, or an unparseable
 // message is returned.
 func (c *Client) Listen() error {
-	for {
-		message, err := c.conn.Decode()
-		if err != nil {
-			return err
+	scanner := bufio.NewScanner(c.conn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		message := irc.ParseMessage(line)
+		if message == nil {
+			fmt.Printf("[%s] <-- invalid message: %s\n", c.Name, line)
+			continue
 		}
 
 		fmt.Printf("[%s] <-- %+v\n", c.Name, message)
 		c.handleMessage(message)
 	}
+
+	return scanner.Err()
 }
 
 // dial handles the TCP/TLS details of connecting to an IRC network.
-func (c *Client) dial() (*net.Conn, error) {
+func (c *Client) dial() error {
 	c.serverBuffer().writeInfoMessage("connecting ...")
 
 	server := fmt.Sprintf("%s:%d", c.Host, c.Port)
 
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	tcpc := conn.(*net.TCPConn)
 	if err = tcpc.SetKeepAlive(true); err != nil {
-		return nil, err
+		return err
 	}
 	if err = tcpc.SetKeepAlivePeriod(5 * time.Minute); err != nil {
-		return nil, err
+		return err
 	}
 
 	if c.IsTLS {
@@ -141,7 +145,8 @@ func (c *Client) dial() (*net.Conn, error) {
 		})
 	}
 
-	return &conn, nil
+	c.conn = conn
+	return nil
 }
 
 func (c *Client) send(cmd string, params ...string) {
@@ -150,13 +155,15 @@ func (c *Client) send(cmd string, params ...string) {
 		Params:  params,
 	}
 
-	c.conn.Encode(msg)
-
-	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
+	c.sendRaw(msg.Bytes())
+	c.sendRaw([]byte{'\r', '\n'})
 }
 
-func (c *Client) sendRaw(msg string) {
-	c.conn.Write([]byte(msg))
+func (c *Client) sendRaw(msg []byte) {
+	if _, err := c.conn.Write(msg); err != nil {
+		log.Printf("Failed to write... %+v\n", err)
+	}
+
 	fmt.Printf("[%s] --> %+v\n", c.Name, msg)
 }
 
@@ -185,7 +192,7 @@ func (c *Client) handleMessage(msg *irc.Message) {
 	switch msg.Command {
 	case irc.RPL_WELCOME:
 		for _, msg := range c.OnConnect {
-			c.sendRaw(msg)
+			c.sendRaw([]byte(msg))
 		}
 
 		if c.RejoinExisting {
