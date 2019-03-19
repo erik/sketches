@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gopkg.in/sorcix/irc.v2"
+	"gopkg.in/sorcix/irc.v2/ctcp"
 )
 
 const (
@@ -110,7 +111,15 @@ func formatMessage(m *irc.Message) string {
 	switch m.Command {
 	case irc.PRIVMSG, irc.NOTICE:
 		sender = m.Prefix.Name
-		line = stylizeLine(m.Trailing())
+		line = m.Trailing()
+
+		// Handle CTCP ACTIONS
+		if tag, text, ok := ctcp.Decode(m.Trailing()); ok && tag == "ACTION" {
+			sender = alertSender
+			line = fmt.Sprintf("%s %s", m.Prefix.Name, text)
+		}
+
+		line = stylizeLine(line)
 
 	case irc.RPL_TOPIC:
 		sender = m.Prefix.Name
