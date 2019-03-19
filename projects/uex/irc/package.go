@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"gopkg.in/sorcix/irc.v2"
+	"gopkg.in/sorcix/irc.v2/ctcp"
 )
 
 const (
@@ -347,6 +348,18 @@ func (c *Client) handleInputLine(bufName, line string) {
 		}
 
 		c.send("PRIVMSG", s[0], s[1])
+
+	case "/me":
+		action := ctcp.Action(rest)
+
+		buf := c.getBuffer(bufName)
+		buf.ch <- &irc.Message{
+			Prefix:  &irc.Prefix{Name: c.Nick},
+			Command: irc.PRIVMSG,
+			Params:  []string{action},
+		}
+
+		c.send("PRIVMSG", bufName, action)
 
 	case "/j", "/join":
 		if !isChannel(rest) {
