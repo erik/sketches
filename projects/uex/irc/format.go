@@ -139,6 +139,5 @@ func formatMessage(m *irc.Message) string {
 		return ""
 	}
 
-	return fmt.Sprintf("%s %s %s", ts, colorizeNick(sender), line)
-
+	return fmt.Sprintf("\x1B[2m%s\x1B[0m %s %s", ts, colorizeNick(sender), line)
 }

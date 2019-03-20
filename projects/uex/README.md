@@ -24,7 +24,7 @@ input through a named pipe.
 
 Inspired by suckless' [ii], but with less of a focus on being as
 minimal as possible (so a single daemon can handle multiple networks,
-there are retries and some error handling, etc.).
+there is some error handling, etc.).
 
 [ii]: https://tools.suckless.org/ii/
 
