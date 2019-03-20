@@ -7,19 +7,19 @@ input through a named pipe.
 
 ```
 /path/to/uex/directory
-├── freenode
-│   ├── #ascii.town
-│   │   ├── in
-│   │   └── out
-│   ├── #lobsters
-│   │   ├── in
-│   │   └── out
-│   ├── #python
-│   │   └── in
-│   │   └── out
-│   └── _server
-│       ├── in
-│       └── out
+└─── freenode
+    ├── #ascii.town
+    │   ├── in
+    │   └── out
+    ├── #lobsters
+    │   ├── in
+    │   └── out
+    ├── #python
+    │   └── in
+    │   └── out
+    └── _server
+        ├── in
+        └── out
 ```
 
 Inspired by suckless' [ii], but with less of a focus on being as
@@ -30,8 +30,13 @@ there is some error handling, etc.).
 
 `uex` also includes a simple terminal client which wraps the input /
 output in a command. Effectively, it just calls `tail -F
-#channel/__out` and uses `readline` for input line editing.
+#channel/out` and uses `readline` for input line editing.
 
 ``` bash
 ./client path/to/uex/directory/\#python
 ```
+
+## note
+
+It's probably not worth setting this up. It's very opinionated and
+there's no documentation.
