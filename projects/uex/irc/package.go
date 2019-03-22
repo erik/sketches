@@ -339,13 +339,11 @@ func (c *Client) handleInputLine(bufName, line string) {
 		}
 
 		buf := c.getBuffer(s[0])
-
-		// TODO: pull this out into simple `buf.AddMessage` or so
-		buf.ch <- &irc.Message{
+		buf.addMessage(irc.Message{
 			Prefix:  &irc.Prefix{Name: c.Nick},
 			Command: irc.PRIVMSG,
 			Params:  []string{s[1]},
-		}
+		})
 
 		c.send("PRIVMSG", s[0], s[1])
 
@@ -400,12 +398,16 @@ func (c *Client) handleInputLine(bufName, line string) {
 	}
 }
 
+func (b *buffer) addMessage(m irc.Message) {
+	b.ch <- &m
+}
+
 func (b *buffer) writeInfoMessage(msg string) {
-	b.ch <- &irc.Message{
+	b.addMessage(irc.Message{
 		Prefix:  &irc.Prefix{Name: "uex"},
 		Command: "*",
 		Params:  []string{msg},
-	}
+	})
 }
 
 func (b *buffer) outputHandler() {
