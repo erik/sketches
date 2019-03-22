@@ -1,0 +1,20 @@
+{
+  "networks": [
+    {
+      "name": "freenode",
+      "host": "irc.freenode.net",
+      "port": 6697,
+      "is_tls": true,
+
+      "nick": "example-uex-client",
+      "real_name": "uex",
+      "on_connect": [
+        "JOIN ##uex",
+        "PRIVMSG NickServ :IDENTIFY foobar"
+      ],
+      "rejoin_existing": true
+    }
+  ],
+
+  "directory": "/tmp/uex/"
+}
