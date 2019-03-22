@@ -41,7 +41,7 @@ output in a command. Effectively, it just calls `tail -F
 Client only supports some basic IRC commands.
 
 | Command          | Description                                 |
-| -------:         | :-----------                                |
+| :-------         | :-----------                                |
 | `/switch BUFFER` | Switch view to `BUFFER`                     |
 | `/list`          | Show all active buffers on current network. |
 | `/refresh`       | Rerender all history for current buffer.    |
