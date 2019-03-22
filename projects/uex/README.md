@@ -28,6 +28,8 @@ there is some error handling, etc.).
 
 [ii]: https://tools.suckless.org/ii/
 
+## client
+
 `uex` also includes a simple terminal client which wraps the input /
 output in a command. Effectively, it just calls `tail -F
 #channel/out` and uses `readline` for input line editing.
@@ -35,6 +37,18 @@ output in a command. Effectively, it just calls `tail -F
 ``` bash
 ./client path/to/uex/directory/\#python
 ```
+
+Client only supports some basic IRC commands.
+
+| Command          | Description                                 |
+| -------:         | :-----------                                |
+| `/switch BUFFER` | Switch view to `BUFFER`                     |
+| `/list`          | Show all active buffers on current network. |
+| `/refresh`       | Rerender all history for current buffer.    |
+| `/r[econnect]`   | Close and reconnect to current network.     |
+| `/j[oin]`        | Join a channel.                             |
+| `/quote MSG`     | Send `MSG` to server directly.              |
+| `/me ACTION`     | Send CTCP ACTION.                           |
 
 ## note
 
