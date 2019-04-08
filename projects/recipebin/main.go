@@ -4,9 +4,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,26 @@ func main() {
 
 type DB struct {
 	conn *sql.DB
+}
+
+type UserModel struct {
+	Id    int
+	Name  string
+	Email string
+
+	Password string
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// todo
+type RecipeModel struct{}
+
+type RecipeTagModel struct {
+	Id       int
+	RecipeId int
+	Tag      string
 }
 
 func NewDB(uri string) *DB {
@@ -50,8 +72,7 @@ CREATE TABLE IF NOT EXISTS users(
   password TEXT,
 
   created_at DATETIME DEFAULT current_timestamp,
-  updated_at DATETIME,
-  deleted_at DATETIME
+  updated_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS recipes(
@@ -66,8 +87,7 @@ CREATE TABLE IF NOT EXISTS recipes(
   rating       INT,
 
   created_at DATETIME DEFAULT current_timestamp,
-  updated_at DATETIME,
-  deleted_at DATETIME
+  updated_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS recipe_tags(
@@ -90,6 +110,11 @@ func (db DB) initializeSchema() error {
 	return err
 }
 
+func (db DB) UserById(id int) (*UserModel, error) {
+	// TODO
+	return nil, nil
+}
+
 type Service struct {
 	db           *DB
 	cookieSecret []byte
@@ -106,41 +131,41 @@ func (s *Service) signCookie(value string) string {
 	return string(mac.Sum(nil))
 }
 
-func (s *Service) verifyCookie(c *http.Cookie) bool {
+// returns (user_id, verified?)
+func (s *Service) verifyCookie(c *http.Cookie) (int, bool) {
 	// Check for expired cookies first
 	if time.Now().After(c.Expires) {
-		return false
+		return 0, false
 	}
 
 	// Next try to verify
 	values := strings.SplitN(c.Value, ".", 2)
 	if len(values) != 2 {
-		return false
+		return 0, false
 	}
 
 	given := []byte(values[0])
 	expected := []byte(s.signCookie(values[1]))
 
-	return hmac.Equal(expected, given)
-}
-
-func (s *Service) requireLogin(h http.HandlerFunc) http.HandlerFunc {
-	wrapper := func(w http.ResponseWriter, req *http.Request) {
-		if cookie, err := req.Cookie(authCookieName); err != nil {
-			goto unauthenticated
-		} else if !s.verifyCookie(cookie) {
-			goto unauthenticated
-		}
-
-		h(w, req)
-		return
-
-	unauthenticated:
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("sign in first."))
+	if hmac.Equal(expected, given) {
+		uid, _ := strconv.Atoi(values[1])
+		return uid, true
 	}
 
-	return wrapper
+	return 0, false
+}
+
+func (s *Service) loggedInUser(req *http.Request) *UserModel {
+	if cookie, err := req.Cookie(authCookieName); err != nil {
+		return nil
+	} else if uid, ok := s.verifyCookie(cookie); !ok {
+		return nil
+	} else if user, err := s.db.UserById(uid); err != nil {
+		log.Printf("user lookup failed: %+v\n", err)
+		return nil
+	} else {
+		return user
+	}
 }
 
 type MiniMux struct {
@@ -149,6 +174,8 @@ type MiniMux struct {
 
 func (m *MiniMux) HandleScoped(path string, h http.HandlerFunc) {
 	m.HandleFunc(path, func(w http.ResponseWriter, req *http.Request) {
+		// Implementation stolen from `http.StripPrefix` (which takes a
+		// http.Handler instead)
 		p := strings.TrimPrefix(req.URL.Path, path)
 		r2 := new(http.Request)
 		*r2 = *req
@@ -178,15 +205,70 @@ func (s *Service) Serve() {
 	http.ListenAndServe(":8080", mux)
 }
 
+func sendStatus(w http.ResponseWriter, statusCode int) {
+	w.WriteHeader(statusCode)
+	w.Write([]byte(http.StatusText(statusCode)))
+}
+
 // POST /user
 // PUT  /user
 func (s *Service) handleUserResource(w http.ResponseWriter, req *http.Request) {
+	email := req.FormValue("email")
+	password := req.FormValue("password")
 
+	switch req.Method {
+	case http.MethodPost:
+		fmt.Printf("create user email=%s password=%s\n", email, password)
+
+	case http.MethodPut:
+		user := s.loggedInUser(req)
+		if user == nil {
+			sendStatus(w, http.StatusUnauthorized)
+			return
+		}
+
+		fmt.Printf("update user (%+v) email=%s password=%s\n",
+			user, email, password)
+
+	default:
+		http.NotFound(w, req)
+	}
 }
 
+// GET  /session/login
 // POST /session/login
 // GET  /session/logout
 func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request) {
+	type createLoginBody struct {
+		Email    string
+		Password string
+	}
+
+	path := req.URL.Path
+
+	switch {
+	case req.Method == http.MethodGet && path == "login":
+		// todo
+
+	case req.Method == http.MethodPost && path == "login":
+		// todo
+
+		http.Redirect(w, req, "/", http.StatusSeeOther)
+
+	case req.Method == http.MethodGet && path == "logout":
+		http.SetCookie(w, &http.Cookie{
+			Name:     authCookieName,
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+		})
+
+		http.Redirect(w, req, "/", http.StatusSeeOther)
+
+	default:
+		http.NotFound(w, req)
+	}
 
 }
 
@@ -196,7 +278,8 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 // PUT    /recipe/:id
 // DELETE /recipe/:id
 func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request) {
-
+	type createRecipeBody struct{}
+	type updateRecipeBody struct{}
 }
 
 // GET /tag
