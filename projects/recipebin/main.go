@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -189,8 +190,8 @@ const (
 func (s *Service) signCookie(value string) string {
 	mac := hmac.New(sha256.New, s.cookieSecret)
 	mac.Write([]byte(value))
-
-	return string(mac.Sum(nil))
+	sum := mac.Sum(nil)
+	return string(hex.EncodeToString(sum))
 }
 
 // returns (user_id, verified?)
@@ -341,11 +342,8 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 
 	case req.Method == http.MethodGet && path == "logout":
 		http.SetCookie(w, &http.Cookie{
-			Name:     authCookieName,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0),
-			HttpOnly: true,
+			Name:  authCookieName,
+			Value: "",
 		})
 
 		http.Redirect(w, req, "/", http.StatusSeeOther)
