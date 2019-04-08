@@ -39,7 +39,18 @@ type UserModel struct {
 }
 
 // todo
-type RecipeModel struct{}
+type RecipeModel struct {
+	Id           int
+	UserId       int
+	Title        string
+	Description  sql.NullString
+	Category     sql.NullString
+	Instructions string
+	Ingredients  string
+
+	CreatedAt time.Time
+	UpdatedAt sql.NullInt64
+}
 
 type RecipeTagModel struct {
 	Id       int
@@ -77,13 +88,14 @@ CREATE TABLE IF NOT EXISTS users(
 CREATE TABLE IF NOT EXISTS recipes(
   id INTEGER PRIMARY KEY autoincrement,
 
-  title       TEXT,
+  user_id INTEGER NOT NULL,
+
+  title       TEXT NOT NULL,
   description TEXT,
   category    TEXT,
 
-  instructions TEXT,
-  ingredients  TEXT,
-  rating       INT,
+  instructions TEXT NOT NULL,
+  ingredients  TEXT NOT NULL,
 
   created_at DATETIME DEFAULT current_timestamp,
   updated_at DATETIME
@@ -110,6 +122,20 @@ func (db DB) initializeSchema() error {
 	log.Printf("[db] applying base schema")
 	_, err := db.conn.Exec(baseSchema)
 	return err
+}
+
+func (db DB) NewUser(email, password string) error {
+	sql := `
+INSERT INTO users (email, password)
+VALUES (?, ?)
+`
+
+	if hash, err := HashPassword(password); err != nil {
+		return err
+	} else {
+		_, err = db.conn.Exec(sql, email, hash)
+		return err
+	}
 }
 
 func (db DB) UserById(id int) (*UserModel, error) {
@@ -159,18 +185,32 @@ WHERE lower(email) = lower(?)`, email).Scan(
 	return &user, err
 }
 
-func (db DB) NewUser(email, password string) error {
-	sql := `
-INSERT INTO users (email, password)
-VALUES (?, ?)
-`
+func (db DB) RecipeById(id int) (*RecipeModel, error) {
+	var recipe RecipeModel
 
-	if hash, err := HashPassword(password); err != nil {
-		return err
-	} else {
-		_, err = db.conn.Exec(sql, email, hash)
-		return err
-	}
+	err := db.conn.QueryRow(`
+SELECT id
+     , user_id
+     , title
+     , description
+     , category
+     , instructions
+     , ingredients
+     , created_at
+     , updated_at
+FROM recipes
+WHERE id = ?`, id).Scan(
+		&recipe.Id,
+		&recipe.UserId,
+		&recipe.Title,
+		&recipe.Description,
+		&recipe.Category,
+		&recipe.Instructions,
+		&recipe.Ingredients,
+		&recipe.CreatedAt,
+		&recipe.UpdatedAt)
+
+	return &recipe, err
 }
 
 func HashPassword(password string) (string, error) {
@@ -354,7 +394,6 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 
 }
 
-// GET    /recipe
 // POST   /recipe
 // GET    /recipe/:id
 // PUT    /recipe/:id
@@ -362,6 +401,45 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request) {
 	type createRecipeBody struct{}
 	type updateRecipeBody struct{}
+
+	path := req.URL.Path
+	user := s.loggedInUser(req)
+
+	// POST /recipe - create a new recipe
+	if path == "" {
+		if req.Method != http.MethodPost {
+			http.NotFound(w, req)
+			return
+		} else if user == nil {
+			sendStatus(w, http.StatusUnauthorized)
+			return
+		}
+
+		fmt.Println("just pretend i created a recipe here")
+		return
+	}
+
+	id, err := strconv.Atoi(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	recipe := s.db.RecipeById(id)
+
+	switch req.Method {
+	case http.MethodGet:
+		fmt.Printf("GET recipe %d\n", id)
+
+	case http.MethodPut:
+		fmt.Printf("UPDATE recipe %d\n", id)
+
+	case http.MethodDelete:
+		fmt.Printf("DELETE recipe %d\n", id)
+
+	default:
+		http.NotFound(w, req)
+	}
 }
 
 // GET /tag
