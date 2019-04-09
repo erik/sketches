@@ -38,18 +38,38 @@ type UserModel struct {
 	UpdatedAt sql.NullInt64
 }
 
-// todo
 type RecipeModel struct {
 	Id           int
 	UserId       int
 	Title        string
 	Description  sql.NullString
 	Category     sql.NullString
+	Notes        sql.NullString
 	Instructions string
 	Ingredients  string
 
 	CreatedAt time.Time
 	UpdatedAt sql.NullInt64
+}
+
+func (r RecipeModel) Validate() bool {
+	v := false
+
+	// TODO: remove magic consts
+	switch {
+	case r.UserId == 0:
+	case r.Title == "" || len(r.Title) > 256:
+	case r.Instructions == "" || len(r.Instructions) > 4096:
+	case r.Ingredients == "" || len(r.Ingredients) > 4096:
+	case len(r.Description.String) > 4096:
+	case len(r.Category.String) > 4096:
+	case len(r.Notes.String) > 4096:
+
+	default:
+		v = true
+	}
+
+	return v
 }
 
 type RecipeTagModel struct {
@@ -93,6 +113,7 @@ CREATE TABLE IF NOT EXISTS recipes(
   title       TEXT NOT NULL,
   description TEXT,
   category    TEXT,
+  notes       TEXT,
 
   instructions TEXT NOT NULL,
   ingredients  TEXT NOT NULL,
@@ -185,6 +206,36 @@ WHERE lower(email) = lower(?)`, email).Scan(
 	return &user, err
 }
 
+func (db DB) NewRecipe(r RecipeModel) (int64, error) {
+	sql := `
+INSERT INTO recipes (
+    user_id
+  , title
+  , description
+  , category
+  , notes
+  , instructions
+  , ingredients
+)
+VALUES (?, ?, ?, ?, ?, ?)`
+
+	res, err := db.conn.Exec(sql,
+		r.UserId,
+		r.Title,
+		r.Description,
+		r.Category,
+		r.Notes,
+		r.Instructions,
+		r.Ingredients,
+	)
+
+	if err != nil {
+		return -1, err
+	}
+
+	return res.LastInsertId()
+}
+
 func (db DB) RecipeById(id int) (*RecipeModel, error) {
 	var recipe RecipeModel
 
@@ -194,6 +245,7 @@ SELECT id
      , title
      , description
      , category
+     , notes
      , instructions
      , ingredients
      , created_at
@@ -205,6 +257,7 @@ WHERE id = ?`, id).Scan(
 		&recipe.Title,
 		&recipe.Description,
 		&recipe.Category,
+		&recipe.Notes,
 		&recipe.Instructions,
 		&recipe.Ingredients,
 		&recipe.CreatedAt,
@@ -237,7 +290,7 @@ func (s *Service) signCookie(value string) string {
 // returns (user_id, verified?)
 func (s *Service) verifyCookie(c *http.Cookie) (int, bool) {
 	// Check for expired cookies first
-	if time.Now().After(c.Expires) {
+	if c.Expires.After(time.Now()) {
 		return 0, false
 	}
 
@@ -247,11 +300,11 @@ func (s *Service) verifyCookie(c *http.Cookie) (int, bool) {
 		return 0, false
 	}
 
-	given := []byte(values[0])
-	expected := []byte(s.signCookie(values[1]))
+	given := []byte(values[1])
+	expected := []byte(s.signCookie(values[0]))
 
 	if hmac.Equal(expected, given) {
-		uid, _ := strconv.Atoi(values[1])
+		uid, _ := strconv.Atoi(values[0])
 		return uid, true
 	}
 
@@ -274,7 +327,7 @@ func (s *Service) loggedInUser(req *http.Request) *UserModel {
 	} else if uid, ok := s.verifyCookie(cookie); !ok {
 		return nil
 	} else if user, err := s.db.UserById(uid); err != nil {
-		log.Printf("user lookup failed: %+v\n", err)
+		fmt.Printf("no user with id: %d\n", uid)
 		return nil
 	} else {
 		return user
@@ -308,16 +361,16 @@ func (s *Service) Serve() {
 
 	mux.HandleScoped("/user", s.handleUserResource)
 	mux.HandleScoped("/session/", s.handleSessionResource)
-	mux.HandleScoped("/recipe", s.handleRecipeResource)
+	mux.HandleScoped("/recipe/", s.handleRecipeResource)
 	mux.HandleScoped("/tag/", s.handleTagResource)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		fmt.Println("in the base case")
 		if req.URL.Path != "/" {
 			http.NotFound(w, req)
-		} else {
-			s.handleListing(w, req)
+			return
 		}
+
+		s.handleListing(w, req)
 	})
 
 	log.Printf("[service] starting http server")
@@ -364,7 +417,6 @@ func (s *Service) handleUserResource(w http.ResponseWriter, req *http.Request) {
 // GET  /session/logout
 func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request) {
 	path := req.URL.Path
-	fmt.Printf("session: %s\n", path)
 
 	switch {
 	case req.Method == http.MethodPost && path == "login":
@@ -399,7 +451,6 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 // PUT    /recipe/:id
 // DELETE /recipe/:id
 func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request) {
-	type createRecipeBody struct{}
 	type updateRecipeBody struct{}
 
 	path := req.URL.Path
@@ -415,7 +466,39 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 			return
 		}
 
-		fmt.Println("just pretend i created a recipe here")
+		r := RecipeModel{
+			UserId: user.Id,
+			Title:  req.FormValue("title"),
+			Description: sql.NullString{
+				String: req.FormValue("description"),
+				Valid:  true,
+			},
+			Category: sql.NullString{
+				String: req.FormValue("category"),
+				Valid:  true,
+			},
+			Notes: sql.NullString{
+				String: req.FormValue("notes"),
+				Valid:  true,
+			},
+			Instructions: req.FormValue("instructions"),
+			Ingredients:  req.FormValue("ingredients"),
+		}
+
+		if !r.Validate() {
+			sendStatus(w, http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("Creating this recipe: %+v\n", r)
+
+		id, err := s.db.NewRecipe(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		url := fmt.Sprintf("/recipe/%d", id)
+		http.Redirect(w, req, url, http.StatusSeeOther)
 		return
 	}
 
@@ -425,11 +508,16 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	recipe := s.db.RecipeById(id)
+	recipe, err := s.db.RecipeById(id)
+	if err != nil {
+		http.NotFound(w, req)
+		return
+	}
 
 	switch req.Method {
 	case http.MethodGet:
-		fmt.Printf("GET recipe %d\n", id)
+		fmt.Printf("GET recipe %d: %+v\n", id, recipe)
+		sendStatus(w, http.StatusOK)
 
 	case http.MethodPut:
 		fmt.Printf("UPDATE recipe %d\n", id)
@@ -445,10 +533,12 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 // GET /tag
 // GET /tag/:id
 func (s *Service) handleTagResource(w http.ResponseWriter, req *http.Request) {
-
+	fmt.Println("TODO: implement /tag")
+	http.Error(w, "not implemented", 500)
 }
 
 // GET /
 func (s *Service) handleListing(w http.ResponseWriter, req *http.Request) {
-
+	fmt.Println("TODO: implement /")
+	http.Error(w, "not implemented", 500)
 }
