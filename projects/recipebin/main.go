@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,9 +20,12 @@ import (
 )
 
 func main() {
+	// TODO: These strings must be configurable (with flag or sth)
 	db := NewDB("/tmp/recipebin.db")
-	service := &Service{db: db}
+	directory := "templates"
+	cookieSecret := ""
 
+	service := NewService(db, cookieSecret, directory)
 	service.Serve()
 }
 
@@ -70,6 +75,27 @@ func (r RecipeModel) Validate() bool {
 	}
 
 	return v
+}
+
+type RecipeView struct {
+	Title        string
+	Description  string
+	Category     string
+	Notes        []string
+	Instructions []string
+	Ingredients  []string
+}
+
+func (r RecipeModel) View() RecipeView {
+	return RecipeView{
+		Title:        r.Title,
+		Description:  r.Description.String,
+		Category:     r.Category.String,
+		Notes:        strings.Split(r.Notes.String, "\n"),
+		Instructions: strings.Split(r.Instructions, "\n"),
+		Ingredients:  strings.Split(r.Ingredients, "\n"),
+	}
+
 }
 
 type RecipeTagModel struct {
@@ -274,6 +300,45 @@ func HashPassword(password string) (string, error) {
 type Service struct {
 	db           *DB
 	cookieSecret []byte
+
+	templates map[string]*template.Template
+}
+
+func NewService(db *DB, cookieSecret, tmplDir string) *Service {
+	// TODO: pull template stuff out?
+	if tmplDir != "" && tmplDir[len(tmplDir)-1] != '/' {
+		tmplDir = tmplDir + "/"
+	}
+
+	// Everything starting with `_` is a helper template
+	pattern := filepath.Join(tmplDir, "_*.tmpl")
+	baseTmpl := template.New("base")
+	files, _ := filepath.Glob(pattern)
+
+	for _, f := range files {
+		template.Must(baseTmpl.ParseFiles(f))
+	}
+
+	// Everything that doesn't start with `_` is assumed to be used for a view
+	pattern = filepath.Join(tmplDir, "*", "[^_]*.tmpl")
+	files, _ = filepath.Glob(pattern)
+
+	templates := make(map[string]*template.Template, len(files))
+
+	for _, f := range files {
+		name := strings.TrimPrefix(f, tmplDir)
+		name = strings.TrimSuffix(name, ".tmpl")
+
+		tmpl := template.Must(template.ParseGlob(f))
+		templates[name] = tmpl
+		fmt.Printf("registering template: %s: %+v\n", name, tmpl)
+	}
+
+	return &Service{
+		db:           db,
+		cookieSecret: []byte(cookieSecret),
+		templates:    templates,
+	}
 }
 
 const (
@@ -331,6 +396,18 @@ func (s *Service) loggedInUser(req *http.Request) *UserModel {
 		return nil
 	} else {
 		return user
+	}
+}
+
+func (s *Service) renderHTML(w http.ResponseWriter, statusCode int, name string, data interface{}) {
+	w.WriteHeader(statusCode)
+	w.Header().Add("Content-Type", "text/html")
+	tmpl, ok := s.templates[name]
+
+	if !ok {
+		panic(fmt.Errorf("tried to render unknown template: %s", name))
+	} else if err := tmpl.Execute(w, data); err != nil {
+		panic(fmt.Errorf("failed to render template: %+v", err))
 	}
 }
 
@@ -517,7 +594,7 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 	switch req.Method {
 	case http.MethodGet:
 		fmt.Printf("GET recipe %d: %+v\n", id, recipe)
-		sendStatus(w, http.StatusOK)
+		s.renderHTML(w, http.StatusOK, "recipe/show.html", recipe.View())
 
 	case http.MethodPut:
 		fmt.Printf("UPDATE recipe %d\n", id)

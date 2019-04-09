@@ -1,0 +1,23 @@
+<h1>{{ .Title }}</h1>
+
+<p>{{ .Description }}</p>
+
+{{ with .Notes -}}
+  {{ range . -}}
+    <p>{{.}}</p>
+  {{- end }}
+{{ end }}
+
+<h2>Ingredients</h2>
+<ul>
+  {{ range .Ingredients -}}
+    <li>{{.}}</li>
+  {{- end }}
+</ul>
+
+<h2>Instructions</h2>
+<ol>
+  {{ range .Instructions -}}
+    <li>{{.}}</li>
+  {{- end }}
+</ol>
