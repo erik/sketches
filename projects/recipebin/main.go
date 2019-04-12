@@ -95,7 +95,6 @@ func (r RecipeModel) View() RecipeView {
 		Instructions: strings.Split(r.Instructions, "\n"),
 		Ingredients:  strings.Split(r.Ingredients, "\n"),
 	}
-
 }
 
 type RecipeTagModel struct {
@@ -305,40 +304,44 @@ type Service struct {
 }
 
 func NewService(db *DB, cookieSecret, tmplDir string) *Service {
-	// TODO: pull template stuff out?
-	if tmplDir != "" && tmplDir[len(tmplDir)-1] != '/' {
-		tmplDir = tmplDir + "/"
+	return &Service{
+		db:           db,
+		cookieSecret: []byte(cookieSecret),
+		templates:    loadTemplates(tmplDir),
+	}
+}
+
+func loadTemplates(dir string) map[string]*template.Template {
+	// Normalize directory path to end in slash
+	if dir != "" && dir[len(dir)-1] != '/' {
+		dir = dir + "/"
 	}
 
 	// Everything starting with `_` is a helper template
-	pattern := filepath.Join(tmplDir, "_*.tmpl")
+	pattern := filepath.Join(dir, "_*.tmpl")
 	baseTmpl := template.New("base")
 	files, _ := filepath.Glob(pattern)
 
-	for _, f := range files {
-		template.Must(baseTmpl.ParseFiles(f))
+	if len(files) > 0 {
+		template.Must(baseTmpl.ParseFiles(files...))
 	}
 
 	// Everything that doesn't start with `_` is assumed to be used for a view
-	pattern = filepath.Join(tmplDir, "*", "[^_]*.tmpl")
+	pattern = filepath.Join(dir, "*", "[^_]*.tmpl")
 	files, _ = filepath.Glob(pattern)
 
 	templates := make(map[string]*template.Template, len(files))
 
 	for _, f := range files {
-		name := strings.TrimPrefix(f, tmplDir)
+		name := strings.TrimPrefix(f, dir)
 		name = strings.TrimSuffix(name, ".tmpl")
 
-		tmpl := template.Must(template.ParseGlob(f))
-		templates[name] = tmpl
-		fmt.Printf("registering template: %s: %+v\n", name, tmpl)
+		tmpl := template.Must(baseTmpl.Clone())
+		templates[name] = template.Must(tmpl.ParseFiles(f))
+		fmt.Printf("registering template: %s\n", name)
 	}
 
-	return &Service{
-		db:           db,
-		cookieSecret: []byte(cookieSecret),
-		templates:    templates,
-	}
+	return templates
 }
 
 const (

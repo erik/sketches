@@ -1,0 +1,25 @@
+{{ define "base" }}
+<html>
+  <head>
+    <title>
+      {{- template "title" . -}}
+    </title>
+
+    {{ template "styles" . }}
+    {{ template "head" . }}
+  </head>
+
+  <body>
+    {{ template "scripts" . }}
+    <main>
+      {{ template "main" . }}
+    </main>
+  </body>
+</html>
+{{ end }}
+
+// Optional parameters that may be overridden by other templates.
+{{ define "styles" }}{{ end }}
+{{ define "head" }} {{ end }}
+{{ define "scripts" }}{{ end }}
+{{ define "sidebar" }}{{ end }}
