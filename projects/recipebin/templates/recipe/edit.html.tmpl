@@ -1,0 +1,10 @@
+{{ define "title" -}}
+  Edit {{ .Title }}
+{{- end }}
+
+{{ define "main" }}
+<h2>Edit - {{ .Title }}</h2>
+<form action="/recipe/{{ .Id }}" method="PUT">
+  <input type="button" text="submit">
+</form>
+{{ end }}

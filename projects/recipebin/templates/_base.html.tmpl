@@ -19,7 +19,16 @@
 {{ end }}
 
 // Optional parameters that may be overridden by other templates.
-{{ define "styles" }}{{ end }}
+{{ define "styles" }}
+<style>
+  main {
+    margin: auto;
+    width: 70ch;
+    font-family: sans-serif;
+  }
+</style>
+{{ end }}
+
 {{ define "head" }} {{ end }}
 {{ define "scripts" }}{{ end }}
 {{ define "sidebar" }}{{ end }}

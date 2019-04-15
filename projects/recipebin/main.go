@@ -78,6 +78,7 @@ func (r RecipeModel) Validate() bool {
 }
 
 type RecipeView struct {
+	Id           int
 	Title        string
 	Description  string
 	Category     string
@@ -88,6 +89,7 @@ type RecipeView struct {
 
 func (r RecipeModel) View() RecipeView {
 	return RecipeView{
+		Id:           r.Id,
 		Title:        r.Title,
 		Description:  r.Description.String,
 		Category:     r.Category.String,
@@ -444,6 +446,8 @@ func (s *Service) Serve() {
 	mux.HandleScoped("/recipe/", s.handleRecipeResource)
 	mux.HandleScoped("/tag/", s.handleTagResource)
 
+	mux.HandleFunc("/recipe/edit", s.handleRecipeEdit)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
 			http.NotFound(w, req)
@@ -529,6 +533,7 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 // POST   /recipe
 // GET    /recipe/:id
 // PUT    /recipe/:id
+// GET    /recipe/:id/edit
 // DELETE /recipe/:id
 func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request) {
 	type updateRecipeBody struct{}
@@ -601,12 +606,27 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 
 	case http.MethodPut:
 		fmt.Printf("UPDATE recipe %d\n", id)
+		s.renderHTML(w, http.StatusOK, "recipe/edit.html", recipe.View())
 
 	case http.MethodDelete:
 		fmt.Printf("DELETE recipe %d\n", id)
 
 	default:
 		http.NotFound(w, req)
+	}
+}
+
+func (s *Service) handleRecipeEdit(w http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+
+	if ids, ok := query["id"]; !ok {
+		http.Error(w, "missing id", http.StatusBadRequest)
+	} else if id, err := strconv.Atoi(ids[0]); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	} else if recipe, err := s.db.RecipeById(id); err != nil {
+		http.NotFound(w, req)
+	} else {
+		s.renderHTML(w, http.StatusOK, "recipe/edit.html", recipe.View())
 	}
 }
 
