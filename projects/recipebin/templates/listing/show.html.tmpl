@@ -1,0 +1,11 @@
+{{ define "title" }}Recipe Bin{{ end }}
+
+{{ define "main" }}
+  <h1>Recipes</h1>
+
+  {{range .}}
+    <div class="recipe-card">
+      <a href="/recipe/{{ .Id }}">{{ .Title }}</a>
+    </div>
+  {{ end }}
+{{ end }}

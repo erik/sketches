@@ -77,6 +77,16 @@ func (r RecipeModel) Validate() bool {
 	return v
 }
 
+type RecipeFilter struct {
+	UserId *int
+
+	Title *string
+	Tags  *[]string
+
+	Offset int
+	Limit  int
+}
+
 type RecipeView struct {
 	Id           int
 	Title        string
@@ -244,7 +254,7 @@ INSERT INTO recipes (
   , instructions
   , ingredients
 )
-VALUES (?, ?, ?, ?, ?, ?)`
+VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	res, err := db.conn.Exec(sql,
 		r.UserId,
@@ -291,6 +301,49 @@ WHERE id = ?`, id).Scan(
 		&recipe.UpdatedAt)
 
 	return &recipe, err
+}
+
+func (db DB) ListRecipes(f RecipeFilter) (result []RecipeModel, err error) {
+	rows, err := db.conn.Query(`
+SELECT id
+     , user_id
+     , title
+     , description
+     , category
+     , notes
+     , instructions
+     , ingredients
+     , created_at
+     , updated_at
+FROM recipes`)
+	// TODO: actually support filters.
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var r RecipeModel
+		if err := rows.Scan(
+			&r.Id,
+			&r.UserId,
+			&r.Title,
+			&r.Description,
+			&r.Category,
+			&r.Notes,
+			&r.Instructions,
+			&r.Ingredients,
+			&r.CreatedAt,
+			&r.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		result = append(result, r)
+	}
+
+	return result, nil
 }
 
 func HashPassword(password string) (string, error) {
@@ -533,7 +586,6 @@ func (s *Service) handleSessionResource(w http.ResponseWriter, req *http.Request
 // POST   /recipe
 // GET    /recipe/:id
 // PUT    /recipe/:id
-// GET    /recipe/:id/edit
 // DELETE /recipe/:id
 func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request) {
 	type updateRecipeBody struct{}
@@ -616,6 +668,7 @@ func (s *Service) handleRecipeResource(w http.ResponseWriter, req *http.Request)
 	}
 }
 
+// GET    /recipe/:id/edit
 func (s *Service) handleRecipeEdit(w http.ResponseWriter, req *http.Request) {
 	query := req.URL.Query()
 
@@ -626,19 +679,43 @@ func (s *Service) handleRecipeEdit(w http.ResponseWriter, req *http.Request) {
 	} else if recipe, err := s.db.RecipeById(id); err != nil {
 		http.NotFound(w, req)
 	} else {
+		// TODO: CSRF prevention.
 		s.renderHTML(w, http.StatusOK, "recipe/edit.html", recipe.View())
 	}
 }
 
 // GET /tag
 // GET /tag/:id
+// TODO: Should these just be filters on /?
 func (s *Service) handleTagResource(w http.ResponseWriter, req *http.Request) {
 	fmt.Println("TODO: implement /tag")
 	http.Error(w, "not implemented", 500)
 }
 
 // GET /
+// TODO: support filters
 func (s *Service) handleListing(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("TODO: implement /")
-	http.Error(w, "not implemented", 500)
+	// TODO: make this configurable.
+	offset := 0
+	limit := 100
+
+	recipes, err := s.db.ListRecipes(RecipeFilter{
+		Offset: offset,
+		Limit:  limit,
+	})
+
+	fmt.Printf("here?\n")
+	if err != nil {
+		fmt.Printf("Error: list recipes failed: %+v\n", err)
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	views := make([]RecipeView, len(recipes))
+	for i, recipe := range recipes {
+		views[i] = recipe.View()
+	}
+
+	fmt.Printf("TODO: implement / %+v\n", recipes)
+	s.renderHTML(w, http.StatusOK, "listing/show.html", views)
 }
