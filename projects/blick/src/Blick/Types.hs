@@ -1,12 +1,14 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE DeriveAnyClass  #-}
+{-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Blick.Types where
 
-import           Data.Aeson   as Aeson
-import           Data.Maybe   (Maybe)
-import           Data.Time    (UTCTime)
-import qualified GHC.Generics as GHC
+import           Data.Aeson    as Aeson
+import           Data.Maybe    (Maybe)
+import qualified Data.SafeCopy as SafeCopy
+import           Data.Time     (UTCTime)
+import qualified GHC.Generics  as GHC
 
 data SecretBody = SecretBody {
     blob            :: String
@@ -18,3 +20,5 @@ data SecretBody = SecretBody {
              , Eq
              , Show
              )
+
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''SecretBody)

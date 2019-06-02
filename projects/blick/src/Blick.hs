@@ -4,6 +4,7 @@ import           Blick.API                (api)
 import           Blick.Config             (Config (..), configFromEnv)
 import           Blick.Context            (AppCtx (..))
 import           Blick.Server             (server)
+import           Blick.State              (loadAcidState)
 import qualified Control.Exception        as Exception
 import           Control.Monad.Reader     (runReaderT)
 import qualified Network.Wai              as Wai
@@ -15,10 +16,11 @@ import qualified Servant
 main :: IO ()
 main = do
   config <- configFromEnv
+  state <- loadAcidState
+
   putStrLn $ "Starting server: " ++ (configBaseURL config)
 
-  -- TODO: pull this out somewhere
-  let context = AppCtx config "foo"
+  let context = AppCtx config state
 
   Exception.catch
     (startServer context)
@@ -33,7 +35,7 @@ makeApplication ctx =
 
 
 startServer :: AppCtx -> IO ()
-startServer context =
+startServer context = do
   Logger.withStdoutLogger $ \logger -> do
     let config = _getConfig context
         settings =

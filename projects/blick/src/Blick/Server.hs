@@ -4,8 +4,10 @@ import           Servant
 
 import qualified Blick.API            as API
 import           Blick.Context        (AppCtx (..), AppM)
+import qualified Blick.State          as State
 import           Blick.Types          (SecretBody (..))
-import           Control.Monad.Reader (asks)
+import           Control.Monad.Reader (asks, liftIO)
+import qualified Data.Acid            as Acid
 
 server :: Servant.ServerT API.API AppM
 server
@@ -15,13 +17,16 @@ server
 
 getSecret :: String -> AppM SecretBody
 getSecret secretId = do
-  db <- asks _getDatabase
+  state <- asks _getState
+  secret <- liftIO $ Acid.query state (State.GetSecret secretId)
 
-  pure SecretBody {
-      blob = "foo:" ++ secretId
-    , creation_date = read "2011-11-19 18:28:52.607875 UTC"
-    , expiration_date = Nothing
-  }
+  case secret of
+    Nothing ->
+      throwError err404
+
+    Just s ->
+      return s
+
 
 createSecret :: SecretBody -> AppM String
 createSecret _body =
