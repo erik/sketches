@@ -29,7 +29,7 @@ data Config
   { configPort    :: Port
   , configHost    :: String
   , configBaseURL :: String
-  }
+  } deriving Show
 
 
 configFromEnv :: IO Config
