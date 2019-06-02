@@ -1,6 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Blick where
 
 import qualified Blick.API                as API
+import           Blick.Config             (Config (..), configFromEnv)
 import qualified Blick.Server             as Server
 import qualified Control.Exception        as Exception
 import qualified Network.Wai              as Wai
@@ -11,11 +14,11 @@ import qualified Servant
 
 main :: IO ()
 main = do
-  let port = 8080 :: Int
-  putStrLn $ "Starting server: http://localhost:" ++ show port
+  config <- configFromEnv
+  putStrLn $ "Starting server: " ++ (configBaseURL config)
 
   Exception.catch
-    (startServer port)
+    (startServer config)
     (\ Exception.UserInterrupt -> putStrLn "stop.")
 
 
@@ -24,11 +27,11 @@ application =
   Servant.serve API.api Server.server
 
 
-startServer :: Int -> IO ()
-startServer port =
+startServer :: Config -> IO ()
+startServer config =
   Logger.withStdoutLogger $ \logger -> do
      let settings =
-           Warp.setPort port $
+           Warp.setPort (configPort config) $
            Warp.setLogger logger $
            Warp.defaultSettings
 

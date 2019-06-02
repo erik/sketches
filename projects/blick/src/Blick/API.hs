@@ -22,6 +22,7 @@ type GetSecret = "secret"
   :> Capture "id" String
   :> Get '[Servant.JSON] SecretBody
 
+-- TODO: Need to define response body as something better than `String`
 -- POST /secret
 type CreateSecret = "secret"
   :> ReqBody '[Servant.JSON] SecretBody
