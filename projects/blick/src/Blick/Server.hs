@@ -4,7 +4,7 @@ import           Servant
 
 import qualified Blick.API            as API
 import           Blick.Context        (AppCtx (..), AppM)
-import qualified Blick.State          as State
+import qualified Blick.Secret         as Secret
 import           Blick.Types          (SecretBody (..))
 import           Control.Monad.Reader (asks, liftIO)
 import qualified Data.Acid            as Acid
@@ -20,11 +20,12 @@ server
 
 getSecret :: String -> AppM SecretBody
 getSecret secretId = do
-  state <- asks _getState
-  secret <- liftIO $ Acid.query state (State.GetSecret secretId)
+  state <- asks _getSecretDb
+  secret <- liftIO $ Acid.query state (Secret.Get secretId)
 
   case secret of
     Nothing ->
+      -- TODO: Descriptive error
       throwError err404
 
     Just s ->
@@ -33,9 +34,9 @@ getSecret secretId = do
 
 createSecret :: SecretBody -> AppM String
 createSecret body = do
-  state <- asks _getState
+  state <- asks _getSecretDb
   secretId <- liftIO genSecretId
-  _ <- liftIO $ Acid.update state (State.SetSecret secretId body)
+  _ <- liftIO $ Acid.update state (Secret.Set secretId body)
 
   return secretId
 
