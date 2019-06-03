@@ -44,6 +44,7 @@ dependencies:
 - text
 - time
 - transformers
+- uuid
 - wai
 - wai-logger
 - warp

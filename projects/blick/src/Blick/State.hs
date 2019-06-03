@@ -7,43 +7,41 @@ module Blick.State where
 
 import           Blick.Types          (SecretBody)
 import           Control.Monad.Reader (ask)
-import           Control.Monad.State  (put)
+import           Control.Monad.State  (get, put)
 import qualified Data.Acid            as Acid
 import qualified Data.Map             as M
 import           Data.Maybe           (Maybe)
 import qualified Data.SafeCopy        as SafeCopy
 import           Data.Typeable        (Typeable)
 
+type Key = String
+type Value = SecretBody
+
 data AppState
-  = AppState
-  { secrets :: M.Map String SecretBody
-  } deriving (Show, Typeable)
+  = AppState (M.Map Key Value)
+  deriving (Show, Typeable)
 
 $(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''AppState)
 
 
-setSecret :: AppState -> String -> SecretBody -> Acid.Update AppState ()
-setSecret state k v =
-  put $ state { secrets = updatedSecrets }
+setSecret :: Key -> Value -> Acid.Update AppState ()
+setSecret k v = do
+  AppState state <- get
+  put $ AppState $ M.insert k v state
 
-  where
-    origSecrets =
-      secrets state
 
-    updatedSecrets =
-      M.insert k v origSecrets
-
-getSecret :: String -> Acid.Query AppState (Maybe SecretBody)
+getSecret :: Key -> Acid.Query AppState (Maybe Value)
 getSecret k = do
-  AppState { secrets = s } <- ask
-  pure $ M.lookup k s
+  AppState secrets <- ask
+  pure $ M.lookup k secrets
+
 
 $(Acid.makeAcidic ''AppState ['setSecret, 'getSecret])
 
 
 initialAppState :: AppState
 initialAppState =
-  AppState { secrets = M.empty }
+  AppState M.empty
 
 
 loadAcidState :: IO (Acid.AcidState AppState)

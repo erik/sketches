@@ -9,6 +9,9 @@ import           Blick.Types          (SecretBody (..))
 import           Control.Monad.Reader (asks, liftIO)
 import qualified Data.Acid            as Acid
 
+import qualified Data.UUID            as UUID
+import qualified Data.UUID.V4         as UUID.V4
+
 server :: Servant.ServerT API.API AppM
 server
   = getSecret
@@ -29,5 +32,15 @@ getSecret secretId = do
 
 
 createSecret :: SecretBody -> AppM String
-createSecret _body =
-  return "ok"
+createSecret body = do
+  state <- asks _getState
+  secretId <- liftIO genSecretId
+  _ <- liftIO $ Acid.update state (State.SetSecret secretId body)
+
+  return secretId
+
+
+genSecretId :: IO String
+genSecretId = do
+  uuid <- UUID.V4.nextRandom
+  return $ UUID.toString uuid
