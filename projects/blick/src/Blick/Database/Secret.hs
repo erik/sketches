@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE TypeFamilies       #-}
 
-module Blick.Secret where
+module Blick.Database.Secret where
 
 import           Blick.Types          (SecretBody)
 import qualified Control.Monad.Reader as MonadReader
@@ -42,7 +42,9 @@ initialDatabase :: Database
 initialDatabase =
   Database M.empty
 
-
+{-| Load acid-state database from "./acid/", creating it if it didn't
+  already exist.
+-}
 loadAcidState :: IO (Acid.AcidState Database)
 loadAcidState =
   Acid.openLocalStateFrom "acid" initialDatabase

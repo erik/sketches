@@ -3,7 +3,7 @@ module Blick where
 import           Blick.API                (api)
 import           Blick.Config             (Config (..), configFromEnv)
 import           Blick.Context            (AppCtx (..))
-import qualified Blick.Secret
+import qualified Blick.Database.Secret
 import           Blick.Server             (server)
 import qualified Control.Exception        as Exception
 import           Control.Monad.Reader     (runReaderT)
@@ -16,7 +16,7 @@ import qualified Servant
 main :: IO ()
 main = do
   config <- configFromEnv
-  secretDb <- Blick.Secret.loadAcidState
+  secretDb <- Blick.Database.Secret.loadAcidState
 
   putStrLn $ "Starting server: " ++ (configBaseURL config)
 

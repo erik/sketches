@@ -4,13 +4,10 @@ import           Servant
 
 import qualified Blick.API            as API
 import           Blick.Context        (AppCtx (..), AppM)
-import qualified Blick.Secret         as Secret
+import qualified Blick.Database       as Database
 import           Blick.Types          (SecretBody (..))
 import           Control.Monad.Reader (asks, liftIO)
-import qualified Data.Acid            as Acid
 
-import qualified Data.UUID            as UUID
-import qualified Data.UUID.V4         as UUID.V4
 
 server :: Servant.ServerT API.API AppM
 server
@@ -20,8 +17,8 @@ server
 
 getSecret :: String -> AppM SecretBody
 getSecret secretId = do
-  state <- asks _getSecretDb
-  secret <- liftIO $ Acid.query state (Secret.Get secretId)
+  db <- asks _getSecretDb
+  secret <- liftIO $ Database.lookupSecret db secretId
 
   case secret of
     Nothing ->
@@ -34,14 +31,7 @@ getSecret secretId = do
 
 createSecret :: SecretBody -> AppM String
 createSecret body = do
-  state <- asks _getSecretDb
-  secretId <- liftIO genSecretId
-  _ <- liftIO $ Acid.update state (Secret.Set secretId body)
+  db <- asks _getSecretDb
+  secretId <- liftIO $ Database.createSecret db body
 
   return secretId
-
-
-genSecretId :: IO String
-genSecretId = do
-  uuid <- UUID.V4.nextRandom
-  return $ UUID.toString uuid
