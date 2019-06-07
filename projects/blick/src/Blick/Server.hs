@@ -5,7 +5,8 @@ import           Servant
 import qualified Blick.API            as API
 import           Blick.Context        (AppCtx (..), AppM)
 import qualified Blick.Database       as Database
-import           Blick.Types          (SecretBody (..))
+import           Blick.Types          (CreateSecretResponse (..),
+                                       SecretBody (..))
 import           Control.Monad.Reader (asks, liftIO)
 
 
@@ -29,9 +30,9 @@ getSecret secretId = do
       return s
 
 
-createSecret :: SecretBody -> AppM String
+createSecret :: SecretBody -> AppM CreateSecretResponse
 createSecret body = do
   db <- asks _getSecretDb
   secretId <- liftIO $ Database.createSecret db body
 
-  return secretId
+  return $ CreateSecretResponse { secretId = secretId }

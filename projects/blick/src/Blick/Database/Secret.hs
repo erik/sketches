@@ -38,13 +38,13 @@ get k = do
 $(Acid.makeAcidic ''Database ['set, 'get])
 
 
+-- | Start out with empty map
 initialDatabase :: Database
 initialDatabase =
   Database M.empty
 
-{-| Load acid-state database from "./acid/", creating it if it didn't
-  already exist.
--}
+-- | Load acid-state database from "./acid/", creating it if it didn't
+-- | already exist
 loadAcidState :: IO (Acid.AcidState Database)
 loadAcidState =
   Acid.openLocalStateFrom "acid" initialDatabase

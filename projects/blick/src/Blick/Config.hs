@@ -53,6 +53,6 @@ getEnv :: Read a => String -> a -> IO a
 getEnv key defaultValue = do
   strValue <- lookupEnv key
 
--- TODO: Maybe handle error?
+  -- TODO: Maybe handle error?
   return $
     maybe defaultValue read strValue

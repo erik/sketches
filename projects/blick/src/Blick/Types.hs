@@ -1,6 +1,7 @@
-{-# LANGUAGE DeriveAnyClass  #-}
-{-# LANGUAGE DeriveGeneric   #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE TemplateHaskell       #-}
 
 module Blick.Types where
 
@@ -11,9 +12,9 @@ import           Data.Time     (UTCTime)
 import qualified GHC.Generics  as GHC
 
 data SecretBody = SecretBody {
-    blob            :: String
-  , creation_date   :: UTCTime
-  , expiration_date :: Maybe UTCTime
+    blob           :: String
+  , creationDate   :: UTCTime
+  , expirationDate :: Maybe UTCTime
   } deriving ( Aeson.FromJSON
              , Aeson.ToJSON
              , GHC.Generic
@@ -21,4 +22,9 @@ data SecretBody = SecretBody {
              , Show
              )
 
+-- For use with acid-state
 $(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''SecretBody)
+
+data CreateSecretResponse = CreateSecretResponse {
+    secretId :: String
+  } deriving (Aeson.ToJSON, GHC.Generic, Show)
