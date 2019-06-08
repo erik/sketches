@@ -9,8 +9,8 @@ import           Blick.Types (CreateSecretResponse, SecretBody)
 import qualified Data.Proxy  as Proxy
 
 
-type API
-  = GetSecret
+type API =
+       GetSecret
   :<|> CreateSecret
 
 -- TODO: understand this
