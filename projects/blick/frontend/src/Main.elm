@@ -46,13 +46,15 @@ main =
 
 init : flags -> Url -> Key -> ( Model, Cmd Msg )
 init _ _ _ =
-    ( initialModel, Cmd.none )
+    ( initialModel
+    , fetchSecret "d4864921-e9b3-47d4-a216-7d73356dabea"
+    )
 
 
 fetchSecret : String -> Cmd Msg
 fetchSecret id =
     Http.get
-        { url = "/secret/" ++ id
+        { url = "http://localhost:8080/secret/" ++ id
         , expect = Http.expectJson FetchedSecret secretDecoder
         }
 
@@ -92,7 +94,8 @@ update msg model =
         FetchedSecret result ->
             case result of
                 Ok secret ->
-                    ( model, Cmd.none )
+                    Debug.log (Debug.toString secret)
+                        |> \_ -> ( model, Cmd.none )
 
                 Err err ->
                     Debug.log ("Failed to receive secret" ++ Debug.toString err)
@@ -115,7 +118,7 @@ subscriptions model =
 type alias Secret =
     { blob : String
     , creationDate : String
-    , expirationDate : String
+    , expirationDate : Maybe String
     }
 
 
@@ -125,4 +128,4 @@ secretDecoder =
         (Json.field "blob" Json.string)
         -- TODO: Need to do the next step of converting these to date objects.
         (Json.field "creationDate" Json.string)
-        (Json.field "expirationDate" Json.string)
+        (Json.field "expirationDate" (Json.nullable Json.string))
