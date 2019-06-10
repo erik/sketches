@@ -10,6 +10,7 @@ import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2)
 import Http
 import Json.Decode as Json
+import Route as Route exposing (Route)
 import Task
 import Url exposing (Url)
 
@@ -95,7 +96,7 @@ update msg model =
             case result of
                 Ok secret ->
                     Debug.log (Debug.toString secret)
-                        |> \_ -> ( model, Cmd.none )
+                        |> (\_ -> ( model, Cmd.none ))
 
                 Err err ->
                     Debug.log ("Failed to receive secret" ++ Debug.toString err)
