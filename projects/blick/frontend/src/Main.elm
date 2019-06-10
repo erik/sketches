@@ -22,6 +22,7 @@ type Model
 
 type Msg
     = NoOp
+    | FetchedSecret (Result Http.Error Secret)
 
 
 main : Program () Model Msg
@@ -40,12 +41,20 @@ main =
 
 
 -- INIT
-
-
 -- TODO: Route based on initial URL.
+
+
 init : flags -> Url -> Key -> ( Model, Cmd Msg )
 init _ _ _ =
     ( initialModel, Cmd.none )
+
+
+fetchSecret : String -> Cmd Msg
+fetchSecret id =
+    Http.get
+        { url = "/secret/" ++ id
+        , expect = Http.expectJson FetchedSecret secretDecoder
+        }
 
 
 initialModel : Model
@@ -79,6 +88,16 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        -- TODO: Implement this one
+        FetchedSecret result ->
+            case result of
+                Ok secret ->
+                    ( model, Cmd.none )
+
+                Err err ->
+                    Debug.log ("Failed to receive secret" ++ Debug.toString err)
+                        |> (\_ -> ( model, Cmd.none ))
+
 
 
 -- SUBSCRIPTIONS
@@ -87,3 +106,23 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
+
+
+
+-- SECRETS
+
+
+type alias Secret =
+    { blob : String
+    , creationDate : String
+    , expirationDate : String
+    }
+
+
+secretDecoder : Json.Decoder Secret
+secretDecoder =
+    Json.map3 Secret
+        (Json.field "blob" Json.string)
+        -- TODO: Need to do the next step of converting these to date objects.
+        (Json.field "creationDate" Json.string)
+        (Json.field "expirationDate" Json.string)
