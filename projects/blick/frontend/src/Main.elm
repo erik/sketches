@@ -42,7 +42,6 @@ main =
 
 
 -- INIT
--- TODO: Route based on initial URL.
 
 
 init : flags -> Url -> Key -> ( Model, Cmd Msg )
@@ -55,12 +54,18 @@ fetchSecret secret =
     let
         id =
             secret.id
+
+        -- Associate the secret key we extracted from the URL to the
+        -- response payload the server sent us.
+        attachSecretKey result =
+            result
+                |> Result.map (\r -> { r | key = secret.key })
+                |> FetchedSecret
     in
     -- TODO: Remove localhost
-    -- TODO: Keep secret key around somehow
     Http.get
         { url = "http://localhost:8080/secret/" ++ id
-        , expect = Http.expectJson FetchedSecret secretDecoder
+        , expect = Http.expectJson attachSecretKey secretDecoder
         }
 
 
@@ -108,7 +113,10 @@ view model =
 
 viewBody : Model -> Html Msg
 viewBody model =
-    div [] [ text "hello world" ]
+    div []
+        [ h1 [] [ text <| Debug.toString model ]
+        , text "that's your model"
+        ]
 
 
 
@@ -150,13 +158,16 @@ type alias Secret =
     { blob : String
     , creationDate : String
     , expirationDate : Maybe String
+    , key : Maybe String
     }
 
 
 secretDecoder : Json.Decoder Secret
 secretDecoder =
-    Json.map3 Secret
+    Json.map4 Secret
         (Json.field "blob" Json.string)
         -- TODO: Need to do the next step of converting these to date objects.
         (Json.field "creationDate" Json.string)
         (Json.field "expirationDate" (Json.nullable Json.string))
+        -- Key field comes from the URL, not the server
+        (Json.succeed <| Nothing)
