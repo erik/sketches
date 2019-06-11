@@ -1,5 +1,6 @@
-module Route exposing (Route(..))
+module Route exposing (Route(..), UrlSecret, fromUrl)
 
+import Url exposing (Url)
 import Url.Parser as Parser exposing ((</>), Parser, map, oneOf, s)
 
 
@@ -8,7 +9,8 @@ import Url.Parser as Parser exposing ((</>), Parser, map, oneOf, s)
 
 
 type Route
-    = CreateSecret
+    = NotFound
+    | CreateSecret
     | ViewSecret UrlSecret
 
 
@@ -16,6 +18,16 @@ type alias UrlSecret =
     { id : String
     , key : Maybe String
     }
+
+
+{-| Return the corresponding `Route` for a given URL, falling back to
+`NotFound`.
+-}
+fromUrl : Url -> Route
+fromUrl url =
+    url
+        |> Parser.parse urlParser
+        |> Maybe.withDefault NotFound
 
 
 urlParser : Parser (Route -> a) a

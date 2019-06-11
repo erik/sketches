@@ -10,7 +10,7 @@ import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2)
 import Http
 import Json.Decode as Json
-import Route as Route exposing (Route)
+import Route as Route exposing (Route(..))
 import Task
 import Url exposing (Url)
 
@@ -46,14 +46,18 @@ main =
 
 
 init : flags -> Url -> Key -> ( Model, Cmd Msg )
-init _ _ _ =
-    ( initialModel
-    , fetchSecret "d4864921-e9b3-47d4-a216-7d73356dabea"
-    )
+init _ url _ =
+    routeUrl initialModel url
 
 
-fetchSecret : String -> Cmd Msg
-fetchSecret id =
+fetchSecret : Route.UrlSecret -> Cmd Msg
+fetchSecret secret =
+    let
+        id =
+            secret.id
+    in
+    -- TODO: Remove localhost
+    -- TODO: Keep secret key around somehow
     Http.get
         { url = "http://localhost:8080/secret/" ++ id
         , expect = Http.expectJson FetchedSecret secretDecoder
@@ -63,6 +67,32 @@ fetchSecret id =
 initialModel : Model
 initialModel =
     CreateSecret
+
+
+
+-- ROUTING
+
+
+routeUrl : Model -> Url -> ( Model, Cmd Msg )
+routeUrl model url =
+    let
+        route =
+            Route.fromUrl url
+    in
+    chooseRoute route model
+
+
+chooseRoute : Route -> Model -> ( Model, Cmd Msg )
+chooseRoute route model =
+    case route of
+        Route.NotFound ->
+            ( NotFound, Cmd.none )
+
+        Route.CreateSecret ->
+            ( CreateSecret, Cmd.none )
+
+        Route.ViewSecret id ->
+            ( ViewSecret, fetchSecret id )
 
 
 
