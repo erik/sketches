@@ -50,10 +50,26 @@ createSecret body = do
   return $ CreateSecretResponse { secretId = secretId }
 
 
--- TODO: Return a legitimate HTML body
 serveSinglePageApp :: Wai.Application
-serveSinglePageApp _req respond = respond $
+serveSinglePageApp _req respond =
+  respond $
         Wai.responseLBS
         status200
         [("Content-Type", "text/html")]
-        "<h1>this is totally HTML.</h1>"
+        baseHtml
+
+
+-- TODO: Probably switch to something like Blaze HTML
+baseHtml =
+  "<!doctype html>\n\
+  \<head>\n\
+  \  <meta charset=\"utf-8\">\n\
+  \  <title>blick</title>\n\
+  \</head>\n\
+  \<body>\n\
+  \  <div id=\"app\"></div>\n\
+  \  <script src=\"/static/main.js\"></script>\n\
+  \  <script>\n\
+  \    var app = Elm.Main.init({ node: document.getElementById(\"app\")});\n\
+  \  </script>\n\
+  \</body>"
