@@ -1,6 +1,6 @@
 module Blick where
 
-import           Blick.API                (api)
+import qualified Blick.API                as API
 import           Blick.Config             (Config (..), configFromEnv)
 import           Blick.Context            (AppCtx (..))
 import qualified Blick.Database.Secret
@@ -28,10 +28,10 @@ main = do
 
 makeApplication :: AppCtx -> Wai.Application
 makeApplication ctx =
-  Servant.serve api serverWithContext
+  Servant.serve API.combined serverWithContext
 
   where
-    serverWithContext = Servant.hoistServer api (flip runReaderT ctx) server
+    serverWithContext = Servant.hoistServer API.combined (flip runReaderT ctx) server
 
 
 startServer :: AppCtx -> IO ()
