@@ -1,5 +1,5 @@
 BUILD_DIR ?= ../assets
-ELM_FLAGS ?= 
+ELM_FLAGS ?=
 
 BUNDLE_FILE ?= "$(BUILD_DIR)/main.js"
 
@@ -19,4 +19,6 @@ clean:
 	rm -f "$(BUNDLE_FILE)"
 
 watch:
-	ls src/**.elm | entr make all
+	ls src/**.elm | entr make debug all
+
+.PHONY: all debug release build clean watch

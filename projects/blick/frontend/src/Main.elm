@@ -60,11 +60,12 @@ fetchSecret secret =
         attachSecretKey result =
             result
                 |> Result.map (\r -> { r | key = secret.key })
+                |> Debug.log "Received secret"
                 |> FetchedSecret
     in
     -- TODO: Remove localhost
     Http.get
-        { url = "http://localhost:8080/secret/" ++ id
+        { url = "http://localhost:8080/api/secret/" ++ id
         , expect = Http.expectJson attachSecretKey secretDecoder
         }
 
