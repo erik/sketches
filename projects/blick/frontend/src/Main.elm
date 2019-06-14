@@ -129,7 +129,7 @@ view model =
             , body = [ viewNotImplemented model ]
             }
 
-
+-- TODO: Need to style this
 viewWrapper : List (Html Msg) -> Html Msg
 viewWrapper body =
     div [ class "content" ] body

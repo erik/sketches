@@ -65,6 +65,7 @@ baseHtml =
   \<head>\n\
   \  <meta charset=\"utf-8\">\n\
   \  <title>blick</title>\n\
+  \  <link rel=\"stylesheet\" href=\"/static/main.css\">\n\
   \</head>\n\
   \<body>\n\
   \  <div id=\"app\"></div>\n\

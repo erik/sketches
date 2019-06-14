@@ -2,6 +2,6 @@
 blick.cabal
 *~
 
-/acid/
-/assets/
-!/assets/.gitkeep
+acid/*
+assets/*
+!assets/main.css
