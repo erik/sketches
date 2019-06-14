@@ -25,6 +25,13 @@ type Model
 type Msg
     = NoOp
     | FetchedSecret (Result Http.Error Secret)
+    | SetSecretKey String
+
+
+port showKeyPrompt : String -> Cmd msg
+
+
+port showKeyPromptResult : (String -> msg) -> Sub msg
 
 
 main : Program () Model Msg
@@ -129,7 +136,11 @@ view model =
             , body = [ viewNotImplemented model ]
             }
 
+
+
 -- TODO: Need to style this
+
+
 viewWrapper : List (Html Msg) -> Html Msg
 viewWrapper body =
     div [ class "content" ] body
@@ -185,15 +196,38 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        -- TODO: Split this out, too much rightward drift.
         FetchedSecret result ->
             case result of
                 Ok secret ->
-                    ( ViewSecret secret, Cmd.none )
+                    let
+                        -- If we have a key, nothing to do, otherwise show the prompt.
+                        cmd =
+                            secret.key
+                                |> Maybe.map (\_ -> Cmd.none)
+                                |> Maybe.withDefault (showKeyPrompt "enter secret password")
+                    in
+                    ( ViewSecret secret, cmd )
 
                 -- TODO: Implement some kind of error handling
                 Err err ->
                     Debug.log ("Failed to receive secret" ++ Debug.toString err)
                         |> (\_ -> ( model, Cmd.none ))
+
+        -- Manually entered secret key.
+        -- TODO: Probably should be renamed.
+        SetSecretKey key ->
+            case model of
+                ViewSecret secret ->
+                    let
+                        secret_ =
+                            { secret | key = Just key }
+                    in
+                    ( ViewSecret secret_, Cmd.none )
+
+                -- If we're not in ViewSecret, nothing to do here.
+                _ ->
+                    ( model, Cmd.none )
 
 
 
@@ -202,7 +236,7 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    showKeyPromptResult SetSecretKey
 
 
 

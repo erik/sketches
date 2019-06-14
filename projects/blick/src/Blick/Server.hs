@@ -41,7 +41,6 @@ getSecret secretId = do
     Just s ->
       return s
 
-
 createSecret :: SecretBody -> AppM CreateSecretResponse
 createSecret body = do
   db <- asks _getSecretDb
@@ -50,6 +49,10 @@ createSecret body = do
   return $ CreateSecretResponse { secretId = secretId }
 
 
+-- | This is pretty gross, but the idea is that since the frontend is
+-- responsible for routing, we never actually send a 404 from the
+-- backend. The frontend always receives the same barebones html and
+-- does the routing / rendering.
 serveSinglePageApp :: Wai.Application
 serveSinglePageApp _req respond =
   respond $
@@ -71,6 +74,9 @@ baseHtml =
   \  <div id=\"app\"></div>\n\
   \  <script src=\"/static/main.js\"></script>\n\
   \  <script>\n\
-  \    var app = Elm.Main.init({ node: document.getElementById(\"app\")});\n\
+  \    const app = Elm.Main.init({ node: document.getElementById(\"app\")});\n\
+  \    app.ports.showKeyPrompt.subscribe((prompt) => {\n\
+  \        app.ports.showKeyPromptResult.send(window.prompt(prompt));\n\
+  \    })\n\
   \  </script>\n\
   \</body>"
