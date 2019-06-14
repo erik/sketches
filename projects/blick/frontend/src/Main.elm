@@ -220,10 +220,18 @@ update msg model =
             case model of
                 ViewSecret secret ->
                     let
-                        secret_ =
-                            { secret | key = Just key }
+                        k =
+                            -- Don't allow empty string passwords
+                            case key of
+                                "" ->
+                                    Nothing
+
+                                x ->
+                                    Just key
                     in
-                    ( ViewSecret secret_, Cmd.none )
+                    ( ViewSecret { secret | key = k }
+                    , Cmd.none
+                    )
 
                 -- If we're not in ViewSecret, nothing to do here.
                 _ ->
