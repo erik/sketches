@@ -18,7 +18,8 @@ import Url exposing (Url)
 type Model
     = NotFound
     | CreateSecret
-    | ViewSecret
+    | FetchSecret
+    | ViewSecret Secret
 
 
 type Msg
@@ -63,7 +64,7 @@ fetchSecret secret =
                 |> Debug.log "Received secret"
                 |> FetchedSecret
     in
-    -- TODO: Remove localhost
+    -- TODO: Remove localhost, make this somehow configurable
     Http.get
         { url = "http://localhost:8080/api/secret/" ++ id
         , expect = Http.expectJson attachSecretKey secretDecoder
@@ -98,7 +99,7 @@ chooseRoute route model =
             ( CreateSecret, Cmd.none )
 
         Route.ViewSecret id ->
-            ( ViewSecret, fetchSecret id )
+            ( FetchSecret, fetchSecret id )
 
 
 
@@ -107,16 +108,70 @@ chooseRoute route model =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "blick"
-    , body = [ viewBody model ]
-    }
+    case model of
+        NotFound ->
+            { title = "not found"
+            , body = [ viewNotFound ]
+            }
+
+        ViewSecret secret ->
+            { title = "blick"
+            , body = [ viewSecret secret ]
+            }
+
+        FetchSecret ->
+            { title = "blick - fetching"
+            , body = [ viewFetchSecret ]
+            }
+
+        CreateSecret ->
+            { title = "blick"
+            , body = [ viewNotImplemented model ]
+            }
 
 
-viewBody : Model -> Html Msg
-viewBody model =
+viewWrapper : List (Html Msg) -> Html Msg
+viewWrapper body =
+    div [ class "content" ] body
+
+
+viewSecret : Secret -> Html Msg
+viewSecret secret =
+    viewWrapper
+        [ div []
+            [ h1 []
+                [ text "Got the secret!" ]
+            , text <| Debug.toString secret
+            ]
+        ]
+
+
+
+-- TODO: Spinner? Something a little more progress-y?
+
+
+viewFetchSecret : Html Msg
+viewFetchSecret =
+    viewWrapper
+        [ p [] [ text "... fetching ..." ]
+        ]
+
+
+viewNotFound : Html Msg
+viewNotFound =
+    viewWrapper
+        [ h1 [] [ text "That's a 404." ]
+        , p [] [ text "Sorry, page not found." ]
+        ]
+
+
+viewNotImplemented : Model -> Html Msg
+viewNotImplemented model =
     div []
         [ h1 [] [ text <| Debug.toString model ]
         , text "that's your model"
+        , br [] []
+        , text "it's not implemented yet though..."
         ]
 
 
@@ -130,13 +185,12 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
-        -- TODO: Implement this one
         FetchedSecret result ->
             case result of
                 Ok secret ->
-                    Debug.log (Debug.toString secret)
-                        |> (\_ -> ( model, Cmd.none ))
+                    ( ViewSecret secret, Cmd.none )
 
+                -- TODO: Implement some kind of error handling
                 Err err ->
                     Debug.log ("Failed to receive secret" ++ Debug.toString err)
                         |> (\_ -> ( model, Cmd.none ))
