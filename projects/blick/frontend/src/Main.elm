@@ -24,14 +24,41 @@ type Model
 
 type Msg
     = NoOp
-    | FetchedSecret (Result Http.Error Secret)
+    | SecretFetched (Result Http.Error Secret)
     | SetSecretKey String
+    | SecretEncrypted EncryptionResult
+    | CreateSecretClicked Secret
 
 
 port showKeyPrompt : String -> Cmd msg
 
 
 port showKeyPromptResult : (String -> msg) -> Sub msg
+
+
+type alias EncryptionRequest =
+    { text : String
+    , key : Maybe String
+    }
+
+
+type alias EncryptionResult =
+    { blob : String
+    , key : String
+    }
+
+
+{-| Use Web.Crypto API to encrypt given text. Encryption request can
+optionally specify a user-defined key. If not given, a secure one will
+be generated.
+-}
+port encryptString : EncryptionRequest -> Cmd msg
+
+
+{-| Response from `encryptString`. Encrypted text along with a
+decryption key (either given by user or generated).
+-}
+port encryptStringResult : (EncryptionResult -> msg) -> Sub msg
 
 
 main : Program () Model Msg
@@ -69,7 +96,7 @@ fetchSecret secret =
             result
                 |> Result.map (\r -> { r | key = secret.key })
                 |> Debug.log "Received secret"
-                |> FetchedSecret
+                |> SecretFetched
     in
     -- TODO: Remove localhost, make this somehow configurable
     Http.get
@@ -197,7 +224,7 @@ update msg model =
             ( model, Cmd.none )
 
         -- TODO: Split this out, too much rightward drift.
-        FetchedSecret result ->
+        SecretFetched result ->
             case result of
                 Ok secret ->
                     let
@@ -205,14 +232,17 @@ update msg model =
                         cmd =
                             secret.key
                                 |> Maybe.map (\_ -> Cmd.none)
-                                |> Maybe.withDefault (showKeyPrompt "enter secret password")
+                                |> Maybe.withDefault (showKeyPrompt "enter secret key")
                     in
                     ( ViewSecret secret, cmd )
 
                 -- TODO: Implement some kind of error handling
                 Err err ->
-                    Debug.log ("Failed to receive secret" ++ Debug.toString err)
-                        |> (\_ -> ( model, Cmd.none ))
+                    let
+                        _ =
+                            Debug.log ("Failed to receive secret" ++ Debug.toString err)
+                    in
+                    ( model, Cmd.none )
 
         -- Manually entered secret key.
         -- TODO: Probably should be renamed.
@@ -237,6 +267,28 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        -- TODO: Show URL to share
+        SecretEncrypted result ->
+            let
+                _ =
+                    result
+                        |> Debug.log "encrypted"
+            in
+            ( model, Cmd.none )
+
+        CreateSecretClicked secret ->
+            let
+                _ =
+                    secret
+                        |> Debug.log "create secret"
+
+                req =
+                    { text = "TODO: add secret text here"
+                    , key = Nothing
+                    }
+            in
+            ( model, encryptString req )
+
 
 
 -- SUBSCRIPTIONS
@@ -244,7 +296,10 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    showKeyPromptResult SetSecretKey
+    Sub.batch
+        [ showKeyPromptResult SetSecretKey
+        , encryptStringResult SecretEncrypted
+        ]
 
 
 
