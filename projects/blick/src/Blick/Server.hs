@@ -63,7 +63,6 @@ serveSinglePageApp _req respond =
 
 
 -- TODO: Probably switch to something like Blaze HTML
--- TODO: Encryption, possibly break out ports to separate JS file.
 baseHtml =
   "<!doctype html>\n\
   \<head>\n\
@@ -74,13 +73,9 @@ baseHtml =
   \<body>\n\
   \  <div id=\"app\"></div>\n\
   \  <script src=\"/static/main.js\"></script>\n\
+  \  <script src=\"/static/ports.js\"></script>\n\
   \  <script>\n\
   \    const app = Elm.Main.init({node: document.getElementById(\"app\")});\n\
-  \    app.ports.showKeyPrompt.subscribe((prompt) => {\n\
-  \      app.ports.showKeyPromptResult.send(window.prompt(prompt));\n\
-  \    });\n\
-  \    app.ports.encryptString.subscribe((req) => {\n\
-  \      console.log('to encrypt:', req);\n\
-  \    });\n\
+  \    registerPorts(app);\n\
   \  </script>\n\
   \</body>"

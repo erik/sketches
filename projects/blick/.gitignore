@@ -5,3 +5,4 @@ blick.cabal
 acid/*
 assets/*
 !assets/main.css
+!assets/ports.js
