@@ -42,7 +42,7 @@ async function importKey(str) {
 
     return await window.crypto.subtle.importKey(
         /* format = */ "raw",
-        /* keyData = */ buf;
+        /* keyData = */ buf,
         {name: 'AES-GCM', length: 256},
         /* extractable = */ true,
         ['encrypt', 'decrypt']
@@ -72,11 +72,11 @@ function registerPorts(app) {
         // TODO: send back to app
     });
 
-    app.ports.decryptString.subscribe(async ({key, text}) => {
-        const key = await importKey(key);
+    app.ports.decryptString.subscribe(async (msg) => {
+        const key = await importKey(msg.key);
 
         // TODO: handle bad key scenario
-        const decoded = decodeMessage(key, text)
+        const decoded = decodeMessage(key, msg.text)
         console.log('decrypted', decoded);
 
         // TODO: send back to app
