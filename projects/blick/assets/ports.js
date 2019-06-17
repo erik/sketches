@@ -17,28 +17,44 @@ async function encryptMessage(key, message) {
         encodedMsg
     );
 
-    const buf = new Unit8Array(encrypted);
+    const buf = new Uint8Array(encrypted);
 
     return {
-        cipher: window.btoa(buf),
-        iv: window.btoa(iv)
+        cipher: arrayBufferToB64(buf),
+        iv: arrayBufferToB64(iv)
     };
 }
 
-async function decryptMessage(key, msg) {
-    const {iv, cipher} = msg;
+function b64ToArrayBuffer(b64) {
+    const bytes = window.atob(b64);
+    const buf = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; ++i) {
+        buf[i] = bytes.charCodeAt(i);
+    }
 
-    const decrypted = await window.crypto.subtle.encrypt(
-        {name: 'AES-GCM', iv: window.atob(iv)},
+    return buf.buffer;
+}
+
+function arrayBufferToB64(buf) {
+    const decoded = String.fromCharCode.apply(null, buf);
+    return window.btoa(decoded);
+}
+
+async function decryptMessage(key, msg) {
+    const msgBuf = b64ToArrayBuffer(msg.cipher);
+    const iv = b64ToArrayBuffer(msg.iv);
+
+    const decrypted = await window.crypto.subtle.decrypt(
+        {name: 'AES-GCM', iv},
         key,
-        window.btoa(cipher)
+        msgBuf
     );
 
     return new TextDecoder().decode(decrypted);
 }
 
 async function importKey(str) {
-    const buf = window.atob(str);
+    const buf = b64ToArrayBuffer(str);
 
     return await window.crypto.subtle.importKey(
         /* format = */ "raw",
@@ -50,10 +66,13 @@ async function importKey(str) {
 }
 
 async function exportKey(key) {
-    // Could export as raw instead, since we only care about the b64
-    // encoded key, but JWK already does the encoding for us.
-    const jwk = await window.crypto.subtle.exportKey("jwk", key);
-    return jwk.k;
+    const buf = await window.crypto.subtle.exportKey(
+        /* format = */ "raw",
+        /* keyData = */ key,
+    );
+    const bufView = new Uint8Array(buf);
+
+    return arrayBufferToB64(bufView);
 }
 
 function registerPorts(app) {
