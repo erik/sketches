@@ -15,6 +15,10 @@ import Task
 import Url exposing (Url)
 
 
+
+-- TODO: Split model by page/function
+
+
 type Model
     = NotFound
     | CreateSecret
@@ -25,24 +29,25 @@ type Model
 type Msg
     = NoOp
     | SecretFetched (Result Http.Error Secret)
-    | SetSecretKey String
+    | PromptResponseReceived String
     | SecretEncrypted EncryptionResult
+    | SecretDecrypted (Maybe String)
     | CreateSecretClicked Secret
 
 
-port showKeyPrompt : String -> Cmd msg
+port showPrompt : String -> Cmd msg
 
 
-port showKeyPromptResult : (String -> msg) -> Sub msg
-
-
-type alias EncryptionRequest =
-    { text : String
-    , key : Maybe String
-    }
+port showPromptResult : (String -> msg) -> Sub msg
 
 
 type alias EncryptionResult =
+    { blob : String
+    , key : String
+    }
+
+
+type alias DecryptionRequest =
     { blob : String
     , key : String
     }
@@ -52,13 +57,19 @@ type alias EncryptionResult =
 optionally specify a user-defined key. If not given, a secure one will
 be generated.
 -}
-port encryptString : EncryptionRequest -> Cmd msg
+port encryptString : String -> Cmd msg
 
 
 {-| Response from `encryptString`. Encrypted text along with a
 decryption key (either given by user or generated).
 -}
 port encryptStringResult : (EncryptionResult -> msg) -> Sub msg
+
+
+port decryptString : DecryptionRequest -> Cmd msg
+
+
+port decryptStringResult : (Maybe String -> msg) -> Sub msg
 
 
 main : Program () Model Msg
@@ -231,8 +242,14 @@ update msg model =
                         -- If we have a key, nothing to do, otherwise show the prompt.
                         cmd =
                             secret.key
-                                |> Maybe.map (\_ -> Cmd.none)
-                                |> Maybe.withDefault (showKeyPrompt "enter secret key")
+                                |> Maybe.map
+                                    (\key ->
+                                        decryptString
+                                            { blob = secret.blob
+                                            , key = key
+                                            }
+                                    )
+                                |> Maybe.withDefault (showPrompt "enter secret key")
                     in
                     ( ViewSecret secret, cmd )
 
@@ -246,21 +263,32 @@ update msg model =
 
         -- Manually entered secret key.
         -- TODO: Probably should be renamed.
-        SetSecretKey key ->
+        PromptResponseReceived result ->
             case model of
                 ViewSecret secret ->
                     let
                         k =
                             -- Don't allow empty string passwords
-                            case key of
+                            case result of
                                 "" ->
                                     Nothing
 
                                 x ->
-                                    Just key
+                                    Just result
+
+                        cmd =
+                            k
+                                |> Maybe.map
+                                    (\key ->
+                                        decryptString
+                                            { blob = secret.blob
+                                            , key = key
+                                            }
+                                    )
+                                |> Maybe.withDefault Cmd.none
                     in
                     ( ViewSecret { secret | key = k }
-                    , Cmd.none
+                    , cmd
                     )
 
                 -- If we're not in ViewSecret, nothing to do here.
@@ -282,12 +310,18 @@ update msg model =
                     secret
                         |> Debug.log "create secret"
 
-                req =
-                    { text = "TODO: add secret text here"
-                    , key = Nothing
-                    }
+                text =
+                    "TODO: add secret text here"
             in
-            ( model, encryptString req )
+            ( model, encryptString text )
+
+        SecretDecrypted message ->
+            let
+                _ =
+                    message
+                        |> Debug.log "decrypted"
+            in
+            ( model, Cmd.none )
 
 
 
@@ -297,13 +331,16 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ showKeyPromptResult SetSecretKey
+        [ showPromptResult PromptResponseReceived
         , encryptStringResult SecretEncrypted
+        , decryptStringResult SecretDecrypted
         ]
 
 
 
 -- SECRETS
+-- TODO: blob will contain IV + ciphertext as serialized JSON. does
+-- TODO: this suck? Elm doesn't need to know about internals, really.
 
 
 type alias Secret =

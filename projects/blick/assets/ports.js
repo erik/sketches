@@ -77,9 +77,9 @@ async function exportKey(key) {
 
 function registerPorts(app) {
     // Show prompt dialog
-    app.ports.showKeyPrompt.subscribe((prompt) => {
+    app.ports.showPrompt.subscribe((prompt) => {
         const key = window.prompt(prompt);
-        app.ports.showKeyPromptResult.send(key);
+        app.ports.showPromptResult.send(key);
     });
 
     app.ports.encryptString.subscribe(async (text) => {
@@ -88,17 +88,28 @@ function registerPorts(app) {
 
         // base64 encode exported key
         const exportedKey = await exportKey(key);
-        // TODO: send back to app
+        const msg = await encryptMessage(key, text);
+
+        console.log('encrypted "', text,'" to => ', msg);
+
+        const response = {
+            blob: JSON.stringify(msg),
+            key: exportedKey
+        };
+        app.ports.encryptStringResult.send(response);
     });
 
     app.ports.decryptString.subscribe(async (msg) => {
         const key = await importKey(msg.key);
+        const request = JSON.parse(msg.blob);
+
+        console.log('got request => ', request);
 
         // TODO: handle bad key scenario
-        const decoded = decodeMessage(key, msg.text)
+        const decoded = await decryptMessage(key, request);
         console.log('decrypted', decoded);
 
-        // TODO: send back to app
+        app.ports.decryptStringResult.send(decoded);
     });
 
 }
