@@ -1,0 +1,18 @@
+[package]
+name = "tofu"
+version = "0.1.0"
+authors = ["Erik Price <github@erikprice.net>"]
+edition = "2018"
+
+[dependencies]
+actix = "*"
+actix-redis = "*"
+actix-web = "*"
+askama = "*"
+dotenv = "*"
+env_logger = "*"
+futures = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+redis-async = "*"
