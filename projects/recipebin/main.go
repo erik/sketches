@@ -704,7 +704,6 @@ func (s *Service) handleListing(w http.ResponseWriter, req *http.Request) {
 		Limit:  limit,
 	})
 
-	fmt.Printf("here?\n")
 	if err != nil {
 		fmt.Printf("Error: list recipes failed: %+v\n", err)
 		http.Error(w, err.Error(), 500)

@@ -16,3 +16,4 @@ serde = "*"
 serde_derive = "*"
 serde_json = "*"
 redis-async = "*"
+uuid = { version = "*", features = ["serde", "v4"] }
