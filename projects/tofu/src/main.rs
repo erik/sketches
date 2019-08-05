@@ -4,34 +4,44 @@ extern crate redis_async;
 extern crate serde_derive;
 extern crate dotenv;
 
+use futures::future;
 use futures::future::Future;
-use std::env;
 use std::io;
 
 use actix::prelude::Addr;
 use actix_redis::{Command, RedisActor, RespValue};
-use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use dotenv::dotenv;
 use uuid::Uuid;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct CacheableSecret {
-    a: String,
+    content: String,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CreateSecretPostBody {
     content: String,
     expiration_seconds: u32,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CreateSecretResponseBody {
     id: Uuid,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum GetSecretResponse {
+    Success(CacheableSecret),
+    Error(String),
+}
+
 struct AppState {
     redis: Addr<RedisActor>,
+    max_secret_length: usize,
 }
 
 fn create_secret(
@@ -39,11 +49,22 @@ fn create_secret(
     state: web::Data<AppState>,
 ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
     let body = body.into_inner();
+
     let id = Uuid::new_v4();
     let expiration = body.expiration_seconds.to_string();
+
+    let validation = future::result(if body.content.len() > state.max_secret_length {
+        Err("content too large")
+    } else if body.expiration_seconds > 9000 {
+        Err("expiration too long")
+    } else {
+        Ok(())
+    })
+    .map_err(actix_web::error::ErrorBadRequest);
+
     println!("Writing: {:?}: {:?}", id.to_string(), expiration);
 
-    state
+    let redis_fetch = state
         .redis
         .send(Command(resp_array![
             "SETEX",
@@ -52,7 +73,9 @@ fn create_secret(
             body.content
         ]))
         .map_err(actix_web::Error::from)
-        .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }))
+        .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }));
+
+    validation.and_then(|_| redis_fetch)
 }
 
 fn get_secret(
@@ -67,12 +90,12 @@ fn get_secret(
         .send(Command(resp_array!["GET", secret_id]))
         .map_err(actix_web::Error::from)
         .map(|res: Result<RespValue, actix_redis::Error>| match res {
-            Ok(RespValue::BulkString(vec)) => {
-                let str = String::from_utf8(vec).unwrap();
-
-                HttpResponse::Ok().body(str)
+            Ok(RespValue::BulkString(bytes)) => {
+                let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
+                HttpResponse::Ok()
+                    .json(GetSecretResponse::Success(CacheableSecret { content: str }))
             }
-            _ => HttpResponse::NotFound().body("not found"),
+            _ => HttpResponse::NotFound().json(GetSecretResponse::Error("not found".to_string())),
         })
 }
 
@@ -83,6 +106,10 @@ fn main() -> io::Result<()> {
     HttpServer::new(move || {
         let state = AppState {
             redis: RedisActor::start("localhost:6379"),
+            max_secret_length: std::env::var("MAX_SECRET_LENGTH")
+                .unwrap_or("4096".to_string())
+                .parse()
+                .expect("unvalid integer value"),
         };
 
         App::new()
