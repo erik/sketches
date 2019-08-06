@@ -4,14 +4,15 @@ extern crate redis_async;
 extern crate serde_derive;
 extern crate dotenv;
 
-use futures::future;
-use futures::future::Future;
 use std::io;
 
 use actix::prelude::Addr;
 use actix_redis::{Command, RedisActor, RespValue};
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use dotenv::dotenv;
+use futures::future;
+use futures::future::Future;
+use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
@@ -34,9 +35,9 @@ pub struct CreateSecretResponseBody {
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
-enum GetSecretResponse {
-    Success(CacheableSecret),
-    Error(String),
+enum ApiResponse<T: Serialize> {
+    Success(T),
+    Error(T),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -79,7 +80,9 @@ fn create_secret(
             body.content
         ]))
         .map_err(actix_web::Error::from)
-        .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }));
+        .map(move |_| {
+            HttpResponse::Ok().json(ApiResponse::Success(CreateSecretResponseBody { id }))
+        });
 
     validation.and_then(|_| write_secret)
 }
@@ -106,18 +109,17 @@ fn get_secret(
         .map(|res: Result<RespValue, actix_redis::Error>| match res {
             Ok(RespValue::BulkString(bytes)) => {
                 let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
-                HttpResponse::Ok()
-                    .json(GetSecretResponse::Success(CacheableSecret { content: str }))
+                HttpResponse::Ok().json(ApiResponse::Success(CacheableSecret { content: str }))
             }
 
             Ok(RespValue::Nil) => {
-                HttpResponse::NotFound().json(GetSecretResponse::Error("not found".to_string()))
+                HttpResponse::NotFound().json(ApiResponse::Error("not found".to_string()))
             }
 
             err => {
                 println!("Redis exception: {:?}", err);
                 HttpResponse::InternalServerError()
-                    .json(GetSecretResponse::Error("something went wrong".to_string()))
+                    .json(ApiResponse::Error("something went wrong".to_string()))
             }
         })
 }
