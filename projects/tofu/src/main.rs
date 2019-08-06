@@ -16,7 +16,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
-pub struct CacheableSecret {
+pub struct SecretBody {
     content: String,
 }
 
@@ -35,9 +35,14 @@ pub struct CreateSecretResponseBody {
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
-enum ApiResponse<T: Serialize> {
-    Success(T),
-    Error(T),
+pub struct ApiError<T: Serialize> {
+    error: T,
+}
+
+impl<T: Serialize> ApiError<T> {
+    pub fn from(err: T) -> ApiError<T> {
+        ApiError { error: err }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,7 +72,8 @@ fn create_secret(
     } else {
         Ok(())
     })
-    .map_err(actix_web::error::ErrorBadRequest);
+    .map_err(|err| HttpResponse::BadRequest().json(ApiError::from(err)))
+    .map_err(actix_web::Error::from);
 
     println!("Writing: {:?}: {:?}", id.to_string(), expiration);
 
@@ -80,9 +86,7 @@ fn create_secret(
             body.content
         ]))
         .map_err(actix_web::Error::from)
-        .map(move |_| {
-            HttpResponse::Ok().json(ApiResponse::Success(CreateSecretResponseBody { id }))
-        });
+        .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }));
 
     validation.and_then(|_| write_secret)
 }
@@ -109,17 +113,14 @@ fn get_secret(
         .map(|res: Result<RespValue, actix_redis::Error>| match res {
             Ok(RespValue::BulkString(bytes)) => {
                 let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
-                HttpResponse::Ok().json(ApiResponse::Success(CacheableSecret { content: str }))
+                HttpResponse::Ok().json(SecretBody { content: str })
             }
 
-            Ok(RespValue::Nil) => {
-                HttpResponse::NotFound().json(ApiResponse::Error("not found".to_string()))
-            }
+            Ok(RespValue::Nil) => HttpResponse::NotFound().json(ApiError::from("not found")),
 
             err => {
                 println!("Redis exception: {:?}", err);
-                HttpResponse::InternalServerError()
-                    .json(ApiResponse::Error("something went wrong".to_string()))
+                HttpResponse::InternalServerError().json(ApiError::from("something went wrong"))
             }
         })
 }
@@ -138,6 +139,7 @@ fn main() -> io::Result<()> {
             .parse()
             .expect("unvalid integer value"),
     };
+
     println!("Booting with config: {:?}", config);
 
     HttpServer::new(move || {
@@ -150,7 +152,7 @@ fn main() -> io::Result<()> {
             .data(state)
             .wrap(middleware::Logger::default())
             .service(web::resource("/secret").route(web::post().to_async(create_secret)))
-            .service(web::resource("/secret/{secretid}").route(web::get().to_async(get_secret)))
+            .service(web::resource("/secret/{secret_id}").route(web::get().to_async(get_secret)))
     })
     .bind("127.0.0.1:8080")?
     .run()
