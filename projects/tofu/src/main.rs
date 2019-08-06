@@ -2,11 +2,11 @@
 extern crate redis_async;
 #[macro_use]
 extern crate serde_derive;
-extern crate dotenv;
 
 use std::io;
 
 use actix::prelude::Addr;
+use actix_files::Files;
 use actix_redis::{Command, RedisActor, RespValue};
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use dotenv::dotenv;
@@ -153,6 +153,7 @@ fn main() -> io::Result<()> {
             .wrap(middleware::Logger::default())
             .service(web::resource("/secret").route(web::post().to_async(create_secret)))
             .service(web::resource("/secret/{secret_id}").route(web::get().to_async(get_secret)))
+            .service(Files::new("/", "./static/").index_file("index.html"))
     })
     .bind("127.0.0.1:8080")?
     .run()
