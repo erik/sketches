@@ -65,30 +65,33 @@ fn create_secret(
     let id = Uuid::new_v4();
     let expiration = body.expiration_seconds.to_string();
 
-    let validation = future::result(if body.content.len() > state.config.max_secret_length {
+    let validate = if body.content.len() > state.config.max_secret_length {
         Err("content too large")
     } else if body.expiration_seconds > state.config.max_secret_expiration {
         Err("expiration too long")
     } else {
         Ok(())
-    })
-    .map_err(|err| HttpResponse::BadRequest().json(ApiError::from(err)))
-    .map_err(actix_web::Error::from);
+    };
 
-    println!("Writing: {:?}: {:?}", id.to_string(), expiration);
-
-    let write_secret = state
-        .redis
-        .send(Command(resp_array![
-            "SETEX",
-            id.to_string(),
-            expiration,
-            body.content
-        ]))
+    future::result(validate)
+        .map_err(|err| HttpResponse::BadRequest().json(ApiError::from(err)))
         .map_err(actix_web::Error::from)
-        .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }));
+        .and_then(move |_| {
+            println!("Writing: {:?}: {:?}", id.to_string(), expiration);
 
-    validation.and_then(|_| write_secret)
+            // TODO: Possibly re-encrypt secret here? libsodium or something.
+
+            state
+                .redis
+                .send(Command(resp_array![
+                    "SETEX",
+                    id.to_string(),
+                    expiration,
+                    body.content
+                ]))
+                .map_err(actix_web::Error::from)
+                .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }))
+        })
 }
 
 fn get_secret(
@@ -113,14 +116,18 @@ fn get_secret(
         .map(|res: Result<RespValue, actix_redis::Error>| match res {
             Ok(RespValue::BulkString(bytes)) => {
                 let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
+
                 HttpResponse::Ok().json(SecretBody { content: str })
             }
 
-            Ok(RespValue::Nil) => HttpResponse::NotFound().json(ApiError::from("not found")),
+            Ok(RespValue::Nil) => {
+                HttpResponse::NotFound().json(ApiError::from("not found"))
+            }
 
             err => {
                 println!("Redis exception: {:?}", err);
-                HttpResponse::InternalServerError().json(ApiError::from("something went wrong"))
+                HttpResponse::InternalServerError()
+                    .json(ApiError::from("something went wrong"))
             }
         })
 }
@@ -140,6 +147,8 @@ fn main() -> io::Result<()> {
             .expect("unvalid integer value"),
     };
 
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or("127.0.0.1:8080".to_string());
+
     println!("Booting with config: {:?}", config);
 
     HttpServer::new(move || {
@@ -151,10 +160,15 @@ fn main() -> io::Result<()> {
         App::new()
             .data(state)
             .wrap(middleware::Logger::default())
-            .service(web::resource("/secret").route(web::post().to_async(create_secret)))
-            .service(web::resource("/secret/{secret_id}").route(web::get().to_async(get_secret)))
+            .service(
+                web::resource("/api/secret").route(web::post().to_async(create_secret)),
+            )
+            .service(
+                web::resource("/api/secret/{secret_id}")
+                    .route(web::get().to_async(get_secret)),
+            )
             .service(Files::new("/", "./static/").index_file("index.html"))
     })
-    .bind("127.0.0.1:8080")?
+    .bind(bind_addr)?
     .run()
 }
