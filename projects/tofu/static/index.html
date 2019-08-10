@@ -48,29 +48,39 @@
         return;
       }
 
-      const {key, cipher, secretId} = await createSecret(plaintext, expirationMins * 60);
-
-      populateModal(key, cipher, secretId, expirationMins);
+      try {
+        const {key, cipher, secretId} = await createSecret(plaintext, expirationMins * 60);
+        populateModal(key, cipher, secretId, expirationMins);
+      } catch (e) {
+        window.alert('Secret creation failed: ' + e);
+      }
     };
 
     async function createSecret(text, expirationSecs) {
       const {key, cipher} = await crypto.encrypt(text);
 
-      const {id} = await fetch('/api/secret', {
+      const res = await fetch('/api/secret', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           content: cipher,
           expiration_seconds: expirationSecs
         })
-      }).then(r => r.json());
+      });
 
-      console.log(key, cipher, id);
+      if (res.status != 200) {
+        const {error} = await res.json();
+        throw error;
+      }
+
+      const secretId = await res.json().then(it => it.id);
+
+      console.log(key, cipher, secretId);
 
       return {
         key,
         cipher,
-        secretId: id,
+        secretId,
       };
     }
 
