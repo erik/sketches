@@ -8,7 +8,7 @@ use std::io;
 use actix::prelude::Addr;
 use actix_files::{Files, NamedFile};
 use actix_redis::{Command, RedisActor, RespValue};
-use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
+use actix_web::{middleware, web, App, HttpResponse, HttpServer, Result};
 use dotenv::dotenv;
 use futures::future;
 use futures::future::Future;
@@ -160,11 +160,24 @@ fn get_secret(
         })
 }
 
-// fn view_secret_page(
-//     path: web::Path<String>,
-//     state: web::Data<AppState>,
-// ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
-// }
+fn view_secret_page(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+) -> impl Future<Item = NamedFile, Error = actix_web::Error> {
+    let secret_id = path.to_string();
+
+    state.fetch_secret(secret_id).and_then(|res| match res {
+        Some(_) => Ok(NamedFile::open("./static/view.html")?),
+
+        None => {
+            let file = NamedFile::open("./static/404.html")?
+                // TODO: (requires HTTP crate).set_status_code()
+                ;
+
+            Ok(file)
+        }
+    })
+}
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -201,11 +214,10 @@ fn main() -> io::Result<()> {
                 web::resource("/api/secret/{secret_id}")
                     .route(web::get().to_async(get_secret)),
             )
-            .service(web::resource("/view/{secret_id}").route(web::get().to(
-                |_: HttpRequest| -> Result<NamedFile> {
-                    Ok(NamedFile::open("./static/view.html")?)
-                },
-            )))
+            .service(
+                web::resource("/view/{secret_id}")
+                    .route(web::get().to_async(view_secret_page)),
+            )
             .service(Files::new("/", "./static/").index_file("index.html"))
     })
     .bind(bind_addr)?
