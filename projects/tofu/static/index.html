@@ -97,13 +97,15 @@ automatically self-destruct after being viewed once!
 </p>
 
 <p>
-Note that encryption was done in your browser. The server has no idea
-what the contents of this message are.
+Note that encryption was done in your browser. The key was not
+transmitted to the server, so there's no way for anyone except the
+person who opens the link to view the contents.
 </p>
 
-<h2>Encrypted text</h2>
+<h2>Encryption (AES-GCM 256 bit)</h2>
+<h3>ciphertext</h3>
 <pre>${cipher}</pre>
-<h2>Encryption key</h2>
+<h3>key</h3>
 <pre>${key}</pre>
 `;
     }
@@ -138,5 +140,8 @@ what the contents of this message are.
 
     .col-1 { grid-column: 1; }
     .col-2 { grid-column: 2; }
+
+    .share-link { background: #fcfc; }
+    pre { word-break: break-all; white-space: pre-wrap; }
   </style>
 </body>

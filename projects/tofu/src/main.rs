@@ -6,9 +6,9 @@ extern crate serde_derive;
 use std::io;
 
 use actix::prelude::Addr;
-use actix_files::Files;
+use actix_files::{Files, NamedFile};
 use actix_redis::{Command, RedisActor, RespValue};
-use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result};
 use dotenv::dotenv;
 use futures::future;
 use futures::future::Future;
@@ -56,6 +56,64 @@ struct AppState {
     config: AppConfig,
 }
 
+impl AppState {
+    fn create_secret(
+        self: &AppState,
+        id: Uuid,
+        body: String,
+        expiration_seconds: usize,
+    ) -> impl Future<Item = bool, Error = actix_web::Error> {
+        self.redis
+            .send(Command(resp_array![
+                "SETEX",
+                id.to_string(),
+                expiration_seconds.to_string(),
+                body
+            ]))
+            .map_err(actix_web::Error::from)
+            .and_then(|res: Result<RespValue, actix_redis::Error>| match res {
+                Ok(RespValue::SimpleString(_)) => Ok(true),
+
+                err => {
+                    println!("unexpected response to creating secret: {:?}", err);
+                    Err(actix_web::error::ErrorInternalServerError(
+                        "failed to create secret",
+                    ))
+                }
+            })
+    }
+
+    fn fetch_secret(
+        self: &AppState,
+        id: String,
+    ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
+        self.redis
+            .send(Command(resp_array!["GET", id]))
+            .map_err(actix_web::Error::from)
+            .map(|res| match res {
+                Ok(RespValue::BulkString(bytes)) => {
+                    let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
+                    Some(str)
+                }
+
+                _ => None,
+            })
+    }
+
+    fn consume_secret(
+        self: &AppState,
+        id: String,
+    ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
+        let remove_secret = self
+            .redis
+            .send(Command(resp_array!["DEL", id.clone()]))
+            .map_err(actix_web::Error::from);
+
+        self.fetch_secret(id)
+            .and_then(|result| remove_secret.map(|_| result))
+    }
+}
+
 fn create_secret(
     body: web::Json<CreateSecretPostBody>,
     state: web::Data<AppState>,
@@ -82,14 +140,7 @@ fn create_secret(
             // TODO: Possibly re-encrypt secret here? libsodium or something.
 
             state
-                .redis
-                .send(Command(resp_array![
-                    "SETEX",
-                    id.to_string(),
-                    expiration,
-                    body.content
-                ]))
-                .map_err(actix_web::Error::from)
+                .create_secret(id, body.content, body.expiration_seconds)
                 .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }))
         })
 }
@@ -101,36 +152,19 @@ fn get_secret(
     let secret_id = path.to_string();
     println!("Fetching: {:?}", secret_id);
 
-    let fetch_secret = state
-        .redis
-        .send(Command(resp_array!["GET", secret_id.clone()]))
-        .map_err(actix_web::Error::from);
-
-    let expire_secret = state
-        .redis
-        .send(Command(resp_array!["DEL", secret_id]))
-        .map_err(actix_web::Error::from);
-
-    fetch_secret
-        .and_then(|result| expire_secret.map(|_| result))
-        .map(|res: Result<RespValue, actix_redis::Error>| match res {
-            Ok(RespValue::BulkString(bytes)) => {
-                let str = String::from_utf8(bytes).expect("non-utf8 string in redis");
-
-                HttpResponse::Ok().json(SecretBody { content: str })
-            }
-
-            Ok(RespValue::Nil) => {
-                HttpResponse::NotFound().json(ApiError::from("not found"))
-            }
-
-            err => {
-                println!("Redis exception: {:?}", err);
-                HttpResponse::InternalServerError()
-                    .json(ApiError::from("something went wrong"))
-            }
+    state
+        .consume_secret(secret_id)
+        .map(|res: Option<String>| match res {
+            Some(secret) => HttpResponse::Ok().json(SecretBody { content: secret }),
+            None => HttpResponse::NotFound().json(ApiError::from("not found")),
         })
 }
+
+// fn view_secret_page(
+//     path: web::Path<String>,
+//     state: web::Data<AppState>,
+// ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
+// }
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -167,6 +201,11 @@ fn main() -> io::Result<()> {
                 web::resource("/api/secret/{secret_id}")
                     .route(web::get().to_async(get_secret)),
             )
+            .service(web::resource("/view/{secret_id}").route(web::get().to(
+                |_: HttpRequest| -> Result<NamedFile> {
+                    Ok(NamedFile::open("./static/view.html")?)
+                },
+            )))
             .service(Files::new("/", "./static/").index_file("index.html"))
     })
     .bind(bind_addr)?
