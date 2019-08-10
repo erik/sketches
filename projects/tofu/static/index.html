@@ -9,26 +9,134 @@
 
 <body>
   <main>
-    <h1>tofu</h1>
-    <textarea id="textarea" rows="24" placeholder="Something secret..."></textarea>
-    <button id="encrypt-btn" type="button">Encrypt</button>
+    <div id="create-secret">
+      <textarea id="textarea" rows="24" placeholder="Something secret..."></textarea>
+      <div class="controls">
+        <div class="col-1">
+          <label for="expiration">Expire after</label>
+          <select id="expiration">
+            <option value="5">5 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="360">6 hours</option>
+            <option value="1440">1 day</option>
+            <option value="2880">2 days</option>
+          </select>
+        </div>
+
+        <div class="col-2">
+          <button id="encrypt-btn" type="button">Encrypt</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal">
+    </div>
   </main>
 
-  <style>
-    main { max-width: 70ch; margin: 0 auto; }
-    textarea { width: calc(100% - 2em); padding: 1em; font-size: 18px; font-family: monospace; }
-  </style>
   <script src="crypto.js"></script>
   <script>
     const btn = document.querySelector('#encrypt-btn');
     btn.onclick = async () => {
-      const textarea = document.querySelector('#textarea');
-      const plaintext = textarea.value;
+      const plaintext = document.querySelector('#textarea').value;
 
-      const {key, cipher} = await crypto.encrypt(plaintext);
+      const exp = document.querySelector('#expiration');
+      const expirationMins = +exp.options[exp.selectedIndex].value;
 
-      console.log(key, cipher);
-      textarea.value = cipher;
+      if (plaintext.length === 0) {
+        return;
+      }
+
+      const {key, cipher, secretId} = await createSecret(plaintext, expirationMins * 60);
+
+      populateModal(key, cipher, secretId, expirationMins);
     };
+
+    async function createSecret(text, expirationSecs) {
+      const {key, cipher} = await crypto.encrypt(text);
+
+      const {id} = await fetch('/api/secret', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          content: cipher,
+          expiration_seconds: expirationSecs
+        })
+      }).then(r => r.json());
+
+      console.log(key, cipher, id);
+
+      return {
+        key,
+        cipher,
+        secretId: id,
+      };
+    }
+
+    function populateModal(key, cipher, secretId, expirationMins) {
+      const baseUrl = window.location.href
+            .replace(window.location.hash, '');
+
+      const url = `${baseUrl}view/${secretId}#${key}`;
+
+      document.querySelector('#create-secret').style.display = 'none';
+      const modal = document.querySelector('#modal');
+      modal.innerHTML = `
+<h1>Secret encrypted</h1>
+
+<p>
+Share this one-time link with whoever you want to view the secret:
+</p>
+
+<span class="share-link">
+${url}
+</span>
+
+<p>
+This link will expire after <b>${expirationMins} minutes</b>, and will
+automatically self-destruct after being viewed once!
+</p>
+
+<p>
+Note that encryption was done in your browser. The server has no idea
+what the contents of this message are.
+</p>
+
+<h2>Encrypted text</h2>
+<pre>${cipher}</pre>
+<h2>Encryption key</h2>
+<pre>${key}</pre>
+`;
+    }
   </script>
+
+  <style>
+    * {
+        font-family: monospace;
+        font-size: 18px;
+        box-sizing: border-box;
+    }
+
+    main {
+        max-width: 70ch;
+        margin: 0 auto;
+        padding: 2em
+    }
+
+    textarea {
+        resize: vertical;
+        padding: 1em;
+        border: none;
+        background: #fcfc;
+    }
+
+    button, textarea { width: 100%; }
+
+    .controls {
+        display: grid;
+        margin-top: 2em;
+    }
+
+    .col-1 { grid-column: 1; }
+    .col-2 { grid-column: 2; }
+  </style>
 </body>
