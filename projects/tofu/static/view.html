@@ -1,14 +1,43 @@
 <!doctype html>
 
 <head>
+  <meta charset="utf-8">
   <link rel="stylesheet" href="/base.css">
 </head>
 
-
 <body>
   <main>
-    <button>Reveal secret</button>
+    <div id="reveal-modal">
+      <button id="reveal-btn">Reveal secret</button>
+      <p>(you can only do this once)</p>
+    </div>
 
-    <p>(you can only do this once)</p>
+    <textarea style="display: none;"
+              rows="24"
+              readonly=""></textarea>
   </main>
+
+  <script src="/crypto.js"></script>
+  <script>
+    const btn = document.querySelector('#reveal-btn');
+    btn.onclick = async () => {
+      const secretId = window.location.pathname
+            .split('/')
+            .pop();
+      const key = window.location.hash
+            .substring(1);
+
+      const secret = await fetch('/api/secret/' + secretId)
+            .then(r => r.json());
+
+      const decrypted = await crypto.decrypt(key, secret.content);
+
+      document.querySelector('#reveal-modal')
+        .style.display = 'none';
+
+      const area = document.querySelector('textarea');
+      area.innerText = decrypted;
+      area.style.display = 'block';
+    };
+  </script>
 </body>
