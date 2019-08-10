@@ -5,6 +5,8 @@
 
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="/base.css">
 </head>
 
 <body>
@@ -110,38 +112,4 @@ person who opens the link to view the contents.
 `;
     }
   </script>
-
-  <style>
-    * {
-        font-family: monospace;
-        font-size: 18px;
-        box-sizing: border-box;
-    }
-
-    main {
-        max-width: 70ch;
-        margin: 0 auto;
-        padding: 2em
-    }
-
-    textarea {
-        resize: vertical;
-        padding: 1em;
-        border: none;
-        background: #fcfc;
-    }
-
-    button, textarea { width: 100%; }
-
-    .controls {
-        display: grid;
-        margin-top: 2em;
-    }
-
-    .col-1 { grid-column: 1; }
-    .col-2 { grid-column: 2; }
-
-    .share-link { background: #fcfc; }
-    pre { word-break: break-all; white-space: pre-wrap; }
-  </style>
 </body>
