@@ -104,13 +104,13 @@ impl AppState {
         self: &AppState,
         id: String,
     ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
-        let remove_secret = self
+        let fetch_secret = self.fetch_secret(id.clone());
+        let delete_secret = self
             .redis
-            .send(Command(resp_array!["DEL", id.clone()]))
+            .send(Command(resp_array!["DEL", id]))
             .map_err(actix_web::Error::from);
 
-        self.fetch_secret(id)
-            .and_then(|result| remove_secret.map(|_| result))
+        fetch_secret.and_then(|res| delete_secret.map(|_| res))
     }
 }
 
