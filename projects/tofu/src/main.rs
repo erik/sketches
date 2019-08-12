@@ -46,6 +46,14 @@ impl<T: Serialize> ApiError<T> {
 }
 
 #[derive(Debug, Clone)]
+struct ServerConfig {
+    redis_host: String,
+    bind_host: String,
+
+    app_config: AppConfig,
+}
+
+#[derive(Debug, Clone)]
 struct AppConfig {
     redis_key_prefix: String,
     max_secret_length: usize,
@@ -187,18 +195,22 @@ fn view_secret_page(
     })
 }
 
-fn config_from_env() -> AppConfig {
-    AppConfig {
-        max_secret_length: std::env::var("MAX_SECRET_LENGTH")
-            .unwrap_or("4096".to_string())
-            .parse()
-            .expect("unvalid integer value"),
-        max_secret_expiration: std::env::var("MAX_SECRET_EXPIRATION")
-            .unwrap_or("4096".to_string())
-            .parse()
-            .expect("unvalid integer value"),
-        redis_key_prefix: std::env::var("REDIS_KEY_PREFIX")
-            .unwrap_or("tofu:".to_string()),
+fn config_from_env() -> ServerConfig {
+    ServerConfig {
+        redis_host: std::env::var("REDIS_HOST").unwrap_or("localhost:6379".to_string()),
+        bind_host: std::env::var("BIND_HOST").unwrap_or("127.0.0.1:8080".to_string()),
+        app_config: AppConfig {
+            max_secret_length: std::env::var("MAX_SECRET_LENGTH")
+                .unwrap_or("4096".to_string())
+                .parse()
+                .expect("unvalid integer value"),
+            max_secret_expiration: std::env::var("MAX_SECRET_EXPIRATION")
+                .unwrap_or("4096".to_string())
+                .parse()
+                .expect("unvalid integer value"),
+            redis_key_prefix: std::env::var("REDIS_KEY_PREFIX")
+                .unwrap_or("tofu:".to_string()),
+        },
     }
 }
 
@@ -206,15 +218,16 @@ fn main() -> io::Result<()> {
     env_logger::init();
     dotenv().ok();
 
-    let bind_addr = std::env::var("BIND_ADDR").unwrap_or("127.0.0.1:8080".to_string());
+    let config = config_from_env();
+    println!("Booting with config: {:?}", config);
+
+    let redis_addr = RedisActor::start(config.redis_host);
+    let app_config = config.app_config;
 
     HttpServer::new(move || {
-        let config = config_from_env();
-        println!("Booting with config: {:?}", config);
-
         let state = AppState {
-            redis: RedisActor::start("localhost:6379"),
-            config: config,
+            redis: redis_addr.clone(),
+            config: app_config.clone(),
         };
 
         App::new()
@@ -234,6 +247,6 @@ fn main() -> io::Result<()> {
             )
             .service(Files::new("/", "./static/").index_file("index.html"))
     })
-    .bind(bind_addr)?
+    .bind(config.bind_host)?
     .run()
 }
