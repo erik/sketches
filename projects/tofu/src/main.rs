@@ -45,8 +45,9 @@ impl<T: Serialize> ApiError<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct AppConfig {
+    redis_key_prefix: String,
     max_secret_length: usize,
     max_secret_expiration: usize,
 }
@@ -57,16 +58,22 @@ struct AppState {
 }
 
 impl AppState {
+    fn format_key(self: &AppState, id: &str) -> String {
+        format!("{}.{}", self.config.redis_key_prefix, id)
+    }
+
     fn create_secret(
         self: &AppState,
         id: Uuid,
-        body: String,
+        body: &str,
         expiration_seconds: usize,
     ) -> impl Future<Item = bool, Error = actix_web::Error> {
+        let redis_key = self.format_key(&id.to_string());
+
         self.redis
             .send(Command(resp_array![
                 "SETEX",
-                id.to_string(),
+                redis_key,
                 expiration_seconds.to_string(),
                 body
             ]))
@@ -85,10 +92,12 @@ impl AppState {
 
     fn fetch_secret(
         self: &AppState,
-        id: String,
+        id: &str,
     ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
+        let redis_key = self.format_key(id);
+
         self.redis
-            .send(Command(resp_array!["GET", id]))
+            .send(Command(resp_array!["GET", redis_key]))
             .map_err(actix_web::Error::from)
             .map(|res| match res {
                 Ok(RespValue::BulkString(bytes)) => {
@@ -102,12 +111,14 @@ impl AppState {
 
     fn consume_secret(
         self: &AppState,
-        id: String,
+        id: &str,
     ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
-        let fetch_secret = self.fetch_secret(id.clone());
+        let redis_key = self.format_key(id);
+
+        let fetch_secret = self.fetch_secret(&redis_key);
         let delete_secret = self
             .redis
-            .send(Command(resp_array!["DEL", id]))
+            .send(Command(resp_array!["DEL", redis_key]))
             .map_err(actix_web::Error::from);
 
         fetch_secret.and_then(|res| delete_secret.map(|_| res))
@@ -140,7 +151,7 @@ fn create_secret(
             // TODO: Possibly re-encrypt secret here? libsodium or something.
 
             state
-                .create_secret(id, body.content, body.expiration_seconds)
+                .create_secret(id, body.content.as_ref(), body.expiration_seconds)
                 .map(move |_| HttpResponse::Ok().json(CreateSecretResponseBody { id }))
         })
 }
@@ -149,11 +160,10 @@ fn get_secret(
     path: web::Path<String>,
     state: web::Data<AppState>,
 ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
-    let secret_id = path.to_string();
-    println!("Fetching: {:?}", secret_id);
-
+    let secret_id = path.into_inner();
+    println!("Fetching: {:?}", &secret_id);
     state
-        .consume_secret(secret_id)
+        .consume_secret(&secret_id)
         .map(|res: Option<String>| match res {
             Some(secret) => HttpResponse::Ok().json(SecretBody { content: secret }),
             None => HttpResponse::NotFound().json(ApiError::from("not found")),
@@ -164,9 +174,9 @@ fn view_secret_page(
     path: web::Path<String>,
     state: web::Data<AppState>,
 ) -> impl Future<Item = NamedFile, Error = actix_web::Error> {
-    let secret_id = path.to_string();
+    let secret_id = path.into_inner();
 
-    state.fetch_secret(secret_id).and_then(|res| match res {
+    state.fetch_secret(&secret_id).and_then(|res| match res {
         Some(_) => Ok(NamedFile::open("./static/view.html")?),
 
         None => {
@@ -179,11 +189,8 @@ fn view_secret_page(
     })
 }
 
-fn main() -> io::Result<()> {
-    env_logger::init();
-    dotenv().ok();
-
-    let config = AppConfig {
+fn config_from_env() -> AppConfig {
+    AppConfig {
         max_secret_length: std::env::var("MAX_SECRET_LENGTH")
             .unwrap_or("4096".to_string())
             .parse()
@@ -192,13 +199,21 @@ fn main() -> io::Result<()> {
             .unwrap_or("4096".to_string())
             .parse()
             .expect("unvalid integer value"),
-    };
+        redis_key_prefix: std::env::var("REDIS_KEY_PREFIX")
+            .unwrap_or("tofu:".to_string()),
+    }
+}
+
+fn main() -> io::Result<()> {
+    env_logger::init();
+    dotenv().ok();
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or("127.0.0.1:8080".to_string());
 
-    println!("Booting with config: {:?}", config);
-
     HttpServer::new(move || {
+        let config = config_from_env();
+        println!("Booting with config: {:?}", config);
+
         let state = AppState {
             redis: RedisActor::start("localhost:6379"),
             config: config,
