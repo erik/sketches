@@ -113,19 +113,17 @@ impl AppState {
         self: &AppState,
         id: &str,
     ) -> impl Future<Item = Option<String>, Error = actix_web::Error> {
-        let redis_key = self.format_key(id);
-
-        let fetch_secret = self.fetch_secret(&redis_key);
+        let fetch_secret = self.fetch_secret(id);
         let delete_secret = self
             .redis
-            .send(Command(resp_array!["DEL", redis_key]))
+            .send(Command(resp_array!["DEL", self.format_key(id)]))
             .map_err(actix_web::Error::from);
 
         fetch_secret.and_then(|res| delete_secret.map(|_| res))
     }
 }
 
-fn create_secret(
+fn api_create_secret(
     body: web::Json<CreateSecretPostBody>,
     state: web::Data<AppState>,
 ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
@@ -156,7 +154,7 @@ fn create_secret(
         })
 }
 
-fn get_secret(
+fn api_get_secret(
     path: web::Path<String>,
     state: web::Data<AppState>,
 ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
@@ -223,11 +221,12 @@ fn main() -> io::Result<()> {
             .data(state)
             .wrap(middleware::Logger::default())
             .service(
-                web::resource("/api/secret").route(web::post().to_async(create_secret)),
+                web::resource("/api/secret")
+                    .route(web::post().to_async(api_create_secret)),
             )
             .service(
                 web::resource("/api/secret/{secret_id}")
-                    .route(web::get().to_async(get_secret)),
+                    .route(web::get().to_async(api_get_secret)),
             )
             .service(
                 web::resource("/view/{secret_id}")
