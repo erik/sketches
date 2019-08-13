@@ -79,6 +79,9 @@ const crypto = (() => {
     return buf.buffer;
   }
 
+  if (!window.crypto || !window.crypto.subtle) {
+    window.alert('JavaScript crypto functionality is not available!');
+  }
 
   return {
     encrypt: async function(input) {
