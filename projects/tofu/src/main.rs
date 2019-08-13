@@ -221,6 +221,8 @@ fn main() -> io::Result<()> {
     let config = config_from_env();
     println!("Booting with config: {:?}", config);
 
+    let sys = actix::System::new("tofu");
+
     let redis_addr = RedisActor::start(config.redis_host);
     let app_config = config.app_config;
 
@@ -248,5 +250,7 @@ fn main() -> io::Result<()> {
             .service(Files::new("/", "./static/").index_file("index.html"))
     })
     .bind(config.bind_host)?
-    .run()
+    .start();
+
+    sys.run()
 }
