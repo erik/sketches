@@ -1,0 +1,12 @@
+[package]
+name = "sup"
+version = "0.1.0"
+authors = ["Erik Price <github@erikprice.net>"]
+edition = "2018"
+
+[dependencies]
+chrono = { version = "*", features = ["serde"] }
+clap = "*"
+serde = { version = "*", features = ["derive"] }
+serde_derive = "*"
+toml = "*"
