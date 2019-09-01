@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 chrono = { version = "*", features = ["serde"] }
 clap = "*"
+glob = "*"
 serde = { version = "*", features = ["derive"] }
 serde_derive = "*"
 toml = "*"

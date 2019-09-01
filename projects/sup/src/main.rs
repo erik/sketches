@@ -3,10 +3,12 @@ extern crate serde_derive;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::iter::TakeWhile;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use clap::{App, Arg, ArgMatches, SubCommand};
+use glob::glob;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -66,6 +68,12 @@ enum UpdateKind {
 /// A Sup update is a supdate.
 ///
 /// I hate this.
+///
+/// Looks something like this serialized
+///
+/// iso8601 id tag1,tag2,tag3 kind message
+/// 20190801T134200Z 123 foo,bar task(todo, something i need to do)
+/// 20190801T134200Z 123 foo,bar task(complete, something i need to do)
 #[derive(Deserialize, Serialize)]
 struct Supdate {
     id: String,
@@ -80,6 +88,7 @@ impl Supdate {
     }
 }
 
+#[derive(Debug)]
 struct SupdateLog {
     name: String,
     file: BufReader<File>,
@@ -161,12 +170,36 @@ impl Repository {
         Repository { config: cfg }
     }
 
-    fn read_updates(&self) -> Vec<Supdate> {
-        let file = File::open(&self.config.path).expect("");
+    fn build_rollup(&self, updates: Vec<SupdateLog>) -> Rollup {
+        // Only need to go until the last rollup
+        let updates: Vec<&SupdateLog> =
+            updates.iter().take_while(|it| !it.is_rollup()).collect();
 
-        vec![]
+        // Reverse ordering so that we consume oldest elements first.
+        for update in updates.iter().rev() {
+            println!("reading: {:?}", update)
+        }
+
+        Rollup {}
+    }
+
+    fn read_updates(&self) -> Vec<SupdateLog> {
+        let path = Path::new(&self.config.path).join("*/*/**.sup");
+
+        // TODO: This is really wasteful. Make this an iterator
+        // Get list of all files in the repo
+        let mut updates = glob(path.to_str().unwrap())
+            .expect("glob failed")
+            .filter_map(|f| f.map(|p| SupdateLog::new(&p)).ok())
+            .collect::<Vec<SupdateLog>>();
+
+        // We want sorted (chronological, desc) order, based on file name.
+        updates.sort_by(|a, b| b.name.cmp(&a.name));
+        return updates;
     }
 }
+
+struct Rollup {}
 
 struct SupApp {
     matches: ArgMatches<'static>,
