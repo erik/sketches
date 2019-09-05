@@ -53,7 +53,7 @@ impl Supfile {
 #[derive(Deserialize, Serialize)]
 enum TaskState {
     Todo,
-    Partial,
+    InProgress,
     Complete,
     Canceled,
     Deferred { until: DateTime<Utc> },
@@ -61,28 +61,35 @@ enum TaskState {
 
 #[derive(Deserialize, Serialize)]
 enum UpdateKind {
-    Note(String),
-    Task(TaskState, String),
+    Note,
+    Task(TaskState),
 }
 
-/// A Sup update is a supdate.
-///
-/// I hate this.
-///
-/// Looks something like this serialized
-///
-/// iso8601 id tag1,tag2,tag3 kind message
-/// 20190801T134200Z 123 foo,bar task(todo, something i need to do)
-/// 20190801T134200Z 123 foo,bar task(complete, something i need to do)
 #[derive(Deserialize, Serialize)]
-struct Supdate {
+enum Action {
+    Create {
+        task: String,
+        notes: Option<String>,
+        tags: Vec<String>,
+    },
+    EditTags {
+        add: Option<Vec<String>>,
+        remove: Option<Vec<String>>,
+    },
+    EditTask(String),
+    EditNotes(Option<String>),
+    EditState(TaskState),
+}
+
+#[derive(Deserialize, Serialize)]
+struct UpdateEntry {
     id: String,
     timestamp: DateTime<Utc>,
-    kind: UpdateKind,
+    action: Action,
     tags: Vec<String>,
 }
 
-impl Supdate {
+impl UpdateEntry {
     fn new(line: &str) -> Self {
         unimplemented!()
     }
@@ -117,9 +124,9 @@ impl SupdateLog {
 }
 
 impl Iterator for SupdateLog {
-    type Item = Supdate;
+    type Item = UpdateEntry;
 
-    fn next(&mut self) -> Option<Supdate> {
+    fn next(&mut self) -> Option<UpdateEntry> {
         let mut line = String::new();
         return match self.file.read_line(&mut line) {
             // End of file
@@ -127,7 +134,7 @@ impl Iterator for SupdateLog {
 
             Ok(_) => {
                 println!("line = {:?}", line);
-                Some(Supdate::new(&line))
+                Some(UpdateEntry::new(&line))
             }
 
             Err(e) => {
