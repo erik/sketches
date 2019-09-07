@@ -84,7 +84,10 @@ struct TaskUpdate {
 
 impl TaskUpdate {
     fn from_str(line: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(line)
+        serde_json::from_str(line).map_err(|e| {
+            println!("nuts: {:?}", e);
+            e
+        })
     }
 }
 
@@ -225,19 +228,28 @@ impl Repository {
         Repository { config: cfg }
     }
 
+    fn open_journal(&self) -> Journal {
+        let updates = self.read_updates();
+        self.build_journal(updates)
+    }
+
     fn build_journal(&self, updates: Vec<SupdateLog>) -> Journal {
+        let mut journal = Journal::new();
+
         // Reverse ordering so that we consume oldest elements first.
-        for update in updates.iter().rev() {
-            println!("reading: {:?}", update)
+        for log in updates.into_iter().rev() {
+            println!("reading: {:?}", log);
+
+            for ref update in log {
+                journal.add(update);
+            }
         }
 
-        Journal {
-            entries: BTreeMap::new(),
-        }
+        journal
     }
 
     fn read_updates(&self) -> Vec<SupdateLog> {
-        let path = Path::new(&self.config.path).join("*/*/**.sup");
+        let path = Path::new(&self.config.path).join("**/*.sup");
 
         // TODO: This is really wasteful. Make this an iterator
         // Get list of all files in the repo
@@ -257,6 +269,7 @@ impl Repository {
  *
  * Represents the cumulative, "rolled up" set of task updates.
  */
+#[derive(Debug)]
 struct Journal {
     /// id -> task
     entries: BTreeMap<String, Task>,
@@ -335,7 +348,6 @@ impl SupApp {
 
     fn run(&self) -> Result<(), Box<dyn Error>> {
         let cfg = self.load_config()?;
-        let repo = Repository::new(cfg.repo.clone());
 
         match self.matches.subcommand() {
             ("show", Some(m)) => println!("TODO: show {:?}", m),
@@ -351,7 +363,12 @@ impl SupApp {
     }
 }
 
-fn run_add_update(_cfg: &Supfile) -> Result<(), Box<dyn Error>> {
+fn run_add_update(cfg: &Supfile) -> Result<(), Box<dyn Error>> {
+    let repo = Repository::new(cfg.repo.clone());
+    let journal = repo.open_journal();
+
+    println!("journal: {:?}", journal);
+
     Ok(())
 }
 
