@@ -83,8 +83,8 @@ struct TaskUpdate {
 }
 
 impl TaskUpdate {
-    fn new(line: &str) -> Self {
-        unimplemented!()
+    fn from_str(line: &str) -> serde_json::Result<Self> {
+        serde_json::from_str(line)
     }
 }
 
@@ -182,7 +182,8 @@ impl Iterator for SupdateLog {
 
             Ok(_) => {
                 println!("line = {:?}", line);
-                Some(TaskUpdate::new(&line))
+                // TODO: alert when we don't succeed at parsing
+                TaskUpdate::from_str(&line).ok()
             }
 
             Err(e) => {

@@ -10,4 +10,5 @@ clap = "*"
 glob = "*"
 serde = { version = "*", features = ["derive"] }
 serde_derive = "*"
+serde_json = "*"
 toml = "*"
