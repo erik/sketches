@@ -1,9 +1,9 @@
 extern crate serde_derive;
 
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::iter::TakeWhile;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -50,19 +50,13 @@ impl Supfile {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 enum TaskState {
     Todo,
     InProgress,
     Complete,
     Canceled,
     Deferred { until: DateTime<Utc> },
-}
-
-#[derive(Deserialize, Serialize)]
-enum UpdateKind {
-    Note,
-    Task(TaskState),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -73,8 +67,8 @@ enum Action {
         tags: Vec<String>,
     },
     EditTags {
-        add: Option<Vec<String>>,
-        remove: Option<Vec<String>>,
+        add: Vec<String>,
+        remove: Vec<String>,
     },
     EditTask(String),
     EditNotes(Option<String>),
@@ -82,16 +76,74 @@ enum Action {
 }
 
 #[derive(Deserialize, Serialize)]
-struct UpdateEntry {
+struct TaskUpdate {
     id: String,
     timestamp: DateTime<Utc>,
     action: Action,
-    tags: Vec<String>,
 }
 
-impl UpdateEntry {
+impl TaskUpdate {
     fn new(line: &str) -> Self {
         unimplemented!()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Task {
+    id: String,
+    created_at: DateTime<Utc>,
+    completed_at: Option<DateTime<Utc>>,
+    state: TaskState,
+    task: String,
+    notes: Option<String>,
+    tags: HashSet<String>,
+}
+
+impl Task {
+    fn apply(&mut self, update: &TaskUpdate) {
+        match &update.action {
+            Action::Create { task, notes, tags } => {
+                self.task = task.clone();
+                self.notes = notes.clone();
+                for tag in tags.iter() {
+                    self.tags.insert(tag.clone());
+                }
+            }
+            Action::EditTags { add, remove } => {
+                for tag in remove.iter() {
+                    self.tags.remove(tag);
+                }
+
+                for tag in add.iter() {
+                    self.tags.insert(tag.clone());
+                }
+            }
+            Action::EditTask(task) => self.task = task.clone(),
+            Action::EditNotes(notes) => self.notes = notes.clone(),
+            Action::EditState(state) => {
+                self.state = state.clone();
+                if state == &TaskState::Complete {
+                    self.completed_at = Some(update.timestamp);
+                }
+            }
+        }
+    }
+}
+
+impl From<&TaskUpdate> for Task {
+    fn from(update: &TaskUpdate) -> Self {
+        let mut task = Task {
+            id: update.id.clone(),
+            created_at: update.timestamp.clone(),
+            completed_at: None,
+            state: TaskState::Todo,
+            task: "untitled".to_string(),
+            notes: None,
+            tags: HashSet::new(),
+        };
+
+        task.apply(update);
+        return task;
     }
 }
 
@@ -117,16 +169,12 @@ impl SupdateLog {
             file: BufReader::new(file),
         }
     }
-
-    fn is_rollup(&self) -> bool {
-        self.name.ends_with("0000_rollup.sup")
-    }
 }
 
 impl Iterator for SupdateLog {
-    type Item = UpdateEntry;
+    type Item = TaskUpdate;
 
-    fn next(&mut self) -> Option<UpdateEntry> {
+    fn next(&mut self) -> Option<TaskUpdate> {
         let mut line = String::new();
         return match self.file.read_line(&mut line) {
             // End of file
@@ -134,7 +182,7 @@ impl Iterator for SupdateLog {
 
             Ok(_) => {
                 println!("line = {:?}", line);
-                Some(UpdateEntry::new(&line))
+                Some(TaskUpdate::new(&line))
             }
 
             Err(e) => {
@@ -153,14 +201,13 @@ impl Iterator for SupdateLog {
  * repo/
  *   2019/
  *     08/
- *       20190800_rollup.sup
  *       20190801_235959.sup
  *       20190802_003030.sup
  *       20190802_123030.sup
  *
- * Rollups are special SupdateLogs which contain the collapsed content
- * of earlier entries, to put a bound on the number of entries which
- * must be read in order to construct the current state.
+ * TODO: Support concept of `rollup` files to put an upper limit on
+ * how far we need to look back to fully reconstruct the state of
+ * everything.
  */
 
 struct Repository {
@@ -177,17 +224,15 @@ impl Repository {
         Repository { config: cfg }
     }
 
-    fn build_rollup(&self, updates: Vec<SupdateLog>) -> Rollup {
-        // Only need to go until the last rollup
-        let updates: Vec<&SupdateLog> =
-            updates.iter().take_while(|it| !it.is_rollup()).collect();
-
+    fn build_journal(&self, updates: Vec<SupdateLog>) -> Journal {
         // Reverse ordering so that we consume oldest elements first.
         for update in updates.iter().rev() {
             println!("reading: {:?}", update)
         }
 
-        Rollup {}
+        Journal {
+            entries: BTreeMap::new(),
+        }
     }
 
     fn read_updates(&self) -> Vec<SupdateLog> {
@@ -206,7 +251,34 @@ impl Repository {
     }
 }
 
-struct Rollup {}
+/**
+ * A collection of Updates.
+ *
+ * Represents the cumulative, "rolled up" set of task updates.
+ */
+struct Journal {
+    /// id -> task
+    entries: BTreeMap<String, Task>,
+}
+
+impl Journal {
+    fn new() -> Self {
+        return Self {
+            entries: BTreeMap::new(),
+        };
+    }
+
+    fn add(&mut self, update: &TaskUpdate) {
+        let task = self.entries.get_mut(&update.id);
+
+        match task {
+            Some(t) => t.apply(update),
+            None => {
+                self.entries.insert(update.id.clone(), Task::from(update));
+            }
+        }
+    }
+}
 
 struct SupApp {
     matches: ArgMatches<'static>,
@@ -214,7 +286,7 @@ struct SupApp {
 
 impl SupApp {
     fn new() -> Self {
-        SupApp {
+        Self {
             matches: Self::parse_args(),
         }
     }
