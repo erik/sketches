@@ -51,6 +51,7 @@ impl Supfile {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum TaskState {
     Todo,
     InProgress,
@@ -60,10 +61,13 @@ enum TaskState {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum Action {
     Create {
         task: String,
+        #[serde(default)]
         notes: Option<String>,
+        #[serde(default)]
         tags: Vec<String>,
     },
     EditTags {
