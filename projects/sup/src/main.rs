@@ -57,7 +57,29 @@ enum TaskState {
     InProgress,
     Complete,
     Canceled,
-    Deferred { until: DateTime<Utc> },
+    Deferred,
+}
+
+impl TaskState {
+    fn is_open(self) -> bool {
+        match self {
+            TaskState::Todo | TaskState::InProgress | TaskState::Deferred => true,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Display for TaskState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            TaskState::Todo => " ",
+            TaskState::InProgress => "•",
+            TaskState::Complete => "✔",
+            TaskState::Canceled => "-",
+            TaskState::Deferred => "⟫",
+        };
+        write!(f, "{}", value)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -135,6 +157,10 @@ impl Task {
             }
         }
     }
+
+    fn summary(&self) -> String {
+        format!("{} [{}] {}", self.id, self.state, self.task)
+    }
 }
 
 impl From<&TaskUpdate> for Task {
@@ -188,7 +214,7 @@ impl Iterator for SupdateLog {
             Ok(0) => None,
 
             Ok(_) => {
-                println!("line = {:?}", line);
+                //println!("line = {:?}", line);
                 // TODO: alert when we don't succeed at parsing
                 TaskUpdate::from_str(&line).ok()
             }
@@ -296,13 +322,18 @@ impl Journal {
             }
         }
     }
+
+    // TODO: Hack until a custom iterator is implemented.
+    fn for_each(&self, f: &Fn(&Task) -> ()) {
+        self.entries.values().for_each(f)
+    }
 }
 
-struct SupApp {
+struct SupCli {
     matches: ArgMatches<'static>,
 }
 
-impl SupApp {
+impl SupCli {
     fn new() -> Self {
         Self {
             matches: Self::parse_args(),
@@ -320,6 +351,11 @@ impl SupApp {
                     .value_name("FILE")
                     .takes_value(true)
                     .help("Set custom location for Supfile"),
+            )
+            .subcommand(
+                SubCommand::with_name("todo")
+                    .about("create a new todo item")
+                    .arg(Arg::with_name("TASK").takes_value(true).multiple(true)),
             )
             .subcommand(
                 SubCommand::with_name("show")
@@ -351,15 +387,19 @@ impl SupApp {
     }
 
     fn run(&self) -> Result<(), Box<dyn Error>> {
-        let cfg = self.load_config()?;
+        let cfg = self.load_config().expect("error in config file");
+        let app = SupApp::new(&cfg);
 
         match self.matches.subcommand() {
             ("show", Some(m)) => println!("TODO: show {:?}", m),
             ("serve", Some(m)) => println!("TODO: serve {:?}", m),
+            ("todo", Some(m)) => {
+                println!("here's the todo: {:?}", m);
+                app.run_add_update()?;
+            }
             _ => {
                 println!("add update");
-
-                run_add_update(&cfg)?;
+                app.run_show_updates()?;
             }
         };
 
@@ -367,19 +407,37 @@ impl SupApp {
     }
 }
 
-fn run_add_update(cfg: &Supfile) -> Result<(), Box<dyn Error>> {
-    let repo = Repository::new(cfg.repo.clone());
-    let journal = repo.open_journal();
+struct SupApp {
+    repo: Repository,
+    journal: Journal,
+}
 
-    println!("journal: {:?}", journal);
+impl SupApp {
+    fn new(cfg: &Supfile) -> Self {
+        let repo = Repository::new(cfg.repo.clone());
+        let journal = repo.open_journal();
 
-    Ok(())
+        Self { repo, journal }
+    }
+
+    fn run_add_update(&self) -> Result<(), Box<dyn Error>> {
+        println!("journal: {:?}", self.journal);
+        Ok(())
+    }
+
+    fn run_show_updates(&self) -> Result<(), Box<dyn Error>> {
+        self.journal.for_each(&|task| {
+            println!("{}", task.summary());
+        });
+
+        Ok(())
+    }
 }
 
 // TODO: Investiage this instead of Box<Error>
 // https://github.com/rust-lang-nursery/failure
 fn main() {
-    let app = SupApp::new();
+    let app = SupCli::new();
     match app.run() {
         Err(e) => println!("oh no! {:?}", e),
         Ok(_) => (),
