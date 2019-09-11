@@ -2,10 +2,11 @@ extern crate serde_derive;
 
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use glob::glob;
@@ -115,6 +116,14 @@ impl TaskUpdate {
             e
         })
     }
+
+    fn new_todo(task: String, notes: Option<String>, tags: Vec<String>) -> Self {
+        Self {
+            id: "0003".to_string(),
+            timestamp: Utc::now(),
+            action: Action::Create { task, notes, tags },
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -183,33 +192,73 @@ impl From<&TaskUpdate> for Task {
 #[derive(Debug)]
 struct SupdateLog {
     name: String,
-    file: BufReader<File>,
+    path: String,
+
+    timestamp: DateTime<Utc>,
 }
 
 impl SupdateLog {
     fn new(path: &Path) -> Self {
-        let name = path
+        let name: String = path
             .file_name()
             .expect("need file, not directory")
             .to_string_lossy()
             .into();
 
-        let file = File::open(path).expect("could not open file");
-        // TODO: Support versioning in line
+        let timestamp = Utc
+            .datetime_from_str(&name, "%Y%m%d_%H%M%S")
+            .unwrap_or_else(|_| {
+                println!("{:?} appears to be improperly named!", path);
+                Utc.timestamp(0, 0)
+            });
 
+        // TODO: Support versioning in line
         SupdateLog {
             name,
-            file: BufReader::new(file),
+            path: path.to_string_lossy().into(),
+            timestamp,
         }
+    }
+
+    fn write_update(&self, task: &TaskUpdate) -> std::io::Result<()> {
+        let mut file = self.open_file()?;
+        file.seek(SeekFrom::End(0)).expect("could not seek to end");
+
+        serde_json::ser::to_writer(&file, task)?;
+        file.write_all(b"\n")?;
+
+        Ok(())
+    }
+
+    fn iter(&self) -> SupdateIterator {
+        let mut file = self.open_file().expect("could not open file");
+        file.seek(SeekFrom::Start(0)).expect("could not rewind");
+
+        SupdateIterator {
+            reader: BufReader::new(file),
+        }
+    }
+
+    /// Open the log file or create it if it doesn't exist.
+    fn open_file(&self) -> std::io::Result<File> {
+        OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&self.path)
     }
 }
 
-impl Iterator for SupdateLog {
+struct SupdateIterator {
+    reader: BufReader<File>,
+}
+
+impl Iterator for SupdateIterator {
     type Item = TaskUpdate;
 
     fn next(&mut self) -> Option<TaskUpdate> {
         let mut line = String::new();
-        return match self.file.read_line(&mut line) {
+        return match self.reader.read_line(&mut line) {
             // End of file
             Ok(0) => None,
 
@@ -259,7 +308,7 @@ impl Repository {
     }
 
     fn open_journal(&self) -> Journal {
-        let updates = self.read_updates();
+        let updates = self.list_update_logs();
         self.build_journal(updates)
     }
 
@@ -270,7 +319,7 @@ impl Repository {
         for log in updates.into_iter().rev() {
             println!("reading: {:?}", log);
 
-            for ref update in log {
+            for ref update in log.iter() {
                 journal.add(update);
             }
         }
@@ -278,7 +327,7 @@ impl Repository {
         journal
     }
 
-    fn read_updates(&self) -> Vec<SupdateLog> {
+    fn list_update_logs(&self) -> Vec<SupdateLog> {
         let path = Path::new(&self.config.path).join("**/*.sup");
 
         // TODO: This is really wasteful. Make this an iterator
@@ -291,6 +340,26 @@ impl Repository {
         // We want sorted (chronological, desc) order, based on file name.
         updates.sort_by(|a, b| b.name.cmp(&a.name));
         return updates;
+    }
+
+    fn active_update_log(&self) -> SupdateLog {
+        let now = Utc::now();
+
+        let last_update = self.list_update_logs().pop();
+
+        // Use the last update if it's still the same day, otherwise create a new one.
+        last_update
+            .filter(|log| log.timestamp.date() == now.date())
+            .unwrap_or_else(|| {
+                let log_path = now.format("%Y/%m/%Y%m%d_%H%M%S.sup").to_string();
+                let abs_path = Path::new(&self.config.path).join(log_path);
+
+                let dir = abs_path.parent().unwrap();
+
+                std::fs::create_dir_all(dir).expect("create directory failed");
+
+                SupdateLog::new(&abs_path)
+            })
     }
 }
 
@@ -394,8 +463,8 @@ impl SupCli {
             ("show", Some(m)) => println!("TODO: show {:?}", m),
             ("serve", Some(m)) => println!("TODO: serve {:?}", m),
             ("todo", Some(m)) => {
-                println!("here's the todo: {:?}", m);
-                app.run_add_update()?;
+                let task = m.values_of("TASK").map(|v| v.collect::<Vec<_>>().join(" "));
+                app.run_add_task(task)?;
             }
             _ => {
                 println!("add update");
@@ -420,8 +489,13 @@ impl SupApp {
         Self { repo, journal }
     }
 
-    fn run_add_update(&self) -> Result<(), Box<dyn Error>> {
-        println!("journal: {:?}", self.journal);
+    fn run_add_task(&self, task: Option<String>) -> Result<(), Box<dyn Error>> {
+        println!("journal: {:?}: {:?}", self.journal, task);
+        let task = task.expect("TODO: ui task creation");
+
+        let update = TaskUpdate::new_todo(task, None, vec![]);
+        self.repo.active_update_log().write_update(&update)?;
+
         Ok(())
     }
 
