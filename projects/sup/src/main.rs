@@ -500,30 +500,30 @@ impl SupCli {
 
 struct SupApp {
     repo: Repository,
-    journal: Journal,
 }
 
 impl SupApp {
     fn new(cfg: &Supfile) -> Self {
         let repo = Repository::new(cfg.repo.clone());
-        let journal = repo.open_journal();
 
-        Self { repo, journal }
+        Self { repo }
     }
 
     fn run_add_task(&mut self, task: Option<String>) -> Result<(), Box<dyn Error>> {
-        println!("journal: {:?}: {:?}", self.journal, task);
+        let mut journal = self.repo.open_journal();
+
         let task = task.expect("TODO: ui task creation");
-        let id = self.journal.next_id();
+        let id = journal.next_id();
 
         let update = TaskUpdate::new_todo(id, task, None, vec![]);
         self.repo.active_update_log().write_update(&update)?;
 
-        Ok(())
+        self.run_show_updates()
     }
 
     fn run_show_updates(&self) -> Result<(), Box<dyn Error>> {
-        self.journal.for_each(&|task| {
+        let journal = self.repo.open_journal();
+        journal.for_each(&|task| {
             println!("{}", task.summary());
         });
 
