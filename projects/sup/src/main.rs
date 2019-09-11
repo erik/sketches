@@ -117,9 +117,15 @@ impl TaskUpdate {
         })
     }
 
-    fn new_todo(task: String, notes: Option<String>, tags: Vec<String>) -> Self {
+    /// Create a basic TaskUpdate. The `id` is left unset and must be set before being written.
+    fn new_todo(
+        id: String,
+        task: String,
+        notes: Option<String>,
+        tags: Vec<String>,
+    ) -> Self {
         Self {
-            id: "0003".to_string(),
+            id: id,
             timestamp: Utc::now(),
             action: Action::Create { task, notes, tags },
         }
@@ -206,7 +212,7 @@ impl SupdateLog {
             .into();
 
         let timestamp = Utc
-            .datetime_from_str(&name, "%Y%m%d_%H%M%S")
+            .datetime_from_str(&name, "%Y%m%d_%H%M%S.sup")
             .unwrap_or_else(|_| {
                 println!("{:?} appears to be improperly named!", path);
                 Utc.timestamp(0, 0)
@@ -372,24 +378,38 @@ impl Repository {
 struct Journal {
     /// id -> task
     entries: BTreeMap<String, Task>,
+    last_id: u64,
 }
 
 impl Journal {
     fn new() -> Self {
         return Self {
             entries: BTreeMap::new(),
+            last_id: 0,
         };
     }
 
     fn add(&mut self, update: &TaskUpdate) {
-        let task = self.entries.get_mut(&update.id);
+        let id = &update.id;
+
+        // Keep track of higest id value we've seen.
+        let id_int = id.parse::<u64>().unwrap();
+        self.last_id = std::cmp::max(self.last_id, id_int);
+
+        let task = self.entries.get_mut(id);
 
         match task {
             Some(t) => t.apply(update),
             None => {
-                self.entries.insert(update.id.clone(), Task::from(update));
+                self.entries.insert(id.clone(), Task::from(update));
             }
         }
+    }
+
+    fn next_id(&mut self) -> String {
+        self.last_id += 1;
+
+        format!("{:04}", self.last_id)
     }
 
     // TODO: Hack until a custom iterator is implemented.
@@ -457,19 +477,21 @@ impl SupCli {
 
     fn run(&self) -> Result<(), Box<dyn Error>> {
         let cfg = self.load_config().expect("error in config file");
-        let app = SupApp::new(&cfg);
+        let mut app = SupApp::new(&cfg);
 
         match self.matches.subcommand() {
             ("show", Some(m)) => println!("TODO: show {:?}", m),
             ("serve", Some(m)) => println!("TODO: serve {:?}", m),
             ("todo", Some(m)) => {
-                let task = m.values_of("TASK").map(|v| v.collect::<Vec<_>>().join(" "));
+                let task = m.values_of("TASK").map(|v| {
+                    let vec = v.collect::<Vec<_>>();
+                    vec.join(" ")
+                });
+
                 app.run_add_task(task)?;
             }
-            _ => {
-                println!("add update");
-                app.run_show_updates()?;
-            }
+
+            _ => app.run_show_updates()?,
         };
 
         Ok(())
@@ -489,11 +511,12 @@ impl SupApp {
         Self { repo, journal }
     }
 
-    fn run_add_task(&self, task: Option<String>) -> Result<(), Box<dyn Error>> {
+    fn run_add_task(&mut self, task: Option<String>) -> Result<(), Box<dyn Error>> {
         println!("journal: {:?}: {:?}", self.journal, task);
         let task = task.expect("TODO: ui task creation");
+        let id = self.journal.next_id();
 
-        let update = TaskUpdate::new_todo(task, None, vec![]);
+        let update = TaskUpdate::new_todo(id, task, None, vec![]);
         self.repo.active_update_log().write_update(&update)?;
 
         Ok(())
