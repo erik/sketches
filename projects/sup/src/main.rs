@@ -323,8 +323,6 @@ impl Repository {
 
         // Reverse ordering so that we consume oldest elements first.
         for log in updates.into_iter().rev() {
-            println!("reading: {:?}", log);
-
             for ref update in log.iter() {
                 journal.add(update);
             }
@@ -377,14 +375,14 @@ impl Repository {
 #[derive(Debug)]
 struct Journal {
     /// id -> task
-    entries: BTreeMap<String, Task>,
+    tasks: BTreeMap<String, Task>,
     last_id: u64,
 }
 
 impl Journal {
     fn new() -> Self {
         return Self {
-            entries: BTreeMap::new(),
+            tasks: BTreeMap::new(),
             last_id: 0,
         };
     }
@@ -396,25 +394,29 @@ impl Journal {
         let id_int = id.parse::<u64>().unwrap();
         self.last_id = std::cmp::max(self.last_id, id_int);
 
-        let task = self.entries.get_mut(id);
+        let task = self.tasks.get_mut(id);
 
         match task {
             Some(t) => t.apply(update),
             None => {
-                self.entries.insert(id.clone(), Task::from(update));
+                self.tasks.insert(id.clone(), Task::from(update));
             }
         }
+    }
+
+    fn get_task(&self, id: &String) -> Option<&Task> {
+        self.tasks.get(id)
+    }
+
+    // TODO: Hack until a custom iterator is implemented.
+    fn for_each(&self, f: &Fn(&Task) -> ()) {
+        self.tasks.values().for_each(f)
     }
 
     fn next_id(&mut self) -> String {
         self.last_id += 1;
 
         format!("{:04}", self.last_id)
-    }
-
-    // TODO: Hack until a custom iterator is implemented.
-    fn for_each(&self, f: &Fn(&Task) -> ()) {
-        self.entries.values().for_each(f)
     }
 }
 
@@ -448,8 +450,13 @@ impl SupCli {
             )
             .subcommand(
                 SubCommand::with_name("show")
-                    .about("asdf")
-                    .arg(Arg::with_name("DATE").takes_value(true).help("asdf")),
+                    .about("show full details of task")
+                    .arg(
+                        Arg::with_name("TASK_ID")
+                            .required(true)
+                            .takes_value(true)
+                            .help("asdf"),
+                    ),
             )
             .subcommand(
                 SubCommand::with_name("serve")
@@ -480,21 +487,22 @@ impl SupCli {
         let mut app = SupApp::new(&cfg);
 
         match self.matches.subcommand() {
-            ("show", Some(m)) => println!("TODO: show {:?}", m),
-            ("serve", Some(m)) => println!("TODO: serve {:?}", m),
+            ("show", Some(m)) => {
+                let id = m.value_of("TASK_ID").unwrap();
+
+                app.run_show_task(id.to_string())
+            }
             ("todo", Some(m)) => {
                 let task = m.values_of("TASK").map(|v| {
                     let vec = v.collect::<Vec<_>>();
                     vec.join(" ")
                 });
 
-                app.run_add_task(task)?;
+                app.run_add_task(task)
             }
 
-            _ => app.run_show_updates()?,
-        };
-
-        Ok(())
+            _ => app.run_show_updates(),
+        }
     }
 }
 
@@ -519,6 +527,30 @@ impl SupApp {
         self.repo.active_update_log().write_update(&update)?;
 
         self.run_show_updates()
+    }
+
+    fn run_show_task(&self, id: String) -> Result<(), Box<dyn Error>> {
+        let mut journal = self.repo.open_journal();
+
+        let task = journal.get_task(&id).expect("unknown task id");
+
+        println!(
+            "{} {}
+
+{}
+
+tags: {}
+created: {}
+completed: {:?}",
+            task.state,
+            task.task,
+            &task.notes.clone().unwrap_or("[no details]".to_string()), // TODO: try
+            "".to_string(), // task.tags.iter().collect::<Vec<_>>().join(", "),
+            task.created_at,
+            task.completed_at
+        );
+
+        Ok(())
     }
 
     fn run_show_updates(&self) -> Result<(), Box<dyn Error>> {
