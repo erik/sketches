@@ -118,12 +118,7 @@ impl TaskUpdate {
     }
 
     /// Create a basic TaskUpdate. The `id` is left unset and must be set before being written.
-    fn new_todo(
-        id: String,
-        task: String,
-        notes: Option<String>,
-        tags: Vec<String>,
-    ) -> Self {
+    fn new_todo(id: String, task: String, notes: Option<String>, tags: Vec<String>) -> Self {
         Self {
             id: id,
             timestamp: Utc::now(),
@@ -348,8 +343,13 @@ impl Repository {
 
     fn active_update_log(&self) -> SupdateLog {
         let now = Utc::now();
+        let mut logs = self.list_update_logs();
 
-        let last_update = self.list_update_logs().pop();
+        let last_update = if !logs.is_empty() {
+            Some(logs.remove(0))
+        } else {
+            None
+        };
 
         // Use the last update if it's still the same day, otherwise create a new one.
         last_update
@@ -530,7 +530,7 @@ impl SupApp {
     }
 
     fn run_show_task(&self, id: String) -> Result<(), Box<dyn Error>> {
-        let mut journal = self.repo.open_journal();
+        let journal = self.repo.open_journal();
 
         let task = journal.get_task(&id).expect("unknown task id");
 
