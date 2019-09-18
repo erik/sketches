@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 )
@@ -86,6 +87,14 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		log.Printf("%s completed (%d bytes)", tmpfile.Name(), b)
+	}
+
+	// Tempfiles are created as 0600, which means other processes
+	// won't be able to read them.
+	if err := os.Chmod(tmpfile.Name(), 0644); err != nil {
+		log.Printf("chmod failed: %+v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	url, _ := url.Parse(baseUrl)
