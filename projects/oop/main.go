@@ -99,7 +99,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	url, _ := url.Parse(baseUrl)
 	url.Path = path.Join(url.Path, path.Base(tmpfile.Name()))
-	w.Write([]byte(url.String()))
+	w.Write([]byte(url.String() + "\n"))
 }
 
 func handleDelete(w http.ResponseWriter, r *http.Request) {
