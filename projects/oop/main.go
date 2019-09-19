@@ -40,7 +40,6 @@ func init() {
 }
 
 func main() {
-	http.HandleFunc("/delete", handleDelete)
 	http.HandleFunc("/up", handleUpload)
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
@@ -111,15 +110,6 @@ func staticUrl(filePath string) string {
 	url.Path = path.Join(url.Path, path.Base(filePath))
 
 	return url.String()
-}
-
-func handleDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	panic("not implemented")
 }
 
 var (
