@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -10,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -97,9 +100,17 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Write([]byte(staticUrl(tmpfile.Name()) + "\n"))
+}
+
+// staticUrl takes a file system path (presumably within the upload
+// directory, but it doesn't matter) and returns the URL that this file
+// is served at.
+func staticUrl(filePath string) string {
 	url, _ := url.Parse(baseUrl)
-	url.Path = path.Join(url.Path, path.Base(tmpfile.Name()))
-	w.Write([]byte(url.String() + "\n"))
+	url.Path = path.Join(url.Path, path.Base(filePath))
+
+	return url.String()
 }
 
 func handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -111,24 +122,16 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	panic("not implemented")
 }
 
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Header().Add("Content-Type", "text/html")
-	w.Write([]byte(`
+var (
+	indexTmplStr = `
 <!doctype html>
 <head>
   <title>oop</title>
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 
 <style>
-  body { padding: 0 1em; }
-  input { margin: 1em 0; }
+  * { font-family: sans-serif; }
 </style>
 
 <h1>oop</h1>
@@ -136,5 +139,71 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
   <input type="file" name="file"> <br/>
   <input type="submit" value="Upload">
 </form>
-`))
+
+<h1>uploads</h1>
+<ul>
+  {{range .}}
+    <li>
+      <em>{{.Timestamp}}</em>
+      <a href="{{.Url}}">{{ .Name }}</a>
+      ({{.SizeKb}} KiB)
+    </li>
+  {{end}}
+</ul>
+`
+	indexTemplate = template.Must(template.New("index").Parse(indexTmplStr))
+)
+
+type staticFile struct {
+	Timestamp string
+	Name      string
+	Url       string
+	SizeKb    int64
+}
+
+// listFiles returns all files inside `uploadDir`.
+func listFiles(dir string) ([]staticFile, error) {
+	fileInfo := []os.FileInfo{}
+	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			fileInfo = append(fileInfo, info)
+		}
+
+		return nil
+	})
+
+	// newest files first
+	sort.Slice(fileInfo, func(i, j int) bool {
+		return fileInfo[i].ModTime().Unix() > fileInfo[j].ModTime().Unix()
+	})
+
+	files := make([]staticFile, len(fileInfo))
+	for i, info := range fileInfo {
+		files[i] = staticFile{
+			Timestamp: info.ModTime().Format("2006-01-02 15:04"),
+			Name:      info.Name(),
+			Url:       staticUrl(info.Name()),
+			SizeKb:    info.Size() / 1024,
+		}
+
+	}
+	return files, err
+}
+
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	files, err := listFiles(uploadDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Add("Content-Type", "text/html")
+	if err := indexTemplate.Execute(w, files); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
