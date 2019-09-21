@@ -302,7 +302,7 @@ impl Repository {
     fn new(cfg: RepoConfig) -> Self {
         // TODO: Handle error, return Result
         if !Path::new(&cfg.path).exists() {
-            panic!("given repository does not exist")
+            panic!("repository does not exist")
         }
 
         Repository { config: cfg }
@@ -342,7 +342,6 @@ impl Repository {
     }
 
     fn active_update_log(&self) -> SupdateLog {
-        let now = Utc::now();
         let mut logs = self.list_update_logs();
 
         let last_update = if !logs.is_empty() {
@@ -351,6 +350,7 @@ impl Repository {
             None
         };
 
+        let now = Utc::now();
         // Use the last update if it's still the same day, otherwise create a new one.
         last_update
             .filter(|log| log.timestamp.date() == now.date())

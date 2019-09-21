@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // cli flags
@@ -40,21 +41,28 @@ func init() {
 }
 
 func main() {
-	http.HandleFunc("/up", handleUpload)
-	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/" {
-			log.Printf("not found: %s", req.URL.Path)
-			http.NotFound(w, req)
-			return
-		}
-
-		handleIndex(w, req)
-	})
+	http.HandleFunc("/up", logRequest(handleUpload))
+	http.HandleFunc("/", logRequest(handleIndex))
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 
 	log.Printf("starting server on %s", addr)
 	http.ListenAndServe(addr, nil)
+}
+
+func logRequest(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s := time.Now()
+		fn(w, r)
+		dt := (time.Now().UnixNano() - s.UnixNano()) / int64(time.Millisecond)
+
+		log.Printf("%s %s %s (%d ms)", r.RemoteAddr, r.Method, r.URL.Path, dt)
+	}
+}
+
+func internalServerError(msg string, err error, w http.ResponseWriter) {
+	log.Printf("%s %+v", msg, err)
+	http.Error(w, "internal server error", http.StatusInternalServerError)
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -75,27 +83,24 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	tmpfile, err := ioutil.TempFile(uploadDir, fmt.Sprintf("*.%s", ext))
 	if err != nil {
-		log.Printf("create temp file: %+v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalServerError("create temp file", err, w)
 		return
 	}
 	defer tmpfile.Close()
 
 	log.Printf("receiving file: %s.%s => %s", name, ext, tmpfile.Name())
 
-	if b, err := io.Copy(tmpfile, file); err != nil {
-		log.Printf("download failed: %+v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	bytes, err := io.Copy(tmpfile, file)
+	if err != nil {
+		internalServerError("download from client", err, w)
 		return
-	} else {
-		log.Printf("%s completed (%d bytes)", tmpfile.Name(), b)
 	}
+	log.Printf("%s completed (%d bytes)", tmpfile.Name(), bytes)
 
 	// Tempfiles are created as 0600, which means other processes
 	// won't be able to read them.
 	if err := os.Chmod(tmpfile.Name(), 0644); err != nil {
-		log.Printf("chmod failed: %+v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalServerError("chmod", err, w)
 		return
 	}
 
@@ -108,7 +113,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 func staticUrl(filePath string) string {
 	url, _ := url.Parse(baseUrl)
 	url.Path = path.Join(url.Path, path.Base(filePath))
-
 	return url.String()
 }
 
@@ -155,7 +159,9 @@ type staticFile struct {
 func listFiles(dir string) ([]staticFile, error) {
 	fileInfo := []os.FileInfo{}
 	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
+		if err != nil {
+			return err
+		} else if !info.IsDir() {
 			fileInfo = append(fileInfo, info)
 		}
 
@@ -181,19 +187,24 @@ func listFiles(dir string) ([]staticFile, error) {
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	// Go will treat `/` as a catch-all wildcard route.
+	if r.URL.Path != "/" {
+		log.Printf("not found: %s", r.URL.Path)
+		http.NotFound(w, r)
+		return
+	} else if r.Method != http.MethodGet {
 		http.Error(w, "not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	files, err := listFiles(uploadDir)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalServerError("list static files", err, w)
 		return
 	}
 
 	w.Header().Add("Content-Type", "text/html")
 	if err := indexTemplate.Execute(w, files); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalServerError("render template", err, w)
 	}
 }
