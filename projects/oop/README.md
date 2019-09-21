@@ -3,12 +3,14 @@
 Simple personal file upload server.
 
 I use this to upload files from my phone (or wherever) to my VPS, and
-then serve the static content using nginx.
+then serve the static content using Nginx.
 
 > NOTE: There is no authentication built in. Use your actual web
-> server to configure Basic Auth or something.
+> server to configure HTTP basic auth or something.
 
 ```console
+go get -u github.com/erik/oop
+
 oop -port 5432 -host 127.0.0.1 \
     -uploaddir /var/www/oop \
     -url http://example.com/static/
@@ -16,8 +18,8 @@ oop -port 5432 -host 127.0.0.1 \
 
 ## simple nginx setup
 
-Using Nginx as a reverse proxy to serve `oop` with Basic
-Authentication as well as to serve the uploaded static files.
+Using Nginx as a reverse proxy to serve `oop` with basic
+authentication as well as to serve the uploaded static files.
 
 1. Set up your credentials using `htpasswd`
 
@@ -50,7 +52,6 @@ Authentication as well as to serve the uploaded static files.
        -uploaddir /var/www/uploads/
    ```
 
-
-## License
+## license
 
 Available under AGPL-3.0 or later. See `LICENSE` for details.
