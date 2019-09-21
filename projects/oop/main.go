@@ -26,10 +26,8 @@ var (
 )
 
 func init() {
-	flag.StringVar(&uploadDir, "uploaddir", "/var/www/oop/",
-		"where to keep uploaded files")
-	flag.StringVar(&baseUrl, "url", "",
-		"base url content is served from")
+	flag.StringVar(&uploadDir, "uploaddir", "/var/www/oop/", "where to keep uploaded files")
+	flag.StringVar(&baseUrl, "url", "", "base url content is served from")
 	flag.StringVar(&host, "host", "", "host to listen on")
 	flag.IntVar(&port, "port", 8080, "port to listen on")
 
@@ -38,6 +36,9 @@ func init() {
 	if baseUrl == "" {
 		log.Fatal("-url is required")
 	}
+
+	// uploadDir needs to end with a trailing slash for filepath.Walk
+	uploadDir = path.Join(uploadDir, "/")
 }
 
 func main() {
@@ -116,8 +117,43 @@ func staticUrl(filePath string) string {
 	return url.String()
 }
 
-var (
-	indexTmplStr = `
+type staticFile struct {
+	Timestamp string
+	Name      string
+	Url       string
+	SizeKb    int64
+}
+
+// listFiles returns all files inside `uploadDir`.
+func listFiles(dir string) ([]staticFile, error) {
+	fileInfo := []os.FileInfo{}
+	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+
+		fileInfo = append(fileInfo, info)
+		return nil
+	})
+
+	// newest files first
+	sort.Slice(fileInfo, func(i, j int) bool {
+		return fileInfo[i].ModTime().Unix() > fileInfo[j].ModTime().Unix()
+	})
+
+	files := make([]staticFile, len(fileInfo))
+	for i, info := range fileInfo {
+		files[i] = staticFile{
+			Timestamp: info.ModTime().Format("2006-01-02 15:04"),
+			Name:      info.Name(),
+			Url:       staticUrl(info.Name()),
+			SizeKb:    info.Size() / 1024,
+		}
+	}
+	return files, err
+}
+
+var indexTemplate = template.Must(template.New("index").Parse(`
 <!doctype html>
 <head>
   <title>oop</title>
@@ -144,47 +180,7 @@ var (
     </li>
   {{end}}
 </ul>
-`
-	indexTemplate = template.Must(template.New("index").Parse(indexTmplStr))
-)
-
-type staticFile struct {
-	Timestamp string
-	Name      string
-	Url       string
-	SizeKb    int64
-}
-
-// listFiles returns all files inside `uploadDir`.
-func listFiles(dir string) ([]staticFile, error) {
-	fileInfo := []os.FileInfo{}
-	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		} else if !info.IsDir() {
-			fileInfo = append(fileInfo, info)
-		}
-
-		return nil
-	})
-
-	// newest files first
-	sort.Slice(fileInfo, func(i, j int) bool {
-		return fileInfo[i].ModTime().Unix() > fileInfo[j].ModTime().Unix()
-	})
-
-	files := make([]staticFile, len(fileInfo))
-	for i, info := range fileInfo {
-		files[i] = staticFile{
-			Timestamp: info.ModTime().Format("2006-01-02 15:04"),
-			Name:      info.Name(),
-			Url:       staticUrl(info.Name()),
-			SizeKb:    info.Size() / 1024,
-		}
-
-	}
-	return files, err
-}
+`))
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Go will treat `/` as a catch-all wildcard route.
