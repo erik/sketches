@@ -2,12 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::proto::{MessageKind, RawMessage};
-
-trait ClientWriter {
-    fn write(msg: &RawMessage) -> std::io::Result<()>;
-    fn write_raw(msg: &str) -> std::io::Result<()>;
-}
+use crate::proto::{Capability, MessageKind, RawMessage};
 
 enum AuthState {
     NeedsAuth,
@@ -20,7 +15,7 @@ struct ClientAuth {
     user: String,
     client_id: String,
     network: String,
-    password: String
+    password: String,
 }
 
 impl ClientAuth {
@@ -31,37 +26,24 @@ impl ClientAuth {
 
         Some(ClientAuth {
             user: s[..at].to_string(),
-            client_id: s[at+1..slash].to_string(),
-            network: s[slash+1..colon].to_string(),
-            password: s[colon+1..].to_string(),
+            client_id: s[at + 1..slash].to_string(),
+            network: s[slash + 1..colon].to_string(),
+            password: s[colon + 1..].to_string(),
         })
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
-enum ClientCapability {
-    ServerTime,
-}
-
-impl ClientCapability {
-    fn from(s: &str) -> Option<ClientCapability> {
-        match s {
-            "server-time" => Some(Self::ServerTime),
-            _ => None,
-        }
-    }
-}
-
 /// Represents User <-> Birch connection
-struct Client {
+// TODO: Rename UserConnection?
+struct ClientConnection {
     auth: AuthState,
-    caps: HashSet<ClientCapability>,
-    // writer: dyn ClientWriter,
+    caps: HashSet<Capability>,
+    // writer: dyn IRCWriter,
 }
 
-impl Client {
+impl ClientConnection {
     fn new() -> Self {
-        Client {
+        Self {
             auth: AuthState::NeedsAuth,
             caps: HashSet::new(),
         }
@@ -72,19 +54,20 @@ impl Client {
             "LS" => unimplemented!(),
             "END" => unimplemented!(),
             "REQ" => {
-                msg.param(1).unwrap_or("")
+                msg.param(1)
+                    .unwrap_or("")
                     .split_whitespace()
-                    .map(ClientCapability::from)
+                    .map(Capability::from)
                     .for_each(|cap| match cap {
                         Some(cap) => {
                             self.caps.insert(cap);
                             // TODO: respond with ACK
-                        },
+                        }
                         None => {
                             // TODO: respond with NAK
                         }
                     });
-            },
+            }
             _ => {
                 // TODO: Send invalid command
             }
@@ -108,7 +91,6 @@ impl Client {
             _ => {
                 // TODO: Log error not authenticated here
             }
-
         };
 
         // Never want to forward unauthenticated messages on to the
@@ -118,7 +100,14 @@ impl Client {
 
     fn handle_authenticated(&mut self, msg: &RawMessage) -> bool {
         match MessageKind::from(msg) {
-            _ => true
+            MessageKind::Ping => {
+                // TODO: send pong to client
+
+                // No need to forward PING messages, we respond ourselves.
+                false
+            }
+
+            _ => true,
         }
     }
 

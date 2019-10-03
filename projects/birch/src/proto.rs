@@ -1,9 +1,9 @@
 #![allow(dead_code, unused_variables)]
 
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq)]
-pub struct Nick {
+pub struct Source {
     nick: String,
     ident: Option<String>,
     host: Option<String>,
@@ -11,27 +11,29 @@ pub struct Nick {
 }
 
 //  <prefix>   ::= <nick> [ '!' <ident>  [ '@' <host> ] ]
-impl Nick {
-    fn parse(s: &str) -> Option<Nick> {
+impl Source {
+    fn parse(s: &str) -> Option<Source> {
         if s.is_empty() {
-            return None
+            return None;
         }
 
         let (nick, rest) = if let Some(index) = s.find('!') {
-            (&s[..index], Some(&s[index+1..]))
+            (&s[..index], Some(&s[index + 1..]))
         } else {
             (s, None)
         };
 
-        let (ident, host) = rest.map(|r| {
-            if let Some(index) = r.find('@') {
-                (Some(&r[..index]), Some(&r[index+1..]))
-            } else {
-                (rest, None)
-            }
-        }).unwrap_or((None, None));
+        let (ident, host) = rest
+            .map(|r| {
+                if let Some(index) = r.find('@') {
+                    (Some(&r[..index]), Some(&r[index + 1..]))
+                } else {
+                    (rest, None)
+                }
+            })
+            .unwrap_or((None, None));
 
-        Some(Nick {
+        Some(Source {
             nick: nick.trim_start_matches(":").to_string(),
             ident: ident.map(str::to_string),
             host: host.map(str::to_string),
@@ -98,14 +100,13 @@ pub struct MessageTag {
 
 #[derive(PartialEq)]
 pub struct RawMessage {
-    pub source: Option<Nick>,
+    pub source: Option<Source>,
     pub command: String,
     params: Vec<String>,
 
     pub timestamp: u64, // TODO: datetime
     pub tags: MessageTags,
 }
-
 
 /// Split `msg` at first space character or end of word if no spaces remain.
 fn split_message(msg: &str) -> Option<(&str, &str)> {
@@ -114,13 +115,9 @@ fn split_message(msg: &str) -> Option<(&str, &str)> {
     }
 
     match msg.find(' ') {
-        Some(index) => {
-            Some((&msg[..index], &msg[index+1..]))
-        },
+        Some(index) => Some((&msg[..index], &msg[index + 1..])),
 
-        None => {
-            Some((msg, ""))
-        }
+        None => Some((msg, "")),
     }
 }
 //  <message>  ::= [':' <prefix> <SPACE> ] <command> <params> <crlf>
@@ -150,7 +147,7 @@ impl RawMessage {
         let nick = if line.starts_with(':') {
             let (nick, rest) = split_message(line)?;
             line = rest;
-            Some(Nick::parse(nick)?)
+            Some(Source::parse(nick)?)
         } else {
             None
         };
@@ -164,7 +161,7 @@ impl RawMessage {
             // remaining whitespace.
             if param.starts_with(':') {
                 params.push(line[1..].to_string());
-                break
+                break;
             } else {
                 params.push(param.to_string());
             }
@@ -188,40 +185,66 @@ impl RawMessage {
     }
 }
 
+/// IRC capabilities we support
+#[derive(Hash, PartialEq, Eq)]
+pub enum Capability {
+    ServerTime,
+}
+
+impl Capability {
+    pub fn from(s: &str) -> Option<Self> {
+        match s {
+            "server-time" => Some(Self::ServerTime),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn test_parse_nick() {
-        assert_eq!(Nick::parse("nick!~ident@host").unwrap(), Nick {
-            nick: "nick".to_string(),
-            ident: Some("~ident".to_string()),
-            host: Some("host".to_string()),
-            is_server: false,
-        });
+    fn test_parse_source() {
+        assert_eq!(
+            Source::parse("nick!~ident@host").unwrap(),
+            Source {
+                nick: "nick".to_string(),
+                ident: Some("~ident".to_string()),
+                host: Some("host".to_string()),
+                is_server: false,
+            }
+        );
 
-        assert_eq!(Nick::parse("nick!~user").unwrap(), Nick {
-            nick: "nick".to_string(),
-            ident: Some("~user".to_string()),
-            host: None,
-            is_server: false,
-        });
+        assert_eq!(
+            Source::parse("nick!~user").unwrap(),
+            Source {
+                nick: "nick".to_string(),
+                ident: Some("~user".to_string()),
+                host: None,
+                is_server: false,
+            }
+        );
 
-        assert_eq!(Nick::parse("nick").unwrap(), Nick {
-            nick: "nick".to_string(),
-            ident: None,
-            host: None,
-            is_server: false,
-        });
+        assert_eq!(
+            Source::parse("nick").unwrap(),
+            Source {
+                nick: "nick".to_string(),
+                ident: None,
+                host: None,
+                is_server: false,
+            }
+        );
 
-        assert_eq!(Nick::parse(":irc.server!~ident@host").unwrap(), Nick {
-            nick: "irc.server".to_string(),
-            ident: Some("~ident".to_string()),
-            host: Some("host".to_string()),
-            is_server: true,
-        });
+        assert_eq!(
+            Source::parse(":irc.server!~ident@host").unwrap(),
+            Source {
+                nick: "irc.server".to_string(),
+                ident: Some("~ident".to_string()),
+                host: Some("host".to_string()),
+                is_server: true,
+            }
+        );
     }
 
     #[test]
