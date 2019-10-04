@@ -42,7 +42,7 @@ impl Source {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum MessageKind {
     Away,
     Capability,
@@ -92,13 +92,13 @@ impl MessageKind {
 
 type MessageTags = HashMap<String, MessageTag>;
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct MessageTag {
     key: String,
     value: Option<String>,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct RawMessage {
     pub source: Option<Source>,
     pub command: String,
