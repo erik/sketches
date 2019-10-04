@@ -180,6 +180,10 @@ impl RawMessage {
         })
     }
 
+    pub fn to_string(&self) -> String {
+        unimplemented!()
+    }
+
     pub fn param(&self, i: usize) -> Option<&str> {
         self.params.get(i).map(String::as_ref)
     }

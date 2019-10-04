@@ -3,17 +3,19 @@
 use std::collections::HashSet;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
+use crate::IRCWriter;
 
 /// Represents Birch <-> IRC network connection
 // TODO: Rename NetworkConnection?
-struct ServerConnection {
+struct ServerConnection<'a> {
     nick: String,
     caps: HashSet<Capability>,
-    // writer: dyn IRCWriter,
-    // user_fanout: dyn IRCWriter,
+
+    writer: &'a dyn IRCWriter,
+    user_fanout: &'a dyn IRCWriter,
 }
 
-impl ServerConnection {
+impl<'a> ServerConnection<'a> {
     fn handle(&mut self, msg: &RawMessage) {
         let kind = MessageKind::from(msg);
 
@@ -33,6 +35,8 @@ impl ServerConnection {
             // MessageKind::Quit => true,
 
             // MessageKind::Kick => true,
+
+            // MessageKind::Mode => true,
             _ => {
                 println!("Unhandled message: {:?}", msg);
 

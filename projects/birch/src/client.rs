@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
+use crate::IRCWriter;
 
 enum AuthState {
     NeedsAuth,
@@ -35,17 +36,20 @@ impl ClientAuth {
 
 /// Represents User <-> Birch connection
 // TODO: Rename UserConnection?
-struct ClientConnection {
+struct ClientConnection<'a> {
     auth: AuthState,
     caps: HashSet<Capability>,
-    // writer: dyn IRCWriter,
+
+    writer: &'a dyn IRCWriter,
 }
 
-impl ClientConnection {
-    fn new() -> Self {
+impl<'a> ClientConnection<'a> {
+    fn new(writer: &'a impl IRCWriter) -> Self {
         Self {
             auth: AuthState::NeedsAuth,
             caps: HashSet::new(),
+
+            writer,
         }
     }
 
