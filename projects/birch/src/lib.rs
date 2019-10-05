@@ -12,13 +12,14 @@ trait IRCWriter {
     fn write_raw(&mut self, msg: &str) -> std::io::Result<()>;
 }
 
+// TODO: Move this elsewhere.
 mod sock {
     use std::io::prelude::*;
     use std::net::TcpStream;
 
     impl crate::IRCWriter for TcpStream {
         fn write_raw(&mut self, msg: &str) -> std::io::Result<()> {
-            self.write(msg.as_bytes())?;
+            self.write_all(msg.as_bytes())?;
             Ok(())
         }
     }

@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct Source {
@@ -34,7 +35,7 @@ impl Source {
             .unwrap_or((None, None));
 
         Some(Source {
-            nick: nick.trim_start_matches(":").to_string(),
+            nick: nick.trim_start_matches(':').to_string(),
             ident: ident.map(str::to_string),
             host: host.map(str::to_string),
             is_server: nick.starts_with(':'),
@@ -110,7 +111,7 @@ pub struct RawMessage {
 
 /// Split `msg` at first space character or end of word if no spaces remain.
 fn split_message(msg: &str) -> Option<(&str, &str)> {
-    if msg.len() == 0 {
+    if msg.is_empty() {
         return None;
     }
 
@@ -172,16 +173,12 @@ impl RawMessage {
         Some(Self {
             source: nick,
             command: cmd.to_string(),
-            params: params,
-            tags: tags,
+            params,
+            tags,
 
             // TODO: pull this out of the tags, if possible
             timestamp: 0,
         })
-    }
-
-    pub fn to_string(&self) -> String {
-        unimplemented!()
     }
 
     pub fn param(&self, i: usize) -> Option<&str> {
@@ -189,6 +186,11 @@ impl RawMessage {
     }
 }
 
+impl fmt::Display for RawMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unimplemented!()
+    }
+}
 /// IRC capabilities we support
 #[derive(Hash, PartialEq, Eq)]
 pub enum Capability {

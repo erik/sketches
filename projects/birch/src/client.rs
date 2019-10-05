@@ -62,12 +62,11 @@ impl<'a> ClientConnection<'a> {
                     .unwrap_or("")
                     .split_whitespace()
                     .map(Capability::from)
-                    .for_each(|cap| match cap {
-                        Some(cap) => {
+                    .for_each(|cap| {
+                        if let Some(cap) = cap {
                             self.caps.insert(cap);
-                            // TODO: respond with ACK
-                        }
-                        None => {
+                        // TODO: respond with ACK
+                        } else {
                             // TODO: respond with NAK
                         }
                     });
