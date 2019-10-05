@@ -54,7 +54,7 @@ impl<'a> ClientConnection<'a> {
     }
 
     fn handle_cap_command(&mut self, msg: &RawMessage) {
-        match msg.param(0).unwrap_or("missing") {
+        match msg.param(0).unwrap_or("") {
             "LS" => unimplemented!(),
             "END" => unimplemented!(),
             "REQ" => {
@@ -64,13 +64,14 @@ impl<'a> ClientConnection<'a> {
                     .map(Capability::from)
                     .for_each(|cap| {
                         if let Some(cap) = cap {
+                            // TODO: respond with ACK
                             self.caps.insert(cap);
-                        // TODO: respond with ACK
                         } else {
                             // TODO: respond with NAK
                         }
                     });
             }
+
             _ => {
                 // TODO: Send invalid command
             }

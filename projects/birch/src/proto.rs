@@ -121,17 +121,30 @@ fn split_message(msg: &str) -> Option<(&str, &str)> {
         None => Some((msg, "")),
     }
 }
-//  <message>  ::= [':' <prefix> <SPACE> ] <command> <params> <crlf>
-//  <prefix>   ::= <servername> | <nick> [ '!' <user> ] [ '@' <host> ]
-//  <command>  ::= <letter> { <letter> } | <number> <number> <number>
-//  <SPACE>    ::= ' ' { ' ' }
-//  <params>   ::= <SPACE> [ ':' <trailing> | <middle> <params> ]
-//  <middle>   ::= <Any *non-empty* sequence of octets not including SPACE
-//                 or NUL or CR or LF, the first of which may not be ':'>
-//  <trailing> ::= <Any, possibly *empty*, sequence of octets not including
-//                   NUL or CR or LF>
+
 impl RawMessage {
+    pub fn new(command: &str, params: &[String]) -> RawMessage {
+        RawMessage {
+            command: command.to_string(),
+            params: params.to_vec(),
+
+            source: None,
+            timestamp: 0,
+            tags: HashMap::new(),
+        }
+    }
+
     /// Expects that any trailing CR, LF have been removed.
+    ///
+    ///  <message>  ::= [':' <prefix> <SPACE> ] <command> <params> <crlf>
+    ///  <prefix>   ::= <servername> | <nick> [ '!' <user> ] [ '@' <host> ]
+    ///  <command>  ::= <letter> { <letter> } | <number> <number> <number>
+    ///  <SPACE>    ::= ' ' { ' ' }
+    ///  <params>   ::= <SPACE> [ ':' <trailing> | <middle> <params> ]
+    ///  <middle>   ::= <Any *non-empty* sequence of octets not including SPACE
+    ///                 or NUL or CR or LF, the first of which may not be ':'>
+    ///  <trailing> ::= <Any, possibly *empty*, sequence of octets not including
+    ///                   NUL or CR or LF>
     pub fn parse(line: &str) -> Option<Self> {
         let mut line: &str = line;
         let mut msg: Self;

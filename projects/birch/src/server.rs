@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 use std::collections::HashSet;
+use std::io::Result;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
 use crate::IRCWriter;
@@ -11,21 +12,24 @@ struct ServerConnection<'a> {
     nick: String,
     caps: HashSet<Capability>,
 
-    writer: &'a dyn IRCWriter,
+    writer: &'a mut dyn IRCWriter,
     user_fanout: &'a dyn IRCWriter,
 }
 
 impl<'a> ServerConnection<'a> {
-    fn handle(&mut self, msg: &RawMessage) {
+    fn handle(&mut self, msg: &RawMessage) -> Result<()> {
         let kind = MessageKind::from(msg);
 
         let should_forward = match kind {
             MessageKind::Ping => {
-                // TODO: Respond to network PING
+                let param = msg.param(1).unwrap_or("").to_string();
+                let msg = &RawMessage::new("PONG", &[param]);
+
+                self.writer.write_message(msg)?;
                 false
             }
 
-            MessageKind::Numeric(code) => self.handle_numeric(code, msg),
+            MessageKind::Numeric(code) => self.handle_numeric(code, msg)?,
 
             // MessageKind::Privmsg => true,
             // MessageKind::Notice => true,
@@ -47,19 +51,21 @@ impl<'a> ServerConnection<'a> {
         if should_forward {
             // TODO: send message to user_fanout
         }
+
+        Ok(())
     }
 
-    fn handle_numeric(&mut self, code: u16, msg: &RawMessage) -> bool {
-        match code {
+    fn handle_numeric(&mut self, code: u16, msg: &RawMessage) -> Result<bool> {
+        let should_forward = match code {
             // :server 001 nick :welcome message
             1 => false,
 
             // ISUPPORT
             5 => false,
 
-            2 |
-            3 |
-            4 |
+            2 |      // Your host
+            3 |      // Server created at
+            4 |      // Server info
             250 |    // Highest user count
             251 |    // User count
             252 |    // Oper count
@@ -136,6 +142,8 @@ impl<'a> ServerConnection<'a> {
 
                 true
             }
-        }
+        };
+
+        Ok(should_forward)
     }
 }
