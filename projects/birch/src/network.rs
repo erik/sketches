@@ -103,6 +103,7 @@ impl<'a> NetworkConnection<'a> {
             250 |    // Highest user count
             251 |    // User count
             252 |    // Oper count
+            253 |    // Unknown connections
             254 |    // Channel count
             255 |    // Client count
             265 |    // Local users

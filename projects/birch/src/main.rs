@@ -17,7 +17,7 @@ fn main() {
         loop {
             let msg = reader.read_message();
             if let Ok(msg) = msg {
-                println!("Received: {}", msg);
+                println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
                 net.handle(&msg).expect("failed to handle message");
             } else {
                 println!("read failed");
