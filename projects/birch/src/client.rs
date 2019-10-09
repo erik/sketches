@@ -3,11 +3,12 @@
 use std::collections::HashSet;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
-use crate::IRCWriter;
+use crate::socket::IRCWriter;
 
 enum AuthState {
     NeedsAuth,
     Authenticated,
+    AuthFailed,
 }
 
 /// Represented in `PASS` commands as 'user@client_id/network:password'.
@@ -119,6 +120,7 @@ impl<'a> ClientConnection<'a> {
         let should_forward = match self.auth {
             AuthState::NeedsAuth => self.handle_unauthenticated(msg),
             AuthState::Authenticated => self.handle_authenticated(msg),
+            AuthState::AuthFailed => unimplemented!(),
         };
 
         if should_forward {
