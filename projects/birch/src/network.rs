@@ -4,20 +4,54 @@ use std::collections::HashSet;
 use std::io::Result;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
-use crate::IRCWriter;
+use crate::socket::IRCWriter;
 
 /// Represents Birch <-> IRC network connection
-// TODO: Rename NetworkConnection?
-struct ServerConnection<'a> {
+pub struct NetworkConnection<'a> {
     nick: String,
     caps: HashSet<Capability>,
 
+    /// Have we
+    authenticated: bool,
+
     writer: &'a mut dyn IRCWriter,
-    user_fanout: &'a dyn IRCWriter,
+    // user_fanout: &'a mut dyn IRCWriter,
 }
 
-impl<'a> ServerConnection<'a> {
-    fn handle(&mut self, msg: &RawMessage) -> Result<()> {
+impl<'a> NetworkConnection<'a> {
+    pub fn new(nick: &str, writer: &'a mut dyn IRCWriter) -> Self {
+        Self {
+            nick: nick.to_string(),
+            caps: HashSet::new(),
+
+            authenticated: false,
+
+            writer,
+        }
+    }
+
+    pub fn initialize(&mut self) -> Result<()> {
+        let msgs = vec![
+            RawMessage::new("NICK", &[self.nick.to_string()]),
+            RawMessage::new(
+                "USER",
+                &[
+                    self.nick.to_string(),
+                    "*".to_string(),
+                    "*".to_string(),
+                    self.nick.to_string(),
+                ],
+            ),
+        ];
+
+        for m in msgs.iter() {
+            self.writer.write_message(&m)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn handle(&mut self, msg: &RawMessage) -> Result<()> {
         let kind = MessageKind::from(msg);
 
         let should_forward = match kind {
