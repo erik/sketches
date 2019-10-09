@@ -11,6 +11,25 @@ pub struct Source {
     is_server: bool,
 }
 
+impl fmt::Display for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_server {
+            write!(f, ":")?;
+        }
+
+        write!(f, "{}", self.nick)?;
+
+        if let Some(ref ident) = self.ident {
+            write!(f, "!{}", ident)?;
+        }
+        if let Some(ref host) = self.host {
+            write!(f, "@{}", host)?;
+        }
+
+        Ok(())
+    }
+}
+
 //  <prefix>   ::= <nick> [ '!' <ident>  [ '@' <host> ] ]
 impl Source {
     fn parse(s: &str) -> Option<Source> {
@@ -117,7 +136,6 @@ fn split_message(msg: &str) -> Option<(&str, &str)> {
 
     match msg.find(' ') {
         Some(index) => Some((&msg[..index], &msg[index + 1..])),
-
         None => Some((msg, "")),
     }
 }
@@ -201,9 +219,27 @@ impl RawMessage {
 
 impl fmt::Display for RawMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!()
+        // TOOD: tags
+
+        if let Some(source) = &self.source {
+            write!(f, "{} ", source)?;
+        }
+
+        write!(f, "{}", self.command)?;
+
+        for (i, param) in self.params.iter().enumerate() {
+            // Last is a special case
+            if param.contains(' ') {
+                write!(f, " :{}", param)?;
+            } else {
+                write!(f, " {}", param)?;
+            }
+        }
+
+        Ok(())
     }
 }
+
 /// IRC capabilities we support
 #[derive(Hash, PartialEq, Eq)]
 pub enum Capability {
@@ -264,6 +300,21 @@ mod test {
                 is_server: true,
             }
         );
+    }
+
+    #[test]
+    fn test_display_source() {
+        let cases = vec![
+            "nick",
+            "nick!~ident",
+            "nick!~ident@host",
+            ":irc.server!~ident@host",
+        ];
+
+        for case in cases {
+            let round_trip = format!("{}", Source::parse(case).unwrap());
+            assert_eq!(round_trip, case);
+        }
     }
 
     #[test]
