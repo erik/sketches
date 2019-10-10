@@ -10,8 +10,7 @@ fn main() {
     let mut stream = TcpStream::connect("irc.freenode.net:6667").unwrap();
     thread::spawn(move || {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut net = NetworkConnection::new("ep``", &mut stream);
-
+        let mut net = NetworkConnection::new("ep`", &mut stream);
         net.initialize().unwrap();
 
         loop {
@@ -33,7 +32,7 @@ fn main() {
     for stream in listener.incoming() {
         thread::spawn(|| {
             let mut stream = stream.unwrap();
-            stream.write(b"Hello World\r\n").unwrap();
+            stream.write_all(b"Hello World\r\n").unwrap();
         });
     }
 }

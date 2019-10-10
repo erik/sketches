@@ -1,5 +1,5 @@
 use std::io::prelude::*;
-use std::io::{BufReader, Error, ErrorKind, Result};
+use std::io::{BufRead, Error, ErrorKind, Result};
 
 use crate::proto::RawMessage;
 
@@ -20,22 +20,21 @@ pub trait IRCReader {
 impl<T: Write> IRCWriter for T {
     fn write_raw(&mut self, msg: &str) -> Result<()> {
         self.write_all(msg.as_bytes())?;
-        self.write_all("\r\n".as_bytes())?;
+        self.write_all(b"\r\n")?;
 
         Ok(())
     }
 }
 
-impl<T: Read> IRCReader for BufReader<T> {
+impl<T: BufRead> IRCReader for T {
     fn read_message(&mut self) -> Result<RawMessage> {
         let mut buf = String::new();
         self.read_line(&mut buf)?;
 
         let line = buf.trim_end_matches(|c| c == '\r' || c == '\n');
-        RawMessage::parse(line).ok_or(Error::new(
-            ErrorKind::Other,
-            "failed to parse message from line",
-        ))
+        RawMessage::parse(line).ok_or_else(|| {
+            Error::new(ErrorKind::Other, "failed to parse message from line")
+        })
     }
 }
 
