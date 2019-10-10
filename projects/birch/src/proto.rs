@@ -16,9 +16,7 @@ impl fmt::Display for Source {
         if self.is_server {
             write!(f, ":")?;
         }
-
         write!(f, "{}", self.nick)?;
-
         if let Some(ref ident) = self.ident {
             write!(f, "!{}", ident)?;
         }
@@ -185,7 +183,6 @@ impl RawMessage {
         };
 
         let (cmd, mut line) = split_message(line)?;
-        // line = rest;
 
         let mut params: Vec<String> = Vec::new();
         while let Some((param, rest)) = split_message(line) {
@@ -269,9 +266,51 @@ impl Capability {
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub struct ModeSet {
+    set: HashMap<char, bool>,
+}
+
+impl ModeSet {
+    pub fn from(s: &str) -> Option<Self> {
+        let mut value: Option<bool> = None;
+        let mut modes = ModeSet {
+            set: HashMap::new(),
+        };
+
+        for ch in s.chars() {
+            match ch {
+                '+' => value = Some(true),
+                '-' => value = Some(false),
+                _ => {
+                    if let Some(value) = value {
+                        modes.set.insert(ch, value);
+                    } else {
+                        // Invalid string format
+                        return None;
+                    }
+                }
+            }
+        }
+
+        Some(modes)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_parse_mode_string() {
+        let modes = ModeSet::from("-bB+xy");
+        let expected = [('b', false), ('B', false), ('x', true), ('y', true)]
+            .iter()
+            .cloned()
+            .collect();
+
+        assert_eq!(modes, Some(ModeSet { set: expected }));
+    }
 
     #[test]
     fn test_parse_caps() {
