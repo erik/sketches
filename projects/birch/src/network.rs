@@ -52,19 +52,6 @@ impl<'a> NetworkConnection<'a> {
         self.transition_state(ConnectionState::Initial)
     }
 
-    fn register(&mut self) -> Result<()> {
-        let msgs = vec![
-            RawMessage::new("NICK", &[&self.nick]),
-            RawMessage::new("USER", &[&self.nick, "0", "*", &self.nick]),
-        ];
-
-        for m in msgs.iter() {
-            self.writer.write_message(&m)?;
-        }
-
-        Ok(())
-    }
-
     fn write_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
         self.writer.write_message(&RawMessage::new(command, params))
     }
