@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::io::Result;
 
-use crate::proto::{Capability, MessageKind, RawMessage};
+use crate::proto::{Capability, MessageKind, ModeSet, RawMessage};
 use crate::socket::IRCWriter;
 
 enum AuthKind {
@@ -24,6 +24,7 @@ enum ConnectionState {
 /// Represents Birch <-> IRC network connection
 pub struct NetworkConnection<'a> {
     nick: String,
+    user_modes: ModeSet,
     caps_pending: usize,
     caps: HashSet<Capability>,
     auth: AuthKind,
@@ -38,6 +39,7 @@ impl<'a> NetworkConnection<'a> {
     pub fn new(nick: &str, writer: &'a mut dyn IRCWriter) -> Self {
         Self {
             nick: nick.to_string(),
+            user_modes: ModeSet::empty(),
             caps_pending: 0,
             caps: HashSet::new(),
             auth: AuthKind::None,
@@ -87,6 +89,7 @@ impl<'a> NetworkConnection<'a> {
             ConnectionState::Registered => (),
         }
 
+        self.state = next;
         Ok(())
     }
 
@@ -122,6 +125,7 @@ impl<'a> NetworkConnection<'a> {
                 }
             }
 
+            // Not strictly necessary but if we want to support `cap-notify`
             "NEW" | "DEL" => unimplemented!(),
 
             _ => println!("ignoring unknown cap command: {}", msg),
@@ -141,8 +145,7 @@ impl<'a> NetworkConnection<'a> {
 
             MessageKind::Capability => {
                 self.handle_cap_message(msg)?;
-
-                // We have our own caps, don't send the servers.
+                // We have our own caps, don't send the server's.
                 false
             }
 
@@ -156,8 +159,20 @@ impl<'a> NetworkConnection<'a> {
             // MessageKind::Quit => true,
 
             // MessageKind::Kick => true,
+            MessageKind::Mode => {
+                if let Some(target) = msg.param(0) {
+                    if target == self.nick {
+                        let modes = msg.param(1).and_then(|s| self.user_modes.apply(s));
+                        if let Some(modes) = modes {
+                            self.user_modes = modes;
+                        }
+                    } else {
+                        // TODO: channel modes, other users
+                    }
+                }
+                true
+            }
 
-            // MessageKind::Mode => true,
             _ => {
                 println!("Unhandled message: {:?}", msg);
 

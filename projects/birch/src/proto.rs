@@ -94,6 +94,7 @@ impl MessageKind {
             "CAP" => Self::Capability,
             "JOIN" => Self::Join,
             "KICK" => Self::Kick,
+            "MODE" => Self::Mode,
             "NOTICE" => Self::Notice,
             "PART" => Self::Part,
             "PASS" => Self::Pass,
@@ -266,17 +267,21 @@ impl Capability {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ModeSet {
     set: HashMap<char, bool>,
 }
 
 impl ModeSet {
-    pub fn from(s: &str) -> Option<Self> {
-        let mut value: Option<bool> = None;
-        let mut modes = ModeSet {
+    pub fn empty() -> Self {
+        Self {
             set: HashMap::new(),
-        };
+        }
+    }
+
+    pub fn apply(&self, s: &str) -> Option<Self> {
+        let mut value: Option<bool> = None;
+        let mut copy = self.clone();
 
         for ch in s.chars() {
             match ch {
@@ -284,16 +289,20 @@ impl ModeSet {
                 '-' => value = Some(false),
                 _ => {
                     if let Some(value) = value {
-                        modes.set.insert(ch, value);
+                        copy.set.insert(ch, value);
                     } else {
-                        // Invalid string format
+                        // Invalid string format, bail early
                         return None;
                     }
                 }
             }
         }
 
-        Some(modes)
+        Some(copy)
+    }
+
+    pub fn contains(&self, m: char) -> bool {
+        self.set.get(&m).map(bool::clone).unwrap_or(false)
     }
 }
 
@@ -303,7 +312,7 @@ mod test {
 
     #[test]
     fn test_parse_mode_string() {
-        let modes = ModeSet::from("-bB+xy");
+        let modes = ModeSet::empty().apply("-bB+xy");
         let expected = [('b', false), ('B', false), ('x', true), ('y', true)]
             .iter()
             .cloned()
