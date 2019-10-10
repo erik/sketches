@@ -141,10 +141,10 @@ fn split_message(msg: &str) -> Option<(&str, &str)> {
 }
 
 impl RawMessage {
-    pub fn new(command: &str, params: &[String]) -> RawMessage {
+    pub fn new(command: &str, params: &[&str]) -> RawMessage {
         RawMessage {
             command: command.to_string(),
-            params: params.to_vec(),
+            params: params.iter().map(|s| s.to_string()).collect(),
 
             source: None,
             timestamp: 0,
@@ -215,6 +215,10 @@ impl RawMessage {
     pub fn param(&self, i: usize) -> Option<&str> {
         self.params.get(i).map(String::as_ref)
     }
+
+    pub fn trailing(&self) -> Option<&str> {
+        self.params.last().map(String::as_ref)
+    }
 }
 
 impl fmt::Display for RawMessage {
@@ -241,15 +245,25 @@ impl fmt::Display for RawMessage {
 }
 
 /// IRC capabilities we support
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum Capability {
     ServerTime,
+    Sasl(Vec<String>),
 }
 
 impl Capability {
     pub fn from(s: &str) -> Option<Self> {
-        match s {
+        let split: Vec<&str> = s.splitn(2, '=').collect();
+
+        let cap = *split.get(0)?;
+        let args = split.get(1).unwrap_or(&"").split(',');
+
+        match cap {
             "server-time" => Some(Self::ServerTime),
+            "sasl" => {
+                let set = args.map(str::to_uppercase).collect();
+                Some(Self::Sasl(set))
+            }
             _ => None,
         }
     }
@@ -258,6 +272,22 @@ impl Capability {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_parse_caps() {
+        assert_eq!(
+            Capability::from("server-time"),
+            Some(Capability::ServerTime)
+        );
+
+        assert_eq!(
+            Capability::from("sasl=plain,EXTERNAL"),
+            Some(Capability::Sasl(vec![
+                "PLAIN".to_string(),
+                "EXTERNAL".to_string()
+            ]))
+        );
+    }
 
     #[test]
     fn test_parse_source() {

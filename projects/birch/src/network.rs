@@ -6,13 +6,29 @@ use std::io::Result;
 use crate::proto::{Capability, MessageKind, RawMessage};
 use crate::socket::IRCWriter;
 
+enum AuthKind {
+    SaslPlain(String, String),
+    Pass(String),
+    None,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum ConnectionState {
+    Initial,
+    CapabilityNegotiation,
+    Authentication,
+    Registration,
+    Registered,
+}
+
 /// Represents Birch <-> IRC network connection
 pub struct NetworkConnection<'a> {
     nick: String,
+    caps_pending: usize,
     caps: HashSet<Capability>,
+    auth: AuthKind,
 
-    /// Have we
-    authenticated: bool,
+    state: ConnectionState,
 
     writer: &'a mut dyn IRCWriter,
     // user_fanout: &'a mut dyn IRCWriter,
@@ -22,26 +38,24 @@ impl<'a> NetworkConnection<'a> {
     pub fn new(nick: &str, writer: &'a mut dyn IRCWriter) -> Self {
         Self {
             nick: nick.to_string(),
+            caps_pending: 0,
             caps: HashSet::new(),
+            auth: AuthKind::None,
 
-            authenticated: false,
+            state: ConnectionState::Initial,
 
             writer,
         }
     }
 
     pub fn initialize(&mut self) -> Result<()> {
+        self.transition_state(ConnectionState::Initial)
+    }
+
+    fn register(&mut self) -> Result<()> {
         let msgs = vec![
-            RawMessage::new("NICK", &[self.nick.to_string()]),
-            RawMessage::new(
-                "USER",
-                &[
-                    self.nick.to_string(),
-                    "*".to_string(),
-                    "*".to_string(),
-                    self.nick.to_string(),
-                ],
-            ),
+            RawMessage::new("NICK", &[&self.nick]),
+            RawMessage::new("USER", &[&self.nick, "0", "*", &self.nick]),
         ];
 
         for m in msgs.iter() {
@@ -51,15 +65,97 @@ impl<'a> NetworkConnection<'a> {
         Ok(())
     }
 
+    fn write_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
+        self.writer.write_message(&RawMessage::new(command, params))
+    }
+
+    fn transition_state(&mut self, next: ConnectionState) -> Result<()> {
+        match &next {
+            ConnectionState::Initial => {
+                self.transition_state(ConnectionState::CapabilityNegotiation)?;
+            }
+
+            ConnectionState::CapabilityNegotiation => {
+                self.write_network("CAP", &["LS", "302"])?;
+            }
+
+            ConnectionState::Authentication => match self.auth {
+                AuthKind::SaslPlain(ref _user, ref _pass) => unimplemented!(),
+                AuthKind::Pass(ref _pass) => unimplemented!(),
+                AuthKind::None => {
+                    self.transition_state(ConnectionState::Registration)?;
+                }
+            },
+
+            ConnectionState::Registration => {
+                // TODO: prevent unnecessary clone
+                let nick = self.nick.clone();
+
+                self.write_network("NICK", &[&nick])?;
+                self.write_network("USER", &[&nick, "0", "*", &nick])?;
+
+                self.transition_state(ConnectionState::Registered)?;
+            }
+
+            ConnectionState::Registered => (),
+        }
+
+        Ok(())
+    }
+
+    fn handle_cap_message(&mut self, msg: &RawMessage) -> Result<()> {
+        let cmd = msg.param(1).unwrap_or("");
+        match cmd {
+            "LS" => {
+                let caps = msg.trailing().unwrap_or("").split_whitespace();
+
+                for cap_str in caps {
+                    if let Some(cap) = Capability::from(cap_str) {
+                        self.write_network("CAP", &["REQ", cap_str])?;
+                        self.caps_pending += 1;
+                    }
+                }
+            }
+
+            "ACK" | "NAK" => {
+                let cap = msg.trailing().and_then(Capability::from);
+
+                if let Some(cap) = cap {
+                    if cmd == "ACK" {
+                        println!("CAP {:?} enabled", cap);
+                        self.caps.insert(cap);
+                    }
+                }
+
+                self.caps_pending -= 1;
+
+                if self.caps_pending == 0 {
+                    self.write_network("CAP", &["END"])?;
+                    self.transition_state(ConnectionState::Authentication)?;
+                }
+            }
+
+            "NEW" | "DEL" => unimplemented!(),
+
+            _ => println!("ignoring unknown cap command: {}", msg),
+        }
+
+        Ok(())
+    }
+
     pub fn handle(&mut self, msg: &RawMessage) -> Result<()> {
         let kind = MessageKind::from(msg);
-
         let should_forward = match kind {
             MessageKind::Ping => {
-                let param = msg.param(1).unwrap_or("").to_string();
-                let msg = &RawMessage::new("PONG", &[param]);
+                let param = msg.param(0).unwrap_or("");
+                self.write_network("PONG", &[param])?;
+                false
+            }
 
-                self.writer.write_message(msg)?;
+            MessageKind::Capability => {
+                self.handle_cap_message(msg)?;
+
+                // We have our own caps, don't send the servers.
                 false
             }
 
