@@ -1,6 +1,7 @@
 use std::io::{BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use std::time::Duration;
 
 use birch::network::NetworkConnection;
 use birch::socket::IRCReader;
@@ -8,6 +9,10 @@ use birch::socket::IRCReader;
 fn main() {
     // Hardcoding things for now just to test everything out.
     let mut stream = TcpStream::connect("irc.freenode.net:6667").unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(180)))
+        .unwrap();
+
     thread::spawn(move || {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut net = NetworkConnection::new("ep`", &mut stream);
