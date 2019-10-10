@@ -151,8 +151,27 @@ impl<'a> NetworkConnection<'a> {
 
             MessageKind::Numeric(code) => self.handle_numeric(code, msg)?,
 
-            // MessageKind::Privmsg => true,
-            // MessageKind::Notice => true,
+            MessageKind::Privmsg | MessageKind::Notice => {
+                if let Some(ref source) = msg.source {
+                    let sender = &source.nick;
+                    let msg = msg.trailing().unwrap_or("");
+
+                    // Handle basic CTCP
+                    match msg {
+                        "\x01VERSION\x01" => {
+                            // TODO: Probably should be configurable
+                            let version = "\x01VERSION birch\x01";
+                            self.write_network("NOTICE", &[sender, version])?;
+
+                            false
+                        }
+                        _ => true,
+                    }
+                } else {
+                    // Invalid msg? No sender.
+                    false
+                }
+            }
 
             // MessageKind::Join => true,
             // MessageKind::Part => true,

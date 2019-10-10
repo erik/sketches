@@ -5,10 +5,10 @@ use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct Source {
-    nick: String,
-    ident: Option<String>,
-    host: Option<String>,
-    is_server: bool,
+    pub nick: String,
+    pub ident: Option<String>,
+    pub host: Option<String>,
+    pub is_server: bool,
 }
 
 impl fmt::Display for Source {
