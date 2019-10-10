@@ -115,15 +115,11 @@ impl MessageKind {
 // <escaped value> ::= <sequence of any characters except NUL, CR, LF, semicolon (`;`) and SPACE>
 // <vendor>        ::= <host>
 #[derive(Debug, PartialEq)]
-pub struct Tags {
-    inner: HashMap<String, Tag>,
-}
+pub struct Tags(HashMap<String, Tag>);
 
 impl Tags {
     pub fn empty() -> Self {
-        Self {
-            inner: HashMap::new(),
-        }
+        Self(HashMap::new())
     }
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -137,7 +133,7 @@ impl Tags {
             .map(|t| (t.key.clone(), t))
             .collect();
 
-        Some(Tags { inner: map })
+        Some(Tags(map))
     }
 }
 
@@ -313,15 +309,11 @@ impl Capability {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct ModeSet {
-    set: HashMap<char, bool>,
-}
+pub struct ModeSet(HashMap<char, bool>);
 
 impl ModeSet {
     pub fn empty() -> Self {
-        Self {
-            set: HashMap::new(),
-        }
+        Self(HashMap::new())
     }
 
     pub fn apply(&self, s: &str) -> Option<Self> {
@@ -334,7 +326,7 @@ impl ModeSet {
                 '-' => value = Some(false),
                 _ => {
                     if let Some(value) = value {
-                        copy.set.insert(ch, value);
+                        copy.0.insert(ch, value);
                     } else {
                         // Invalid string format, bail early
                         return None;
@@ -347,7 +339,7 @@ impl ModeSet {
     }
 
     pub fn contains(&self, m: char) -> bool {
-        self.set.get(&m).map(bool::clone).unwrap_or(false)
+        self.0.get(&m).map(bool::clone).unwrap_or(false)
     }
 }
 
@@ -363,7 +355,7 @@ mod test {
             .cloned()
             .collect();
 
-        assert_eq!(modes, Some(ModeSet { set: expected }));
+        assert_eq!(modes, Some(ModeSet(expected)));
     }
 
     #[test]
@@ -521,6 +513,6 @@ mod test {
         .into_iter()
         .collect();
 
-        assert_eq!(tags, Some(Tags { inner: expected }));
+        assert_eq!(tags, Some(Tags(expected)));
     }
 }
