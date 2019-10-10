@@ -102,19 +102,65 @@ impl MessageKind {
             "PONG" => Self::Pong,
             "PRIVMSG" => Self::Privmsg,
             "USER" => Self::User,
-
+            "ERROR" => Self::Error,
             // TODO: Map remaining types
             _ => Self::Unknown,
         }
     }
 }
 
-type MessageTags = HashMap<String, MessageTag>;
+// <tags>          ::= '@' <tag> [';' <tag>]*
+// <tag>           ::= <key> ['=' <escaped value>]
+// <key>           ::= [ <vendor> '/' ] <sequence of letters, digits, hyphens (`-`)>
+// <escaped value> ::= <sequence of any characters except NUL, CR, LF, semicolon (`;`) and SPACE>
+// <vendor>        ::= <host>
+#[derive(Debug, PartialEq)]
+pub struct Tags {
+    inner: HashMap<String, Tag>,
+}
+
+impl Tags {
+    pub fn empty() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        if s.chars().next() != Some('@') {
+            return None;
+        }
+
+        let map = s[1..]
+            .split(';')
+            .map(Tag::parse)
+            .map(|t| (t.key.clone(), t))
+            .collect();
+
+        Some(Tags { inner: map })
+    }
+}
 
 #[derive(Debug, PartialEq)]
-pub struct MessageTag {
-    key: String,
-    value: Option<String>,
+pub struct Tag {
+    pub key: String,
+    pub value: Option<String>,
+}
+
+impl Tag {
+    pub fn parse(s: &str) -> Self {
+        if let Some(idx) = s.find('=') {
+            Tag {
+                key: s[..idx].to_string(),
+                value: Some(s[idx + 1..].to_string()),
+            }
+        } else {
+            Tag {
+                key: s.to_string(),
+                value: None,
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -124,7 +170,7 @@ pub struct RawMessage {
     params: Vec<String>,
 
     pub timestamp: u64, // TODO: datetime
-    pub tags: MessageTags,
+    pub tags: Tags,
 }
 
 /// Split `msg` at first space character or end of word if no spaces remain.
@@ -147,7 +193,7 @@ impl RawMessage {
 
             source: None,
             timestamp: 0,
-            tags: HashMap::new(),
+            tags: Tags::empty(),
         }
     }
 
@@ -169,10 +215,9 @@ impl RawMessage {
         let tags = if line.starts_with('@') {
             let (tags, rest) = split_message(line)?;
             line = rest;
-            // TODO: parse tags
-            HashMap::new()
+            Tags::parse(tags)?
         } else {
-            HashMap::new()
+            Tags::empty()
         };
 
         let nick = if line.starts_with(':') {
@@ -414,5 +459,68 @@ mod test {
         assert_eq!(split_message(""), None);
         assert_eq!(split_message("trailing "), Some(("trailing", "")));
         assert_eq!(split_message(" leading"), Some(("", "leading")));
+    }
+
+    #[test]
+    fn test_parse_tag() {
+        let cases = vec![
+            (
+                "key",
+                Tag {
+                    key: "key".to_string(),
+                    value: None,
+                },
+            ),
+            (
+                "key=",
+                Tag {
+                    key: "key".to_string(),
+                    value: Some("".to_string()),
+                },
+            ),
+            (
+                "key=val",
+                Tag {
+                    key: "key".to_string(),
+                    value: Some("val".to_string()),
+                },
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(Tag::parse(input), expected);
+        }
+    }
+
+    #[test]
+    fn test_parse_tags() {
+        let tags = Tags::parse("@foo=bar;baz=;quux");
+        let expected = vec![
+            (
+                "foo".to_string(),
+                Tag {
+                    key: "foo".to_string(),
+                    value: Some("bar".to_string()),
+                },
+            ),
+            (
+                "baz".to_string(),
+                Tag {
+                    key: "baz".to_string(),
+                    value: Some("".to_string()),
+                },
+            ),
+            (
+                "quux".to_string(),
+                Tag {
+                    key: "quux".to_string(),
+                    value: None,
+                },
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(tags, Some(Tags { inner: expected }));
     }
 }
