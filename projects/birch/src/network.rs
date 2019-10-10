@@ -54,7 +54,7 @@ impl<'a> NetworkConnection<'a> {
         self.transition_state(ConnectionState::Initial)
     }
 
-    fn write_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
+    fn send_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
         self.writer.write_message(&RawMessage::new(command, params))
     }
 
@@ -65,7 +65,7 @@ impl<'a> NetworkConnection<'a> {
             }
 
             ConnectionState::CapabilityNegotiation => {
-                self.write_network("CAP", &["LS", "302"])?;
+                self.send_network("CAP", &["LS", "302"])?;
             }
 
             ConnectionState::Authentication => match self.auth {
@@ -80,8 +80,8 @@ impl<'a> NetworkConnection<'a> {
                 // TODO: prevent unnecessary clone
                 let nick = self.nick.clone();
 
-                self.write_network("NICK", &[&nick])?;
-                self.write_network("USER", &[&nick, "0", "*", &nick])?;
+                self.send_network("NICK", &[&nick])?;
+                self.send_network("USER", &[&nick, "0", "*", &nick])?;
 
                 self.transition_state(ConnectionState::Registered)?;
             }
@@ -101,7 +101,7 @@ impl<'a> NetworkConnection<'a> {
 
                 for cap_str in caps {
                     if let Some(cap) = Capability::from(cap_str) {
-                        self.write_network("CAP", &["REQ", cap_str])?;
+                        self.send_network("CAP", &["REQ", cap_str])?;
                         self.caps_pending += 1;
                     }
                 }
@@ -120,7 +120,7 @@ impl<'a> NetworkConnection<'a> {
                 self.caps_pending -= 1;
 
                 if self.caps_pending == 0 {
-                    self.write_network("CAP", &["END"])?;
+                    self.send_network("CAP", &["END"])?;
                     self.transition_state(ConnectionState::Authentication)?;
                 }
             }
@@ -139,7 +139,7 @@ impl<'a> NetworkConnection<'a> {
         let should_forward = match kind {
             MessageKind::Ping => {
                 let param = msg.param(0).unwrap_or("");
-                self.write_network("PONG", &[param])?;
+                self.send_network("PONG", &[param])?;
                 false
             }
 
@@ -161,7 +161,7 @@ impl<'a> NetworkConnection<'a> {
                         "\x01VERSION\x01" => {
                             // TODO: Probably should be configurable
                             let version = "\x01VERSION birch\x01";
-                            self.write_network("NOTICE", &[sender, version])?;
+                            self.send_network("NOTICE", &[sender, version])?;
 
                             false
                         }
