@@ -127,7 +127,7 @@ impl Tags {
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        if s.chars().next() != Some('@') {
+        if s.starts_with('@') {
             return None;
         }
 
