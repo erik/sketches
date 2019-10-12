@@ -31,12 +31,16 @@ pub struct NetworkConnection<'a> {
 
     state: ConnectionState,
 
-    writer: &'a mut dyn IrcWriter,
-    // user_fanout: &'a mut dyn IRCWriter,
+    network: &'a mut dyn IrcWriter,
+    users: &'a mut dyn IrcWriter,
 }
 
 impl<'a> NetworkConnection<'a> {
-    pub fn new(nick: &str, writer: &'a mut dyn IrcWriter) -> Self {
+    pub fn new(
+        nick: &str,
+        network: &'a mut dyn IrcWriter,
+        users: &'a mut dyn IrcWriter,
+    ) -> Self {
         Self {
             nick: nick.to_string(),
             user_modes: ModeSet::empty(),
@@ -46,7 +50,8 @@ impl<'a> NetworkConnection<'a> {
 
             state: ConnectionState::Initial,
 
-            writer,
+            network,
+            users,
         }
     }
 
@@ -55,7 +60,12 @@ impl<'a> NetworkConnection<'a> {
     }
 
     fn send_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
-        self.writer.write_message(&RawMessage::new(command, params))
+        self.network
+            .write_message(&RawMessage::new(command, params))
+    }
+
+    fn send_users(&mut self, command: &str, params: &[&str]) -> Result<()> {
+        self.users.write_message(&RawMessage::new(command, params))
     }
 
     fn transition_state(&mut self, next: ConnectionState) -> Result<()> {
@@ -200,7 +210,9 @@ impl<'a> NetworkConnection<'a> {
         };
 
         if should_forward {
-            // TODO: send message to user_fanout
+            self.users
+                .write_message(msg)
+                .expect("should always succeed");
         }
 
         Ok(())

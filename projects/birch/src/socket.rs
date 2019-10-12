@@ -84,10 +84,10 @@ impl<'a> IrcSocket<'a> {
     /// non-recoverable exception, return the error.
     ///
     /// TODO: Need to come up with the clean exit concept.
-    fn connect(&self) -> Result<bool> {
+    fn connect(&self, users: &mut dyn IrcWriter) -> Result<bool> {
         let mut stream = self.create_stream()?;
         let mut reader = BufReader::new(stream.try_clone()?);
-        let mut network = NetworkConnection::new(self.config.nick, &mut stream);
+        let mut network = NetworkConnection::new(self.config.nick, &mut stream, users);
 
         if network.initialize().is_err() {
             return Ok(true);
@@ -104,13 +104,12 @@ impl<'a> IrcSocket<'a> {
                 break;
             }
         }
-
         Ok(true)
     }
 
-    pub fn start_loop(&mut self) -> Result<()> {
+    pub fn start_loop(&mut self, users: &mut dyn IrcWriter) -> Result<()> {
         loop {
-            match self.connect() {
+            match self.connect(users) {
                 Ok(true) => println!("connection terminated, restarting"),
                 Ok(false) => break,
                 Err(err) => {
@@ -119,7 +118,6 @@ impl<'a> IrcSocket<'a> {
                 }
             }
         }
-
         Ok(())
     }
 }
