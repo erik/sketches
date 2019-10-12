@@ -123,7 +123,7 @@ impl Tags {
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        if s.starts_with('@') {
+        if !s.starts_with('@') {
             return None;
         }
 
