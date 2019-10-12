@@ -3,7 +3,7 @@ use std::io::{BufRead, Error, ErrorKind, Result};
 
 use crate::proto::RawMessage;
 
-pub trait IRCWriter {
+pub trait IrcWriter {
     fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
         let msg_str = msg.to_string();
         println!("[\u{1b}[37;1mbirch\u{1b}[0m -> net] {}", msg_str);
@@ -13,11 +13,11 @@ pub trait IRCWriter {
     fn write_raw(&mut self, msg: &str) -> Result<()>;
 }
 
-pub trait IRCReader {
+pub trait IrcReader {
     fn read_message(&mut self) -> Result<RawMessage>;
 }
 
-impl<T: Write> IRCWriter for T {
+impl<T: Write> IrcWriter for T {
     fn write_raw(&mut self, msg: &str) -> Result<()> {
         self.write_all(msg.as_bytes())?;
         self.write_all(b"\r\n")?;
@@ -26,7 +26,7 @@ impl<T: Write> IRCWriter for T {
     }
 }
 
-impl<T: BufRead> IRCReader for T {
+impl<T: BufRead> IrcReader for T {
     fn read_message(&mut self) -> Result<RawMessage> {
         let mut buf = String::new();
         self.read_line(&mut buf)?;
@@ -37,5 +37,3 @@ impl<T: BufRead> IRCReader for T {
         })
     }
 }
-
-struct IRCSocket {}

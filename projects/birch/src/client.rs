@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::proto::{Capability, MessageKind, RawMessage};
-use crate::socket::IRCWriter;
+use crate::socket::IrcWriter;
 
 enum AuthState {
     NeedsAuth,
@@ -41,11 +41,11 @@ struct ClientConnection<'a> {
     auth: AuthState,
     caps: HashSet<Capability>,
 
-    writer: &'a dyn IRCWriter,
+    writer: &'a dyn IrcWriter,
 }
 
 impl<'a> ClientConnection<'a> {
-    fn new(writer: &'a impl IRCWriter) -> Self {
+    fn new(writer: &'a impl IrcWriter) -> Self {
         Self {
             auth: AuthState::NeedsAuth,
             caps: HashSet::new(),

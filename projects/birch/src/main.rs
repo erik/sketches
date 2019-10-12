@@ -1,43 +1,53 @@
-use std::io::{BufReader, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use std::io::{BufReader, Result};
+use std::net::TcpStream;
 use std::time::Duration;
 
 use birch::network::NetworkConnection;
-use birch::socket::IRCReader;
+use birch::socket::IrcReader;
 
-fn main() {
-    // Hardcoding things for now just to test everything out.
-    let mut stream = TcpStream::connect("irc.freenode.net:6667").unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(180)))
-        .unwrap();
+struct IrcSocket<'a> {
+    stream_factory: &'a dyn Fn(usize) -> Result<TcpStream>,
+}
 
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut net = NetworkConnection::new("ep`", &mut stream);
-        net.initialize().unwrap();
+impl<'a> IrcSocket<'a> {
+    fn new(stream_factory: &'a dyn Fn(usize) -> Result<TcpStream>) -> Self {
+        Self { stream_factory }
+    }
+
+    fn start(&mut self) -> Result<()> {
+        let factory = self.stream_factory;
 
         loop {
-            let msg = reader.read_message();
-            if let Ok(msg) = msg {
-                println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
-                net.handle(&msg).expect("failed to handle message");
-            } else {
-                println!("read failed");
-                break;
+            let mut stream = factory(0)?;
+            let mut reader = BufReader::new(stream.try_clone()?);
+            let mut network = NetworkConnection::new("ep`", &mut stream);
+
+            network.initialize()?;
+            loop {
+                let msg = reader.read_message();
+                if let Ok(msg) = msg {
+                    println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
+                    network.handle(&msg)?;
+                } else {
+                    println!("read failed");
+                    break;
+                }
             }
         }
-    });
 
-    // TODO: hook this up
-    let listener = TcpListener::bind("127.0.0.1:9123").unwrap();
-    println!("listening started, ready to accept");
-
-    for stream in listener.incoming() {
-        thread::spawn(|| {
-            let mut stream = stream.unwrap();
-            stream.write_all(b"Hello World\r\n").unwrap();
-        });
+        Ok(())
     }
+}
+
+fn main() -> Result<()> {
+    let stream_factory = |_attempt| {
+        // Hardcoding things for now just to test everything out.
+        let stream = TcpStream::connect("irc.freenode.net:6667")?;
+        stream.set_read_timeout(Some(Duration::from_secs(180)))?;
+
+        Ok(stream)
+    };
+
+    let mut sock = IrcSocket::new(&stream_factory);
+    sock.start()
 }

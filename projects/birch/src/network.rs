@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::io::Result;
 
 use crate::proto::{Capability, MessageKind, ModeSet, RawMessage};
-use crate::socket::IRCWriter;
+use crate::socket::IrcWriter;
 
 enum AuthKind {
     SaslPlain(String, String),
@@ -31,12 +31,12 @@ pub struct NetworkConnection<'a> {
 
     state: ConnectionState,
 
-    writer: &'a mut dyn IRCWriter,
+    writer: &'a mut dyn IrcWriter,
     // user_fanout: &'a mut dyn IRCWriter,
 }
 
 impl<'a> NetworkConnection<'a> {
-    pub fn new(nick: &str, writer: &'a mut dyn IRCWriter) -> Self {
+    pub fn new(nick: &str, writer: &'a mut dyn IrcWriter) -> Self {
         Self {
             nick: nick.to_string(),
             user_modes: ModeSet::empty(),
