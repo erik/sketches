@@ -1,6 +1,5 @@
 use std::io::BufReader;
 use std::io::Result;
-use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
@@ -8,6 +7,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+use birch::client::ClientConnection;
 use birch::proto::RawMessage;
 use birch::socket::IrcReader;
 use birch::socket::{IrcSocket, IrcSocketConfig, IrcWriter};
@@ -52,13 +52,11 @@ fn main() -> Result<()> {
     let mut _clients = Arc::clone(&clients);
     thread::spawn(move || {
         for line in receiver {
-            let line = line + "\r\n";
-
             let mut clients = _clients.lock().expect("mutex poisoned");
             let mut dead_clients = vec![];
 
-            for (i, mut c) in clients.iter().enumerate() {
-                if let Err(err) = c.write_all(line.as_bytes()) {
+            for (i, ref mut c) in clients.iter().enumerate() {
+                if let Err(err) = c.write_raw(&line) {
                     println!("Failed to write to client: {:?}", err);
                     dead_clients.push(i);
                 }
@@ -76,15 +74,20 @@ fn main() -> Result<()> {
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
             println!("Client connected");
-            let forked_stream = stream.try_clone().expect("clone stream");
-            clients.lock().expect("mutex poisoned").push(forked_stream);
+
+            let fanout_writer = stream.try_clone().expect("clone stream");
+            clients.lock().expect("mutex poisoned").push(fanout_writer);
 
             thread::spawn(move || {
+                let mut client_writer = stream.try_clone().expect("clone stream");
+                let mut client = ClientConnection::new(&mut client_writer);
                 let mut reader = BufReader::new(stream);
+
                 loop {
-                    let result = reader.read_message();
-                    // TODO: Route messages to network handler
-                    println!("From client: {:?}", result);
+                    let result = reader
+                        .read_message()
+                        .and_then(|msg| client.handle_message(&msg));
+
                     if result.is_err() {
                         break;
                     }

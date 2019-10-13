@@ -30,7 +30,16 @@ impl fmt::Display for Source {
 
 //  <prefix>   ::= <nick> [ '!' <ident>  [ '@' <host> ] ]
 impl Source {
-    fn parse(s: &str) -> Option<Source> {
+    pub fn birch() -> Self {
+        Self {
+            nick: "birch".to_string(),
+            ident: None,
+            host: None,
+            is_server: true,
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
         if s.is_empty() {
             return None;
         }
@@ -51,7 +60,7 @@ impl Source {
             })
             .unwrap_or((None, None));
 
-        Some(Source {
+        Some(Self {
             nick: nick.trim_start_matches(':').to_string(),
             ident: ident.map(str::to_string),
             host: host.map(str::to_string),
