@@ -9,7 +9,6 @@ use crate::socket::IrcWriter;
 enum AuthState {
     NeedsAuth,
     Authenticated,
-    AuthFailed,
 }
 
 /// Represented in `PASS` commands as 'user@client_id/network:password'.
@@ -43,8 +42,7 @@ pub struct ClientConnection<'a> {
     auth: AuthState,
     caps: HashSet<Capability>,
 
-    // TODO: make this private
-    pub writer: &'a mut dyn IrcWriter,
+    writer: &'a mut dyn IrcWriter,
 }
 
 impl<'a> ClientConnection<'a> {
@@ -68,6 +66,10 @@ impl<'a> ClientConnection<'a> {
             command,
             params,
         ))
+    }
+
+    fn send_client_error(&mut self, msg: &str) -> Result<()> {
+        self.send_client("ERROR", &[msg])
     }
 
     fn handle_cap_command(&mut self, msg: &RawMessage) -> Result<()> {
@@ -95,8 +97,12 @@ impl<'a> ClientConnection<'a> {
     fn handle_unauthenticated(&mut self, msg: &RawMessage) -> Result<bool> {
         match MessageKind::from(msg) {
             MessageKind::Pass => {
-                let auth = msg.param(0).map(ClientAuth::parse);
-                // TODO: handle auth here
+                // TODO: actually handle auth here
+                if let Some(auth) = msg.param(0).and_then(ClientAuth::parse) {
+                    self.auth = AuthState::Authenticated;
+                } else {
+                    self.send_client_error("you must authenticate first")?;
+                }
             }
             MessageKind::User => {
                 // TODO: handle user
@@ -106,7 +112,7 @@ impl<'a> ClientConnection<'a> {
             }
             MessageKind::Capability => self.handle_cap_command(msg)?,
             _ => {
-                self.send_client("ERROR", &["you must authenticate first"])?;
+                self.send_client_error("you must authenticate first")?;
             }
         };
 
@@ -134,7 +140,6 @@ impl<'a> ClientConnection<'a> {
         let should_forward = match self.auth {
             AuthState::NeedsAuth => self.handle_unauthenticated(msg),
             AuthState::Authenticated => self.handle_authenticated(msg),
-            AuthState::AuthFailed => unimplemented!(),
         };
 
         match should_forward {
