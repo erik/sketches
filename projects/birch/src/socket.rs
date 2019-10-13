@@ -99,8 +99,8 @@ impl<'a> IrcSocket<'a> {
                 network.handle(&msg)
             });
 
-            if result.is_err() {
-                println!("read failed");
+            if let Err(err) = result {
+                println!("read failed: {}", err);
                 break;
             }
         }

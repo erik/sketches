@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Source {
     pub nick: String,
     pub ident: Option<String>,
@@ -114,7 +114,7 @@ impl MessageKind {
 // <key>           ::= [ <vendor> '/' ] <sequence of letters, digits, hyphens (`-`)>
 // <escaped value> ::= <sequence of any characters except NUL, CR, LF, semicolon (`;`) and SPACE>
 // <vendor>        ::= <host>
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tags(HashMap<String, Tag>);
 
 impl Tags {
@@ -137,7 +137,7 @@ impl Tags {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tag {
     pub key: String,
     pub value: Option<String>,
@@ -159,13 +159,11 @@ impl Tag {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RawMessage {
     pub source: Option<Source>,
     pub command: String,
     params: Vec<String>,
-
-    pub timestamp: u64, // TODO: datetime
     pub tags: Tags,
 }
 
@@ -188,7 +186,15 @@ impl RawMessage {
             params: params.iter().map(|s| s.to_string()).collect(),
 
             source: None,
-            timestamp: 0,
+            tags: Tags::empty(),
+        }
+    }
+    pub fn new_with_source(source: Source, command: &str, params: &[&str]) -> RawMessage {
+        RawMessage {
+            command: command.to_string(),
+            params: params.iter().map(|s| s.to_string()).collect(),
+
+            source: Some(source),
             tags: Tags::empty(),
         }
     }
@@ -245,9 +251,6 @@ impl RawMessage {
             command: cmd.to_string(),
             params,
             tags,
-
-            // TODO: pull this out of the tags, if possible
-            timestamp: 0,
         })
     }
 

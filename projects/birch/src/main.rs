@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+use birch::proto::RawMessage;
 use birch::socket::IrcReader;
 use birch::socket::{IrcSocket, IrcSocketConfig, IrcWriter};
 
@@ -18,12 +19,15 @@ struct UserFanoutWriter {
 }
 
 impl IrcWriter for UserFanoutWriter {
+    fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
+        let msg_str = msg.to_string();
+        self.write_raw(&msg_str)
+    }
+
     fn write_raw(&mut self, msg: &str) -> Result<()> {
         self.port
             .send(msg.to_string())
             .expect("receiver disconnected");
-
-        println!("sent: {}", msg);
         Ok(())
     }
 }
@@ -34,7 +38,7 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         let config = IrcSocketConfig {
-            nick: "ep`",
+            nick: "ep",
             addr: "irc.freenode.net:6667",
             max_retries: Some(3),
         };
@@ -48,7 +52,6 @@ fn main() -> Result<()> {
     let mut _clients = Arc::clone(&clients);
     thread::spawn(move || {
         for line in receiver {
-            println!("received message: {}", line);
             let line = line + "\r\n";
 
             let mut clients = _clients.lock().expect("mutex poisoned");
