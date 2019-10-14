@@ -116,11 +116,7 @@ pub struct NetworkConnection<'a> {
 }
 
 impl<'a> NetworkConnection<'a> {
-    pub fn new(
-        nick: &str,
-        network: &'a mut dyn IrcWriter,
-        users: &'a mut dyn IrcWriter,
-    ) -> Self {
+    pub fn new(nick: &str, network: &'a mut dyn IrcWriter, users: &'a mut dyn IrcWriter) -> Self {
         Self {
             auth: AuthKind::None,
             state: NetworkConnectionState::new(nick),
@@ -270,8 +266,7 @@ impl<'a> NetworkConnection<'a> {
             MessageKind::Mode => {
                 if let Some(target) = msg.param(0) {
                     if target == self.state.nick {
-                        let modes =
-                            msg.param(1).and_then(|s| self.state.user_modes.apply(s));
+                        let modes = msg.param(1).and_then(|s| self.state.user_modes.apply(s));
                         if let Some(modes) = modes {
                             self.state.user_modes = modes;
                         }

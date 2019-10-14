@@ -13,28 +13,19 @@ use birch::socket::IrcReader;
 use birch::socket::{IrcSocket, IrcSocketConfig, IrcWriter};
 
 #[derive(Clone)]
-struct UserFanoutWriter {
-    // TODO: Can we avoid sending strings?
-    port: SyncSender<String>,
-}
+struct UserFanoutWriter(SyncSender<RawMessage>);
 
 impl IrcWriter for UserFanoutWriter {
     fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
-        let msg_str = msg.to_string();
-        self.write_raw(&msg_str)
-    }
-
-    fn write_raw(&mut self, msg: &str) -> Result<()> {
-        self.port
-            .send(msg.to_string())
-            .expect("receiver disconnected");
+        // TODO: Is it worth propagating this error?
+        self.0.send(msg.clone()).expect("receiver disconnected");
         Ok(())
     }
 }
 
 fn main() -> Result<()> {
     let (sync_sender, receiver) = sync_channel(100);
-    let mut user_fanout = UserFanoutWriter { port: sync_sender };
+    let mut user_fanout = UserFanoutWriter(sync_sender);
 
     thread::spawn(move || {
         let config = IrcSocketConfig {
@@ -51,12 +42,12 @@ fn main() -> Result<()> {
     let clients = Arc::new(Mutex::new(Vec::<TcpStream>::new()));
     let mut _clients = Arc::clone(&clients);
     thread::spawn(move || {
-        for line in receiver {
+        for msg in receiver {
             let mut clients = _clients.lock().expect("mutex poisoned");
             let mut dead_clients = vec![];
 
             for (i, ref mut c) in clients.iter().enumerate() {
-                if let Err(err) = c.write_raw(&line) {
+                if let Err(err) = c.write_message(&msg) {
                     println!("Failed to write to client: {:?}", err);
                     dead_clients.push(i);
                 }
