@@ -1,7 +1,8 @@
 #![allow(dead_code, unused_variables)]
 
 use std::collections::HashSet;
-use std::io::Result;
+use std::io::{Error, ErrorKind, Result};
+use std::time::Instant;
 
 use crate::proto::{Capability, MessageKind, RawMessage, Source};
 use crate::socket::IrcWriter;
@@ -41,6 +42,7 @@ impl ClientAuth {
 pub struct ClientConnection<'a> {
     auth: AuthState,
     caps: HashSet<Capability>,
+    last_ping_pong: (Option<Instant>, Option<Instant>),
 
     writer: &'a mut dyn IrcWriter,
 }
@@ -50,6 +52,7 @@ impl<'a> ClientConnection<'a> {
         Self {
             auth: AuthState::NeedsAuth,
             caps: HashSet::new(),
+            last_ping_pong: (None, None),
 
             writer,
         }
@@ -129,9 +132,33 @@ impl<'a> ClientConnection<'a> {
                 // No need to forward PING messages, we respond ourselves.
                 false
             }
+            MessageKind::Pong => {
+                self.last_ping_pong.1 = Some(Instant::now());
+                false
+            }
 
             _ => true,
         })
+    }
+
+    /// Relies on assumption that this function won't be called more
+    /// frequently than the ping interval.
+    pub fn ping(&mut self) -> Result<()> {
+        // TODO: Fix redundant branches
+        match self.last_ping_pong {
+            (Some(_ping), None) => self
+                .send_client_error("ping time out")
+                .and_then(|_| Err(Error::new(ErrorKind::Other, "ping time out"))),
+
+            (Some(_ping), Some(pong)) if pong.elapsed().as_secs() > 120 => self
+                .send_client_error("ping time out")
+                .and_then(|_| Err(Error::new(ErrorKind::Other, "ping time out"))),
+
+            (None, _) | (Some(_), Some(_)) => {
+                self.last_ping_pong.0 = Some(Instant::now());
+                self.send_client("PING", &[])
+            }
+        }
     }
 
     pub fn handle_message(&mut self, msg: &RawMessage) -> Result<()> {
