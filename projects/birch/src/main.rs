@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::Result;
 use std::io::{Error, ErrorKind};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -113,25 +113,26 @@ impl ClientManager {
         let to_client = unbounded();
         let from_client = unbounded();
 
-        // TODO: write up disconnect logic
-        let _client_id = self
+        // TODO: should not register fanout until auth succeeds
+        let client_id = self
             .fanout_manager
             .lock()
             .unwrap()
             .add_client(to_client.0.clone());
 
-        let reader = stream.try_clone().expect("clone stream");
-        let mut writer = stream.try_clone().expect("clone stream");
+        let read_stream = stream.try_clone().expect("clone stream");
+        let mut write_stream = stream.try_clone().expect("clone stream");
+        drop(stream);
 
         // Read thread - handle input from client
         let client_sender = from_client.0.clone();
         thread::spawn(move || {
-            reader
-                .set_read_timeout(Some(Duration::from_secs(120)))
+            // TODO: This should not be a magic number
+            read_stream
+                .set_read_timeout(Some(Duration::from_secs(240)))
                 .expect("set_read_timeout call failed");
 
-            let mut reader = BufReader::new(reader);
-
+            let mut reader = BufReader::new(read_stream);
             loop {
                 match reader.read_message() {
                     Ok(msg) => {
@@ -148,44 +149,37 @@ impl ClientManager {
             }
         });
 
-        let mut channel = IrcChannel(to_client.0.clone());
-        let mut client = ClientConnection::new(&mut channel);
-        let ping_ticker = tick(Duration::from_secs(120));
+        let fanout = Arc::clone(&self.fanout_manager);
+        thread::spawn(move || {
+            let mut channel = IrcChannel(to_client.0.clone());
+            let mut client = ClientConnection::new(&mut channel);
+            let ping_ticker = tick(Duration::from_secs(120));
 
-        loop {
-            select! {
-                recv(to_client.1) -> msg => match msg {
-                    Ok(msg) => if let Err(err) = writer.write_message(&msg) {
-                        println!("failed to write to client: {:?}", err);
-                        break;
+            let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
+
+            loop {
+                let result = select! {
+                    recv(to_client.1) -> msg => {
+                        msg.map_err(|_| recv_err())
+                            .and_then(|msg| write_stream.write_message(&msg))
                     },
-                    Err(err) => {
-                        println!("receive failed: {:?}", err);
-                        break;
-                    }
-                },
 
-                recv(from_client.1) -> msg => match msg {
-                    Ok(msg) => if let Err(err) = client.handle_message(&msg) {
-                        println!("failed to handle client message {:?}", err);
-                        break;
+                    recv(from_client.1) -> msg => {
+                        msg.map_err(|_| recv_err())
+                            .and_then(|msg| client.handle_message(&msg))
                     },
-                    Err(err) => {
-                        println!("receive failed: {:?}", err);
-                        break;
-                    }
-                },
 
-                recv(ping_ticker) -> _ => if let Err(err) = client.ping() {
-                    println!("Ping failed, disconnecting client: {:?}", err);
+                    recv(ping_ticker) -> _ => client.ping()
+                };
+
+                if let Err(err) = result {
+                    println!("client failed: {:?}", err);
                     break;
                 }
             }
-        }
 
-        stream
-            .shutdown(Shutdown::Both)
-            .expect("shutdown call failed");
+            fanout.lock().unwrap().remove_client(client_id);
+        });
     }
 }
 
@@ -206,11 +200,14 @@ fn main() -> Result<()> {
     });
 
     // TODO: hook this up to config
-    let listener = TcpListener::bind("127.0.0.1:9123").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:9123").expect("address unavailable");
     for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            println!("Client connected");
-            client_manager.accept_client_connection(stream);
+        match stream {
+            Ok(stream) => {
+                println!("Client connected");
+                client_manager.accept_client_connection(stream);
+            }
+            Err(err) => println!("Failed to accept: {:?}", err),
         }
     }
 
