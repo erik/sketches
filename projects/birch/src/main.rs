@@ -2,12 +2,9 @@
 extern crate crossbeam_channel;
 
 use std::collections::HashMap;
-use std::io::BufReader;
-use std::io::Result;
-use std::io::{Error, ErrorKind};
+use std::io::{BufReader, Error, ErrorKind, Result};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -15,8 +12,7 @@ use crossbeam_channel::{tick, unbounded, Sender};
 
 use birch::client::{ClientConnection, ClientEvent};
 use birch::proto::RawMessage;
-use birch::socket::IrcReader;
-use birch::socket::{IrcChannel, IrcSocket, IrcSocketConfig, IrcWriter};
+use birch::socket::{IrcChannel, IrcReader, IrcSocket, IrcSocketConfig, IrcWriter};
 
 struct ClientFanoutManager {
     id_counter: usize,
