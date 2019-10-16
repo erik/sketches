@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 
-use birch::client::ClientConnection;
+use birch::client::{ClientConnection, ClientEvent};
 use birch::proto::RawMessage;
 use birch::socket::IrcReader;
 use birch::socket::{IrcSocket, IrcSocketConfig, IrcWriter};
@@ -113,13 +113,6 @@ impl ClientManager {
         let to_client = unbounded();
         let from_client = unbounded();
 
-        // TODO: should not register fanout until auth succeeds
-        let client_id = self
-            .fanout_manager
-            .lock()
-            .unwrap()
-            .add_client(to_client.0.clone());
-
         let read_stream = stream.try_clone().expect("clone stream");
         let mut write_stream = stream.try_clone().expect("clone stream");
         drop(stream);
@@ -151,14 +144,33 @@ impl ClientManager {
 
         let fanout = Arc::clone(&self.fanout_manager);
         thread::spawn(move || {
-            let mut channel = IrcChannel(to_client.0.clone());
-            let mut client = ClientConnection::new(&mut channel);
+            let events = unbounded();
             let ping_ticker = tick(Duration::from_secs(120));
+
+            let mut client = ClientConnection::new(events.0);
 
             let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
 
             loop {
                 let result = select! {
+                    recv(events.1) -> msg => {
+                        msg.map_err(|_| recv_err())
+                            .and_then(|msg| match msg {
+                                ClientEvent::WriteNetwork(msg) => {
+                                    println!("todo; send to network: {:?}", msg);
+                                    Ok(())
+                                },
+                                ClientEvent::WriteClient(msg) =>
+                                    to_client.0.send(msg).map_err(|_| recv_err()),
+
+                                ClientEvent::Authenticated => {
+                                    fanout.lock().unwrap().add_client(to_client.0.clone());
+                                    // TODO: Replace backlog here.
+                                    Ok(())
+                                },
+                            })
+                    },
+
                     recv(to_client.1) -> msg => {
                         msg.map_err(|_| recv_err())
                             .and_then(|msg| write_stream.write_message(&msg))
@@ -177,8 +189,6 @@ impl ClientManager {
                     break;
                 }
             }
-
-            fanout.lock().unwrap().remove_client(client_id);
         });
     }
 }

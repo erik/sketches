@@ -4,8 +4,9 @@ use std::collections::HashSet;
 use std::io::{Error, ErrorKind, Result};
 use std::time::Instant;
 
+use crossbeam_channel::Sender;
+
 use crate::proto::{Capability, MessageKind, RawMessage, Source};
-use crate::socket::IrcWriter;
 
 enum AuthState {
     NeedsAuth,
@@ -37,34 +38,54 @@ impl ClientAuth {
     }
 }
 
+pub enum ClientEvent {
+    WriteNetwork(RawMessage),
+    WriteClient(RawMessage),
+    Authenticated,
+}
+
 /// Represents User <-> Birch connection
-// TODO: Rename UserConnection?
-pub struct ClientConnection<'a> {
+// TODO: Rename. Maybe this is more about client state?
+pub struct ClientConnection {
     auth: AuthState,
     caps: HashSet<Capability>,
     last_ping_pong: (Option<Instant>, Option<Instant>),
 
-    writer: &'a mut dyn IrcWriter,
+    events: Sender<ClientEvent>,
 }
 
-impl<'a> ClientConnection<'a> {
-    pub fn new(writer: &'a mut impl IrcWriter) -> Self {
+impl ClientConnection {
+    pub fn new(events: Sender<ClientEvent>) -> Self {
         Self {
             auth: AuthState::NeedsAuth,
             caps: HashSet::new(),
             last_ping_pong: (None, None),
 
-            writer,
+            events,
         }
     }
 
-    fn send_message(&mut self, msg: &RawMessage) -> Result<()> {
-        self.writer.write_message(msg)
+    fn map_send_error<E>(_: E) -> Error {
+        Error::new(ErrorKind::Other, "send event failed")
+    }
+
+    fn send_client_event(&mut self, event: ClientEvent) -> Result<()> {
+        self.events
+            .send(event)
+            .map_err(ClientConnection::map_send_error)
+    }
+
+    fn send_network_message(&mut self, msg: RawMessage) -> Result<()> {
+        self.send_client_event(ClientEvent::WriteNetwork(msg))
+    }
+
+    fn send_message(&mut self, msg: RawMessage) -> Result<()> {
+        self.send_client_event(ClientEvent::WriteClient(msg))
     }
 
     // TODO: better name
     fn send_client(&mut self, command: &str, params: &[&str]) -> Result<()> {
-        self.writer.write_message(&RawMessage::new_with_source(
+        self.send_message(RawMessage::new_with_source(
             Source::birch(),
             command,
             params,
@@ -98,26 +119,38 @@ impl<'a> ClientConnection<'a> {
     }
 
     fn handle_unauthenticated(&mut self, msg: &RawMessage) -> Result<bool> {
-        match MessageKind::from(msg) {
+        let authed = match MessageKind::from(msg) {
             MessageKind::Pass => {
                 // TODO: actually handle auth here
                 if let Some(auth) = msg.param(0).and_then(ClientAuth::parse) {
                     self.auth = AuthState::Authenticated;
+                    true
                 } else {
                     self.send_client_error("you must authenticate first")?;
+                    false
                 }
             }
             MessageKind::User => {
                 // TODO: handle user
+                false
             }
             MessageKind::Nick => {
                 // TODO: handle user
+                false
             }
-            MessageKind::Capability => self.handle_cap_command(msg)?,
+            MessageKind::Capability => {
+                self.handle_cap_command(msg)?;
+                false
+            }
             _ => {
                 self.send_client_error("you must authenticate first")?;
+                false
             }
         };
+
+        if authed {
+            self.send_client_event(ClientEvent::Authenticated)?;
+        }
 
         // Never want to forward unauthenticated messages on to the
         // server.
@@ -146,7 +179,9 @@ impl<'a> ClientConnection<'a> {
     pub fn ping(&mut self) -> Result<()> {
         match self.last_ping_pong {
             // If we haven't received a PONG (or it's been more than 120 since receiving one, fail connection.)
-            (Some(_ping), pong) if pong.map(|it| it.elapsed().as_secs() > 120).unwrap_or(true) => {
+            (Some(_ping), pong)
+                if pong.map(|it| it.elapsed().as_secs() > 120).unwrap_or(true) =>
+            {
                 self.send_client_error("ping time out")
                     .and_then(|_| Err(Error::new(ErrorKind::Other, "ping time out")))
             }
