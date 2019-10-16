@@ -165,12 +165,28 @@ impl ClientConnection {
                 // No need to forward PING messages, we respond ourselves.
                 false
             }
+
             MessageKind::Pong => {
                 self.last_ping_pong.1 = Some(Instant::now());
                 false
             }
 
-            _ => true,
+            MessageKind::Capability => {
+                self.handle_cap_command(msg)?;
+                false
+            }
+
+            MessageKind::User => false,
+
+            MessageKind::Nick => {
+                // self.send_client_event(ClientEvent::ChangeNick)
+                false
+            }
+
+            kind => {
+                println!("Unhandled client message kind: {:?}", kind);
+                false
+            }
         })
     }
 
@@ -203,7 +219,7 @@ impl ClientConnection {
         };
 
         match should_forward {
-            Ok(true) => Ok(()), // TODO: write to network
+            Ok(true) => self.send_client_event(ClientEvent::WriteNetwork(msg.clone())),
             Ok(false) => Ok(()),
             Err(err) => {
                 println!("failure while handling client message: {}", err);

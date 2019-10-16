@@ -86,6 +86,10 @@ impl<'a> IrcSocket<'a> {
         }
     }
 
+    pub fn network_channel(&self) -> Sender<RawMessage> {
+        self.to_network.0.clone()
+    }
+
     pub fn new_user_channel(&self) -> Sender<IrcChannel> {
         self.new_user.0.clone()
     }

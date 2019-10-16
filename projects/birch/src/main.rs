@@ -89,6 +89,7 @@ impl ClientManager {
         &mut self,
         stream: TcpStream,
         new_user_chan: Sender<IrcChannel>,
+        network_chan: Sender<RawMessage>,
     ) {
         let to_client = unbounded();
         let from_client = unbounded();
@@ -135,7 +136,7 @@ impl ClientManager {
                         msg.map_err(|_| recv_err())
                             .and_then(|msg| match msg {
                                 ClientEvent::WriteNetwork(msg) => {
-                                    println!("todo; send to network: {:?}", msg);
+                                    network_chan.send(msg).expect("TODO: effort");
                                     Ok(())
                                 },
                                 ClientEvent::WriteClient(msg) =>
@@ -143,7 +144,9 @@ impl ClientManager {
 
                                 ClientEvent::Authenticated => {
                                     fanout.lock().unwrap().add_client(to_client.0.clone());
-                                    new_user_chan.send(IrcChannel(to_client.0.clone())).expect("blah");
+                                    new_user_chan
+                                        .send(IrcChannel(to_client.0.clone()))
+                                        .expect("TODO: effort");
                                     Ok(())
                                 },
                             })
@@ -183,6 +186,7 @@ fn main() -> Result<()> {
 
     let mut fanout_sender = client_manager.fanout_sender();
     let new_user_chan = sock.new_user_channel();
+    let network_chan = sock.network_channel();
 
     thread::spawn(move || {
         // TODO: surface any errors here + shutdown hook
@@ -195,7 +199,11 @@ fn main() -> Result<()> {
         match stream {
             Ok(stream) => {
                 println!("Client connected");
-                client_manager.accept_client_connection(stream, new_user_chan.clone());
+                client_manager.accept_client_connection(
+                    stream,
+                    new_user_chan.clone(),
+                    network_chan.clone(),
+                );
             }
             Err(err) => println!("Failed to accept: {:?}", err),
         }
