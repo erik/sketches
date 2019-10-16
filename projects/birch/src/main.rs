@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate crossbeam;
+extern crate crossbeam_channel;
 
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use crossbeam::crossbeam_channel::{tick, unbounded, Receiver, Sender};
+use crossbeam_channel::{tick, unbounded, Receiver, Sender};
 
 use birch::client::ClientConnection;
 use birch::proto::RawMessage;

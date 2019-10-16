@@ -5,4 +5,4 @@ authors = ["Erik Price <github@erikprice.net>"]
 edition = "2018"
 
 [dependencies]
-crossbeam = "*"
+crossbeam-channel = "0.3"
