@@ -11,32 +11,12 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use crossbeam_channel::{tick, unbounded, Receiver, Sender};
+use crossbeam_channel::{tick, unbounded, Sender};
 
 use birch::client::{ClientConnection, ClientEvent};
 use birch::proto::RawMessage;
 use birch::socket::IrcReader;
-use birch::socket::{IrcSocket, IrcSocketConfig, IrcWriter};
-
-#[derive(Clone)]
-struct IrcChannel(Sender<RawMessage>);
-
-impl IrcChannel {
-    fn new() -> (Self, Receiver<RawMessage>) {
-        let (sender, receiver) = unbounded();
-        (IrcChannel(sender), receiver)
-    }
-}
-
-impl IrcWriter for IrcChannel {
-    fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
-        if let Err(err) = self.0.send(msg.clone()) {
-            println!("Failed to write to client: {:?}", err);
-            return Err(Error::new(ErrorKind::Other, "other end disconnected"));
-        }
-        Ok(())
-    }
-}
+use birch::socket::{IrcChannel, IrcSocket, IrcSocketConfig, IrcWriter};
 
 struct ClientFanoutManager {
     id_counter: usize,
@@ -109,13 +89,16 @@ impl ClientManager {
         self.fanout.clone()
     }
 
-    fn accept_client_connection(&mut self, stream: TcpStream) {
+    fn accept_client_connection(
+        &mut self,
+        stream: TcpStream,
+        new_user_chan: Sender<IrcChannel>,
+    ) {
         let to_client = unbounded();
         let from_client = unbounded();
 
         let read_stream = stream.try_clone().expect("clone stream");
         let mut write_stream = stream.try_clone().expect("clone stream");
-        drop(stream);
 
         // Read thread - handle input from client
         let client_sender = from_client.0.clone();
@@ -146,7 +129,6 @@ impl ClientManager {
         thread::spawn(move || {
             let events = unbounded();
             let ping_ticker = tick(Duration::from_secs(120));
-
             let mut client = ClientConnection::new(events.0);
 
             let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
@@ -165,7 +147,7 @@ impl ClientManager {
 
                                 ClientEvent::Authenticated => {
                                     fanout.lock().unwrap().add_client(to_client.0.clone());
-                                    // TODO: Replace backlog here.
+                                    new_user_chan.send(IrcChannel(to_client.0.clone())).expect("blah");
                                     Ok(())
                                 },
                             })
@@ -201,21 +183,23 @@ fn main() -> Result<()> {
         addr: "irc.freenode.net:6667",
         max_retries: Some(3),
     };
+    let mut sock = IrcSocket::new(config);
 
     let mut fanout_sender = client_manager.fanout_sender();
-    let mut sock = IrcSocket::new(config);
+    let new_user_chan = sock.new_user_channel();
+
     thread::spawn(move || {
         // TODO: surface any errors here + shutdown hook
         sock.start_loop(&mut fanout_sender)
     });
 
     // TODO: hook this up to config
-    let listener = TcpListener::bind("127.0.0.1:9123").expect("address unavailable");
+    let listener = TcpListener::bind("127.0.0.1:9123")?;
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("Client connected");
-                client_manager.accept_client_connection(stream);
+                client_manager.accept_client_connection(stream, new_user_chan.clone());
             }
             Err(err) => println!("Failed to accept: {:?}", err),
         }

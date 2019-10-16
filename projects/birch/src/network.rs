@@ -1,7 +1,9 @@
 #![allow(dead_code, unused_variables)]
 
 use std::collections::HashSet;
-use std::io::Result;
+use std::io::{Error, ErrorKind, Result};
+
+use crossbeam_channel::Sender;
 
 use crate::proto::{Capability, MessageKind, ModeSet, RawMessage, Source};
 use crate::socket::IrcWriter;
@@ -22,7 +24,7 @@ enum ConnectionStatus {
 }
 
 /// Ephemeral state of a socket connection to an IRC network
-struct NetworkConnectionState {
+pub struct NetworkConnectionState {
     nick: String,
     user_modes: ModeSet,
     caps_pending: usize,
@@ -50,8 +52,8 @@ impl NetworkConnectionState {
     }
 
     /// Reset the connection state back to the initial, keeping only the nick.
-    fn reset(&self) -> Self {
-        Self::new(&self.nick)
+    fn reset(&mut self) {
+        *self = Self::new(&self.nick);
     }
 
     // TODO: Enforce transition validity?
@@ -76,7 +78,7 @@ impl NetworkConnectionState {
         self.motd_buffer.clear();
     }
 
-    fn welcome_user(&self, w: &mut impl IrcWriter) -> Result<()> {
+    pub fn welcome_user(&self, w: &mut impl IrcWriter) -> Result<()> {
         let birch = Source {
             nick: "birch".to_string(),
             ident: None,
@@ -107,16 +109,20 @@ impl NetworkConnectionState {
 }
 
 /// Represents Birch <-> IRC network connection
-pub struct NetworkConnection<'a> {
+pub struct NetworkConnection {
     auth: AuthKind,
-    state: NetworkConnectionState,
+    pub state: NetworkConnectionState,
 
-    network: &'a mut dyn IrcWriter,
-    users: &'a mut dyn IrcWriter,
+    network: Sender<RawMessage>,
+    users: Sender<RawMessage>,
 }
 
-impl<'a> NetworkConnection<'a> {
-    pub fn new(nick: &str, network: &'a mut dyn IrcWriter, users: &'a mut dyn IrcWriter) -> Self {
+impl NetworkConnection {
+    pub fn new(
+        nick: &str,
+        network: Sender<RawMessage>,
+        users: Sender<RawMessage>,
+    ) -> Self {
         Self {
             auth: AuthKind::None,
             state: NetworkConnectionState::new(nick),
@@ -131,17 +137,20 @@ impl<'a> NetworkConnection<'a> {
         self.transition_status(ConnectionStatus::Initial)
     }
 
+    fn map_send_error<E>(_: E) -> Error {
+        Error::new(ErrorKind::Other, "send message failed")
+    }
+
     fn send_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
         self.network
-            .write_message(&RawMessage::new(command, params))
+            .send(RawMessage::new(command, params))
+            .map_err(NetworkConnection::map_send_error)
     }
 
-    fn send_users(&mut self, command: &str, params: &[&str]) -> Result<()> {
-        self.users.write_message(&RawMessage::new(command, params))
-    }
-
-    fn send_message_users(&mut self, msg: &RawMessage) -> Result<()> {
-        self.users.write_message(msg)
+    fn send_users(&mut self, msg: RawMessage) -> Result<()> {
+        self.users
+            .send(msg)
+            .map_err(NetworkConnection::map_send_error)
     }
 
     fn transition_status(&mut self, next: ConnectionStatus) -> Result<()> {
@@ -261,12 +270,12 @@ impl<'a> NetworkConnection<'a> {
             // MessageKind::Join => true,
             // MessageKind::Part => true,
             // MessageKind::Quit => true,
-
             // MessageKind::Kick => true,
             MessageKind::Mode => {
                 if let Some(target) = msg.param(0) {
                     if target == self.state.nick {
-                        let modes = msg.param(1).and_then(|s| self.state.user_modes.apply(s));
+                        let modes =
+                            msg.param(1).and_then(|s| self.state.user_modes.apply(s));
                         if let Some(modes) = modes {
                             self.state.user_modes = modes;
                         }
@@ -284,9 +293,8 @@ impl<'a> NetworkConnection<'a> {
         };
 
         if should_forward {
-            self.users
-                .write_message(msg)
-                .expect("should always succeed");
+            // TODO: remove clone
+            self.send_users(msg.clone())?;
         }
 
         Ok(())
@@ -366,7 +374,7 @@ impl<'a> NetworkConnection<'a> {
 
                 self.send_network("NICK", &[&alt])?;
                 // Tell the connected users that we're renaming
-                self.send_message_users(&RawMessage::new_with_source(
+                self.send_users(RawMessage::new_with_source(
                     Source {
                         nick: self.state.nick.clone(),
                         ident: None,
