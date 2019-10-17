@@ -8,11 +8,6 @@ use crossbeam_channel::Sender;
 
 use crate::proto::{Capability, MessageKind, RawMessage, Source};
 
-enum AuthState {
-    NeedsAuth,
-    Authenticated,
-}
-
 /// Represented in `PASS` commands as 'user@client_id/network:password'.
 /// For now, each part will be mandatory.
 #[derive(Debug, PartialEq)]
@@ -41,13 +36,46 @@ impl ClientAuth {
 pub enum ClientEvent {
     WriteNetwork(RawMessage),
     WriteClient(RawMessage),
-    Authenticated,
+    RegistrationComplete,
+}
+
+/// Keeps track of the various commands required to complete registration.
+struct RegistrationState {
+    pass: bool,
+    nick: bool,
+    user: bool,
+}
+
+impl RegistrationState {
+    fn new() -> Self {
+        Self {
+            pass: false,
+            nick: false,
+            user: false,
+        }
+    }
+
+    fn set_pass(&mut self) {
+        self.pass = true;
+    }
+
+    fn set_user(&mut self) {
+        self.user = true;
+    }
+
+    fn set_nick(&mut self) {
+        self.nick = true;
+    }
+
+    fn is_complete(&self) -> bool {
+        self.nick && self.user
+    }
 }
 
 /// Represents User <-> Birch connection
 // TODO: Rename. Maybe this is more about client state?
 pub struct ClientConnection {
-    auth: AuthState,
+    registration: RegistrationState,
     caps: HashSet<Capability>,
     last_ping_pong: (Option<Instant>, Option<Instant>),
 
@@ -57,7 +85,7 @@ pub struct ClientConnection {
 impl ClientConnection {
     pub fn new(events: Sender<ClientEvent>) -> Self {
         Self {
-            auth: AuthState::NeedsAuth,
+            registration: RegistrationState::new(),
             caps: HashSet::new(),
             last_ping_pong: (None, None),
 
@@ -110,46 +138,31 @@ impl ClientConnection {
                     }
                 }
             }
-
-            _ => {
-                // TODO: Send invalid command
-            }
+            _ => self.send_client_error("invalid command")?,
         }
         Ok(())
     }
 
-    fn handle_unauthenticated(&mut self, msg: &RawMessage) -> Result<bool> {
-        let authed = match MessageKind::from(msg) {
+    fn handle_unregistered(&mut self, msg: &RawMessage) -> Result<bool> {
+        match MessageKind::from(msg) {
             MessageKind::Pass => {
                 // TODO: actually handle auth here
                 if let Some(auth) = msg.param(0).and_then(ClientAuth::parse) {
-                    self.auth = AuthState::Authenticated;
-                    true
+                    self.registration.set_pass();
                 } else {
                     self.send_client_error("you must authenticate first")?;
-                    false
                 }
             }
-            MessageKind::User => {
-                // TODO: handle user
-                false
-            }
-            MessageKind::Nick => {
-                // TODO: handle user
-                false
-            }
-            MessageKind::Capability => {
-                self.handle_cap_command(msg)?;
-                false
-            }
-            _ => {
-                self.send_client_error("you must authenticate first")?;
-                false
-            }
+            // TODO: handle user
+            MessageKind::User => self.registration.set_user(),
+            // TODO: handle nick
+            MessageKind::Nick => self.registration.set_nick(),
+            MessageKind::Capability => self.handle_cap_command(msg)?,
+            _ => self.send_client_error("you must authenticate first")?,
         };
 
-        if authed {
-            self.send_client_event(ClientEvent::Authenticated)?;
+        if self.registration.is_complete() {
+            self.send_client_event(ClientEvent::RegistrationComplete)?;
         }
 
         // Never want to forward unauthenticated messages on to the
@@ -157,7 +170,7 @@ impl ClientConnection {
         Ok(false)
     }
 
-    fn handle_authenticated(&mut self, msg: &RawMessage) -> Result<bool> {
+    fn handle_registered(&mut self, msg: &RawMessage) -> Result<bool> {
         Ok(match MessageKind::from(msg) {
             MessageKind::Ping => {
                 let param = msg.param(0).unwrap_or("");
@@ -213,9 +226,10 @@ impl ClientConnection {
     pub fn handle_message(&mut self, msg: &RawMessage) -> Result<()> {
         println!("From client: {:?}", msg);
 
-        let should_forward = match self.auth {
-            AuthState::NeedsAuth => self.handle_unauthenticated(msg),
-            AuthState::Authenticated => self.handle_authenticated(msg),
+        let should_forward = if !self.registration.is_complete() {
+            self.handle_unregistered(msg)
+        } else {
+            self.handle_registered(msg)
         };
 
         match should_forward {

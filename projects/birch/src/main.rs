@@ -142,7 +142,7 @@ impl ClientManager {
                                 ClientEvent::WriteClient(msg) =>
                                     to_client.0.send(msg).map_err(|_| recv_err()),
 
-                                ClientEvent::Authenticated => {
+                                ClientEvent::RegistrationComplete => {
                                     fanout.lock().unwrap().add_client(to_client.0.clone());
                                     new_user_chan
                                         .send(IrcChannel(to_client.0.clone()))
@@ -191,6 +191,7 @@ fn main() -> Result<()> {
     thread::spawn(move || {
         // TODO: surface any errors here + shutdown hook
         sock.start_loop(&mut fanout_sender)
+            .expect("network did not shutdown cleanly");
     });
 
     // TODO: hook this up to config
