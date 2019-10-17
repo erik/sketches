@@ -68,13 +68,14 @@ impl RegistrationState {
     }
 
     fn is_complete(&self) -> bool {
-        self.nick && self.user
+        self.pass && self.user && self.nick
     }
 }
 
 /// Represents User <-> Birch connection
 // TODO: Rename. Maybe this is more about client state?
 pub struct ClientConnection {
+    nick: String,
     registration: RegistrationState,
     caps: HashSet<Capability>,
     last_ping_pong: (Option<Instant>, Option<Instant>),
@@ -85,6 +86,7 @@ pub struct ClientConnection {
 impl ClientConnection {
     pub fn new(events: Sender<ClientEvent>) -> Self {
         Self {
+            nick: "*".to_string(),
             registration: RegistrationState::new(),
             caps: HashSet::new(),
             last_ping_pong: (None, None),
@@ -120,8 +122,9 @@ impl ClientConnection {
         ))
     }
 
-    fn send_client_error(&mut self, msg: &str) -> Result<()> {
-        self.send_client("ERROR", &[msg])
+    fn send_numeric_reply(&mut self, code: &str, msg: &str) -> Result<()> {
+        let nick = &self.nick.clone();
+        self.send_client(code, &[nick, msg])
     }
 
     fn handle_cap_command(&mut self, msg: &RawMessage) -> Result<()> {
@@ -138,69 +141,78 @@ impl ClientConnection {
                     }
                 }
             }
-            _ => self.send_client_error("invalid command")?,
+            // TODO: 401 <nick> <command> :Invalid CAP command
+            _ => self.send_numeric_reply("410", "Invalid CAP command")?,
         }
         Ok(())
     }
 
-    fn handle_unregistered(&mut self, msg: &RawMessage) -> Result<bool> {
+    fn handle_unregistered(&mut self, msg: &RawMessage) -> Result<()> {
         match MessageKind::from(msg) {
             MessageKind::Pass => {
                 // TODO: actually handle auth here
+                // TODO: We don't know WHICH network the client wants
+                // until they actually authenticate.
                 if let Some(auth) = msg.param(0).and_then(ClientAuth::parse) {
                     self.registration.set_pass();
                 } else {
-                    self.send_client_error("you must authenticate first")?;
+                    self.send_numeric_reply("464", "Password incorrect")?;
                 }
             }
-            // TODO: handle user
+            // TODO: Do we care about this USER command, or just that it happens?
             MessageKind::User => self.registration.set_user(),
-            // TODO: handle nick
-            MessageKind::Nick => self.registration.set_nick(),
+            MessageKind::Nick => match msg.param(0) {
+                Some(nick) => {
+                    self.nick = nick.to_string();
+                    self.registration.set_nick();
+                }
+                None => self.send_numeric_reply("461", "Not enough parameters")?,
+            },
             MessageKind::Capability => self.handle_cap_command(msg)?,
-            _ => self.send_client_error("you must authenticate first")?,
+            _ => self.send_numeric_reply("451", "You are not registered")?,
         };
 
         if self.registration.is_complete() {
             self.send_client_event(ClientEvent::RegistrationComplete)?;
         }
 
-        // Never want to forward unauthenticated messages on to the
-        // server.
-        Ok(false)
+        Ok(())
     }
 
-    fn handle_registered(&mut self, msg: &RawMessage) -> Result<bool> {
-        Ok(match MessageKind::from(msg) {
+    fn handle_registered(&mut self, msg: &RawMessage) -> Result<()> {
+        match MessageKind::from(msg) {
+            MessageKind::Pass | MessageKind::User => {
+                self.send_numeric_reply("462", "You may not reregister")?;
+            }
+
+            // No need to forward PING messages, we respond ourselves.
             MessageKind::Ping => {
                 let param = msg.param(0).unwrap_or("");
                 self.send_client("PONG", &[param])?;
-                // No need to forward PING messages, we respond ourselves.
-                false
             }
 
             MessageKind::Pong => {
                 self.last_ping_pong.1 = Some(Instant::now());
-                false
             }
 
             MessageKind::Capability => {
                 self.handle_cap_command(msg)?;
-                false
             }
 
-            MessageKind::User => false,
+            MessageKind::Join => {}
+            MessageKind::Part => {}
 
-            MessageKind::Nick => {
-                // self.send_client_event(ClientEvent::ChangeNick)
-                false
-            }
+            // TODO: Coordinate nick changes with server. We also need
+            // to be informed BY the server of changes from other
+            // connected clients.
+            MessageKind::Nick => {}
 
             kind => {
                 println!("Unhandled client message kind: {:?}", kind);
-                false
             }
-        })
+        }
+
+        Ok(())
     }
 
     /// Relies on assumption that this function won't be called more
@@ -211,7 +223,7 @@ impl ClientConnection {
             (Some(_ping), pong)
                 if pong.map(|it| it.elapsed().as_secs() > 120).unwrap_or(true) =>
             {
-                self.send_client_error("ping time out")
+                self.send_client("ERROR", &["ping time out"])
                     .and_then(|_| Err(Error::new(ErrorKind::Other, "ping time out")))
             }
 
@@ -226,19 +238,10 @@ impl ClientConnection {
     pub fn handle_message(&mut self, msg: &RawMessage) -> Result<()> {
         println!("From client: {:?}", msg);
 
-        let should_forward = if !self.registration.is_complete() {
+        if !self.registration.is_complete() {
             self.handle_unregistered(msg)
         } else {
             self.handle_registered(msg)
-        };
-
-        match should_forward {
-            Ok(true) => self.send_client_event(ClientEvent::WriteNetwork(msg.clone())),
-            Ok(false) => Ok(()),
-            Err(err) => {
-                println!("failure while handling client message: {}", err);
-                Err(err)
-            }
         }
     }
 }

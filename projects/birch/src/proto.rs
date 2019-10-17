@@ -100,18 +100,24 @@ impl MessageKind {
         }
 
         match msg.command.as_str() {
+            "AWAY" => Self::Away,
             "CAP" => Self::Capability,
+            "ERROR" => Self::Error,
+            "INVITE" => Self::Invite,
             "JOIN" => Self::Join,
             "KICK" => Self::Kick,
             "MODE" => Self::Mode,
+            "NICK" => Self::Nick,
             "NOTICE" => Self::Notice,
             "PART" => Self::Part,
             "PASS" => Self::Pass,
             "PING" => Self::Ping,
             "PONG" => Self::Pong,
             "PRIVMSG" => Self::Privmsg,
+            "QUIT" => Self::Quit,
+            "TOPIC" => Self::Topic,
             "USER" => Self::User,
-            "ERROR" => Self::Error,
+
             // TODO: Map remaining types
             _ => Self::Unknown,
         }
