@@ -139,7 +139,8 @@ impl ClientConnection {
 
                 self.send_client("CAP", &["LS", "*", &caps])?;
             }
-            "END" => unimplemented!(),
+            // Do we actually need to do anything?
+            "END" => {}
             "REQ" => {
                 for cap_str in msg.param(1).unwrap_or("").split_whitespace() {
                     if let Some(cap) = Capability::from(cap_str) {
@@ -158,6 +159,7 @@ impl ClientConnection {
 
     fn handle_unregistered(&mut self, msg: &RawMessage) -> Result<()> {
         match MessageKind::from(msg) {
+            // TODO: Is it worth enforcing that the PASS gets sent first?
             MessageKind::Pass => {
                 // TODO: actually handle auth here
                 // TODO: We don't know WHICH network the client wants
