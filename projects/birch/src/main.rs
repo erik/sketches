@@ -68,6 +68,8 @@ impl ClientManager {
         let (sender, receiver) = IrcChannel::new();
         let manager = Arc::new(Mutex::new(ClientFanoutManager::new()));
 
+        // TODO: Switch fanout to stream of events so we can handle
+        // broadcasts from clients, changing nicks, etc.
         let fanout = Arc::clone(&manager);
         thread::spawn(move || {
             for msg in receiver {
@@ -142,6 +144,7 @@ impl ClientManager {
                                 ClientEvent::WriteClient(msg) =>
                                     to_client.0.send(msg).map_err(|_| recv_err()),
 
+                                // TODO: split by network id
                                 ClientEvent::RegistrationComplete => {
                                     fanout.lock().unwrap().add_client(to_client.0.clone());
                                     new_user_chan

@@ -400,6 +400,8 @@ impl NetworkConnection {
                 false
             }
 
+            // Other numerics could be extensions that we're unaware
+            // of, better to forward it just in case.
             _ => {
                 println!("unhandled numeric: {}", code);
                 true
