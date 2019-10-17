@@ -129,7 +129,16 @@ impl ClientConnection {
 
     fn handle_cap_command(&mut self, msg: &RawMessage) -> Result<()> {
         match msg.param(0).unwrap_or("") {
-            "LS" => unimplemented!(),
+            "LS" => {
+                // TODO: Will explode once this exceeds max line length.
+                let caps = Capability::supported_as_network()
+                    .into_iter()
+                    .map(|cap| format!("{}", cap))
+                    .collect::<Vec<String>>()
+                    .join(" ");
+
+                self.send_client("CAP", &["LS", "*", &caps])?;
+            }
             "END" => unimplemented!(),
             "REQ" => {
                 for cap_str in msg.param(1).unwrap_or("").split_whitespace() {

@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_variables)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -324,6 +324,30 @@ impl Capability {
             _ => None,
         }
     }
+
+    /// Return the Capabilities we support when acting as a network.
+    pub fn supported_as_network() -> HashSet<Self> {
+        vec![Capability::ServerTime].into_iter().collect()
+    }
+
+    /// Return the Capabilities we support when acting as a client.
+    pub fn supported_as_client() -> HashSet<Self> {
+        vec![
+            Capability::Sasl(vec!["PLAIN".to_string()]),
+            Capability::ServerTime,
+        ]
+        .into_iter()
+        .collect()
+    }
+}
+
+impl fmt::Display for Capability {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Capability::ServerTime => write!(f, "server-time"),
+            Capability::Sasl(methods) => write!(f, "sasl={}", methods.join(",")),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -389,6 +413,18 @@ mod test {
                 "PLAIN".to_string(),
                 "EXTERNAL".to_string()
             ]))
+        );
+    }
+
+    #[test]
+    fn test_display_caps() {
+        assert_eq!(format!("{}", Capability::ServerTime), "server-time");
+        assert_eq!(
+            format!(
+                "{}",
+                Capability::Sasl(vec!["PLAIN".to_string(), "EXTERNAL".to_string(),])
+            ),
+            "sasl=PLAIN,EXTERNAL"
         );
     }
 
