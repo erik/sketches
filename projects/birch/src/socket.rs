@@ -179,6 +179,13 @@ impl<'a> IrcSocket<'a> {
                     chan.map_err(|_| recv_err()).and_then(|mut chan| {
                         network.state.welcome_user(&mut chan)
                     })
+                },
+                // If we haven't received ANYTHING in 4 minutes,
+                // network connection likely failed.
+                // TODO: this is a jank way of doing this.
+                default(Duration::from_secs(240)) => {
+                    println!("no network activity in 240 seconds...");
+                    break
                 }
             };
 
