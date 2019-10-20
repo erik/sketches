@@ -67,21 +67,27 @@ pub struct IrcSocketConfig<'a> {
 
 pub struct IrcSocket<'a> {
     config: IrcSocketConfig<'a>,
+    network: NetworkConnection,
 
     to_network: (Sender<RawMessage>, Receiver<RawMessage>),
-    to_users: (Sender<RawMessage>, Receiver<RawMessage>),
-    from_network: (Sender<RawMessage>, Receiver<RawMessage>),
+    to_users: (Receiver<RawMessage>),
     new_user: (Sender<IrcChannel>, Receiver<IrcChannel>),
 }
 
 impl<'a> IrcSocket<'a> {
     pub fn new(config: IrcSocketConfig<'a>) -> Self {
+        let to_network = unbounded();
+        let to_users = unbounded();
+
+        let network =
+            NetworkConnection::new(config.nick, to_network.0.clone(), to_users.0);
+
         Self {
             config,
+            network,
 
-            to_network: unbounded(),
-            to_users: unbounded(),
-            from_network: unbounded(),
+            to_network,
+            to_users: to_users.1,
             new_user: unbounded(),
         }
     }
@@ -113,6 +119,7 @@ impl<'a> IrcSocket<'a> {
                 return stream;
             }
 
+            // TODO: Probably want a sleep / exponential back off here.
             i += 1
         }
     }
@@ -122,14 +129,8 @@ impl<'a> IrcSocket<'a> {
     /// non-recoverable exception, return the error.
     ///
     /// TODO: Need to come up with the clean exit concept.
-    fn connect(&self, users: &mut dyn IrcWriter) -> Result<bool> {
-        let from_net_sender = self.from_network.0.clone();
-
-        let mut network = NetworkConnection::new(
-            self.config.nick,
-            self.to_network.0.clone(),
-            self.to_users.0.clone(),
-        );
+    fn connect(&mut self, users: &mut dyn IrcWriter) -> Result<bool> {
+        let (from_net_sender, from_net_receiver) = unbounded();
 
         let stream = self.create_stream()?;
         let mut write_stream = stream.try_clone().expect("clone failed");
@@ -150,17 +151,17 @@ impl<'a> IrcSocket<'a> {
             }
         });
 
-        if network.initialize().is_err() {
+        if self.network.initialize().is_err() {
             return Ok(true);
         }
 
         loop {
             let result = crossbeam_channel::select! {
-                recv(self.from_network.1) -> msg => {
+                recv(from_net_receiver) -> msg => {
                     msg.map_err(|_| recv_err())
                         .and_then(|msg| {
                             println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
-                            network.handle(&msg)
+                            self.network.handle(&msg)
                         })
                 },
                 recv(self.to_network.1) -> msg => {
@@ -170,14 +171,14 @@ impl<'a> IrcSocket<'a> {
                             write_stream.write_message(&msg)
                         })
                 },
-                recv(self.to_users.1) -> msg => {
+                recv(self.to_users) -> msg => {
                     msg.map_err(|_| recv_err()).and_then(|msg| {
                         users.write_message(&msg)
                     })
                 },
                 recv(self.new_user.1) -> chan => {
                     chan.map_err(|_| recv_err()).and_then(|mut chan| {
-                        network.state.welcome_user(&mut chan)
+                        self.network.state.welcome_user(&mut chan)
                     })
                 },
                 // If we haven't received ANYTHING in 4 minutes,
