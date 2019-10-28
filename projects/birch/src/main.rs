@@ -1,215 +1,237 @@
-#[macro_use]
-extern crate crossbeam_channel;
+#![allow(dead_code)]
 
-use std::collections::HashMap;
-use std::io::{BufReader, Error, ErrorKind, Result};
-use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::io::{BufReader, ErrorKind, Result};
+use std::net::TcpStream;
 
-use crossbeam_channel::{tick, unbounded, Sender};
+use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
+use slab::Slab;
 
 use birch::client::{ClientConnection, ClientEvent};
-use birch::proto::RawMessage;
-use birch::socket::{IrcChannel, IrcReader, IrcSocket, IrcSocketConfig, IrcWriter};
+use birch::socket::{IrcReader, IrcSocketConfig, IrcWriter};
 
-struct ClientFanoutManager {
-    id_counter: usize,
-    clients: HashMap<usize, Sender<RawMessage>>,
+// TODO: blah
+type NetworkId = usize;
+
+struct Client {
+    reader: BufReader<mio::net::TcpStream>,
+    writer: mio::net::TcpStream,
+    conn: ClientConnection,
+    network: Option<NetworkId>,
 }
 
-impl ClientFanoutManager {
-    fn new() -> Self {
-        Self {
-            id_counter: 0,
-            clients: HashMap::new(),
-        }
-    }
+impl Client {
+    fn new(stream: &mio::net::TcpStream) -> Self {
+        let reader = BufReader::new(stream.try_clone().expect("fork stream"));
+        let writer = stream.try_clone().expect("fork stream");
 
-    fn next_id(&mut self) -> usize {
-        let id = self.id_counter;
-        self.id_counter += 1;
-        id
-    }
-
-    fn add_client(&mut self, sender: Sender<RawMessage>) -> usize {
-        let id = self.next_id();
-        self.clients.insert(id, sender);
-        id
-    }
-
-    fn remove_client(&mut self, id: usize) -> Option<()> {
-        self.clients.remove(&id).map(|_| ())
-    }
-
-    fn write_message(&mut self, msg: &RawMessage) {
-        let mut dead_clients = vec![];
-        for (id, client) in self.clients.iter() {
-            if let Err(err) = client.send(msg.clone()) {
-                println!("Failed to write to client: {:?}", err);
-                dead_clients.push(*id);
-            }
-        }
-        // Prune anything we failed to write to
-        for id in dead_clients.into_iter() {
-            self.remove_client(id);
-        }
-    }
-}
-
-struct ClientManager {
-    fanout_manager: Arc<Mutex<ClientFanoutManager>>,
-    fanout: IrcChannel,
-}
-
-impl ClientManager {
-    fn new() -> Self {
-        let (sender, receiver) = IrcChannel::new();
-        let manager = Arc::new(Mutex::new(ClientFanoutManager::new()));
-
-        // TODO: Switch fanout to stream of events so we can handle
-        // broadcasts from clients, changing nicks, etc.
-        let fanout = Arc::clone(&manager);
-        thread::spawn(move || {
-            for msg in receiver {
-                fanout.lock().expect("mutex poisoned").write_message(&msg);
-            }
-        });
+        let conn = ClientConnection::new();
 
         Self {
-            fanout_manager: manager,
-            fanout: sender,
+            reader,
+            writer,
+            conn,
+            network: None,
+        }
+    }
+}
+
+struct NetworkConfig<'a> {
+    network_name: &'a str,
+    nick: &'a str,
+    socket: IrcSocketConfig,
+}
+
+struct Network {
+    // TODO: define this
+}
+
+enum SocketKind {
+    Listener,
+    Network(std::io::BufReader<mio::net::TcpStream>, mio::net::TcpStream),
+    Client(Client),
+}
+
+struct TokenManager {
+    tokens: Slab<SocketKind>,
+}
+
+impl TokenManager {
+    fn new() -> Self {
+        Self {
+            tokens: Slab::with_capacity(1024),
         }
     }
 
-    fn fanout_sender(&self) -> IrcChannel {
-        self.fanout.clone()
+    fn add_client_listener(&mut self) -> Token {
+        Token(self.tokens.insert(SocketKind::Listener))
     }
 
-    fn accept_client_connection(
-        &mut self,
-        stream: TcpStream,
-        new_user_chan: Sender<IrcChannel>,
-        network_chan: Sender<RawMessage>,
-    ) {
-        let to_client = unbounded();
-        let from_client = unbounded();
+    fn add_network(&mut self, stream: &mio::net::TcpStream) -> Token {
+        let reader = BufReader::new(stream.try_clone().expect("fork stream"));
+        let writer = stream.try_clone().expect("fork stream");
 
-        let read_stream = stream.try_clone().expect("clone stream");
-        let mut write_stream = stream.try_clone().expect("clone stream");
+        Token(self.tokens.insert(SocketKind::Network(reader, writer)))
+    }
 
-        // Read thread - handle input from client
-        let client_sender = from_client.0.clone();
-        thread::spawn(move || {
-            // TODO: This should not be a magic number
-            read_stream
-                .set_read_timeout(Some(Duration::from_secs(240)))
-                .expect("set_read_timeout call failed");
+    fn add_client(&mut self, stream: &mio::net::TcpStream) -> Token {
+        let client = Client::new(stream);
+        Token(self.tokens.insert(SocketKind::Client(client)))
+    }
 
-            let mut reader = BufReader::new(read_stream);
-            loop {
-                match reader.read_message() {
-                    Ok(msg) => {
-                        if let Err(err) = client_sender.send(msg) {
-                            println!("Failed to send: {:?}", err);
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        println!("Failed to read client message: {:?}", err);
-                        break;
-                    }
-                }
-            }
-        });
+    fn find(&mut self, token: Token) -> Option<&mut SocketKind> {
+        self.tokens.get_mut(token.0)
+    }
 
-        let fanout = Arc::clone(&self.fanout_manager);
-        thread::spawn(move || {
-            let events = unbounded();
-            let ping_ticker = tick(Duration::from_secs(120));
-            let mut client = ClientConnection::new(events.0);
-
-            let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
-
-            loop {
-                let result = select! {
-                    recv(events.1) -> msg => {
-                        msg.map_err(|_| recv_err())
-                            .and_then(|msg| match msg {
-                                ClientEvent::WriteNetwork(msg) => {
-                                    network_chan.send(msg).expect("TODO: effort");
-                                    Ok(())
-                                },
-                                ClientEvent::WriteClient(msg) =>
-                                    to_client.0.send(msg).map_err(|_| recv_err()),
-
-                                // TODO: split by network id
-                                ClientEvent::RegistrationComplete => {
-                                    fanout.lock().unwrap().add_client(to_client.0.clone());
-                                    new_user_chan
-                                        .send(IrcChannel(to_client.0.clone()))
-                                        .expect("TODO: effort");
-                                    Ok(())
-                                },
-                            })
-                    },
-
-                    recv(to_client.1) -> msg => {
-                        msg.map_err(|_| recv_err())
-                            .and_then(|msg| write_stream.write_message(&msg))
-                    },
-
-                    recv(from_client.1) -> msg => {
-                        msg.map_err(|_| recv_err())
-                            .and_then(|msg| client.handle_message(&msg))
-                    },
-
-                    recv(ping_ticker) -> _ => client.ping()
-                };
-
-                if let Err(err) = result {
-                    println!("client failed: {:?}", err);
-                    break;
-                }
-            }
-        });
+    fn remove(&mut self, token: Token) -> bool {
+        if self.tokens.contains(token.0) {
+            self.tokens.remove(token.0);
+            true
+        } else {
+            false
+        }
     }
 }
 
 fn main() -> Result<()> {
-    let mut client_manager = ClientManager::new();
+    let poll = Poll::new()?;
+    let mut token_manager = TokenManager::new();
 
-    let config = IrcSocketConfig {
+    let config = NetworkConfig {
+        network_name: "freenode",
         nick: "ep",
-        addr: "irc.freenode.net:6667",
-        max_retries: Some(3),
+        socket: IrcSocketConfig {
+            addr: "irc.freenode.net:6667".parse().unwrap(),
+            max_retries: Some(3),
+        },
     };
-    let mut sock = IrcSocket::new(config);
 
-    let mut fanout_sender = client_manager.fanout_sender();
-    let new_user_chan = sock.new_user_channel();
-    let network_chan = sock.network_channel();
+    let mut network = birch::network::NetworkConnection::new("ep");
+    // TODO: this sucks
+    network.initialize()?;
 
-    thread::spawn(move || {
-        // TODO: surface any errors here + shutdown hook
-        sock.start_loop(&mut fanout_sender)
-            .expect("network did not shutdown cleanly");
-    });
+    // TODO: Wrap in retry logic
+    let network_stream =
+        mio::net::TcpStream::from_stream(TcpStream::connect(config.socket.addr)?)?;
 
-    // TODO: hook this up to config
-    let listener = TcpListener::bind("127.0.0.1:9123")?;
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("Client connected");
-                client_manager.accept_client_connection(
-                    stream,
-                    new_user_chan.clone(),
-                    network_chan.clone(),
-                );
+    poll.register(
+        &network_stream,
+        token_manager.add_network(&network_stream),
+        Ready::readable(),
+        PollOpt::edge(),
+    )?;
+
+    let listener = TcpListener::bind(&"127.0.0.1:9123".parse().unwrap())?;
+    poll.register(
+        &listener,
+        token_manager.add_client_listener(),
+        Ready::readable(),
+        PollOpt::edge(),
+    )?;
+
+    loop {
+        let mut events = Events::with_capacity(128);
+        poll.poll(&mut events, None)?;
+
+        for ev in events {
+            let mut remove_socket = false;
+
+            let socket = token_manager.find(ev.token());
+            match socket {
+                Some(SocketKind::Listener) => loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => {
+                            let token = token_manager.add_client(&socket);
+
+                            poll.register(
+                                &socket,
+                                token,
+                                Ready::readable(),
+                                PollOpt::edge(),
+                            )?;
+                        }
+                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
+                        e => panic!("err={:?}", e),
+                    }
+                },
+
+                Some(SocketKind::Network(ref mut reader, writer)) => loop {
+                    match reader.read_message() {
+                        Ok(msg) => {
+                            println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
+                            if let Err(err) = network.handle(&msg) {
+                                println!("Failed to handle message: {}", err);
+                                break;
+                            }
+
+                            for msg in network.network_messages() {
+                                println!("[\u{1b}[37;1mbirch\u{1b}[0m -> net] {}", msg);
+                                // TODO: handle errors
+                                writer.write_message(&msg)?;
+                            }
+
+                            for msg in network.user_messages() {
+                                // TODO: implement this
+                                println!("fanout: {}", msg);
+                            }
+                        }
+                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
+                        Err(e) => {
+                            // TODO: Reconnection logic
+                            println!("Network errored, disconnecting: {}", e);
+                            remove_socket = true;
+                            break;
+                        }
+                    }
+                },
+                Some(SocketKind::Client(ref mut client)) => loop {
+                    match client.reader.read_message() {
+                        Ok(msg) => {
+                            println!(
+                                "[birch <- \u{1b}[37;1mclient({})\u{1b}[0m] {}",
+                                ev.token().0,
+                                msg
+                            );
+
+                            if let Err(err) = client.conn.handle_message(&msg) {
+                                println!("Failed to handle message: {}", err);
+                                break;
+                            }
+
+                            for event in client.conn.events() {
+                                match event {
+                                    ClientEvent::WriteNetwork(ref _msg) => unimplemented!(),
+                                    ClientEvent::WriteClient(ref msg) => {
+                                        client.writer.write_message(msg)?
+                                    }
+                                    ClientEvent::RegistrationComplete => {
+                                        // TODO: dynamic network
+                                        // TODO: Update client's nick
+                                        network.state.welcome_user(&mut client.writer)?;
+                                    }
+                                    ClientEvent::AuthAttempt(_auth) => {
+                                        // TODO: actual auth here
+                                        // TODO: set auth result back on client.conn
+                                        client.network = Some(0);
+                                    }
+                                }
+                            }
+                        }
+                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
+                        Err(e) => {
+                            println!("Client errored, disconnecting: {}", e);
+                            remove_socket = true;
+                            break;
+                        }
+                    }
+                },
+
+                _ => unreachable!(),
             }
-            Err(err) => println!("Failed to accept: {:?}", err),
+
+            // TODO: Deregister sockets.
+            if remove_socket {
+                token_manager.remove(ev.token());
+            }
         }
     }
 

@@ -1,12 +1,13 @@
 use std::io::prelude::*;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
-use std::net::TcpStream;
+use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use mio::net::TcpStream;
+use mio::{Events, Poll, PollOpt, Ready, Token};
 
-use crate::network::NetworkConnection;
 use crate::proto::RawMessage;
 
 pub trait IrcWriter {
@@ -59,36 +60,98 @@ impl IrcWriter for IrcChannel {
     }
 }
 
-pub struct IrcSocketConfig<'a> {
-    pub nick: &'a str,
-    pub addr: &'a str,
+#[derive(Clone)]
+pub struct IrcSocketConfig {
+    // TODO: stop being lazy, make this &str
+    pub addr: String,
     pub max_retries: Option<usize>,
 }
 
-pub struct IrcSocket<'a> {
-    config: IrcSocketConfig<'a>,
-    network: NetworkConnection,
-
-    to_network: (Sender<RawMessage>, Receiver<RawMessage>),
-    to_users: (Receiver<RawMessage>),
-    new_user: (Sender<IrcChannel>, Receiver<IrcChannel>),
+pub enum SocketEvent {
+    Connected,
+    Disconnected,
+    Received(RawMessage),
 }
 
-impl<'a> IrcSocket<'a> {
-    pub fn new(config: IrcSocketConfig<'a>) -> Self {
-        let to_network = unbounded();
-        let to_users = unbounded();
+// TODO: This becomes IrcSocket
+pub struct DumbIrcSocket {
+    to_socket: (Sender<RawMessage>, Receiver<RawMessage>),
+    from_socket: Sender<SocketEvent>,
+}
 
-        let network =
-            NetworkConnection::new(config.nick, to_network.0.clone(), to_users.0);
+impl DumbIrcSocket {
+    pub fn new(from_socket: Sender<SocketEvent>) -> Self {
+        Self {
+            from_socket,
+            to_socket: unbounded(),
+        }
+    }
+
+    pub fn socket_sender(&self) -> Sender<RawMessage> {
+        self.to_socket.0.clone()
+    }
+
+    pub fn start(
+        &mut self,
+        read_socket: impl Read + Send + 'static,
+        write_socket: &mut (impl Write + Send),
+    ) -> Result<()> {
+        let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
+
+        let from_socket = self.from_socket.clone();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(read_socket);
+
+            // TODO: Atomic boolean for shutdown.
+            loop {
+                let result = reader.read_message().and_then(|msg| {
+                    println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
+                    from_socket
+                        .send(SocketEvent::Received(msg))
+                        .map_err(|_| recv_err())
+                });
+
+                if let Err(err) = result {
+                    println!("Read from socket failed: {:?}", err);
+                    break;
+                }
+            }
+        });
+
+        self.from_socket
+            .send(SocketEvent::Connected)
+            .map_err(|_| recv_err())?;
+
+        for msg in self.to_socket.1.clone() {
+            println!("[\u{1b}[37;1mbirch\u{1b}[0m -> net] {}", msg);
+            write_socket.write_message(&msg)?;
+        }
+
+        self.from_socket
+            .send(SocketEvent::Disconnected)
+            .map_err(|_| recv_err())?;
+
+        Ok(())
+    }
+}
+
+// TODO: ReconnectingIrcSocket, PersistentIrcSocket, something to that
+// effect.
+pub struct IrcSocket {
+    config: IrcSocketConfig,
+
+    to_network: (Sender<RawMessage>, Receiver<RawMessage>),
+    from_network: Sender<SocketEvent>,
+}
+
+impl IrcSocket {
+    pub fn new(config: IrcSocketConfig, from_network: Sender<SocketEvent>) -> Self {
+        let to_network = unbounded();
 
         Self {
             config,
-            network,
-
             to_network,
-            to_users: to_users.1,
-            new_user: unbounded(),
+            from_network,
         }
     }
 
@@ -96,30 +159,28 @@ impl<'a> IrcSocket<'a> {
         self.to_network.0.clone()
     }
 
-    pub fn new_user_channel(&self) -> Sender<IrcChannel> {
-        self.new_user.0.clone()
-    }
-
-    // TODO: this is kind of gross, clean this up
-    fn create_stream(&self) -> Result<TcpStream> {
-        let _create_stream = || {
-            let stream = TcpStream::connect(self.config.addr)?;
-            stream.set_read_timeout(Some(Duration::from_secs(180)))?;
-            Ok(stream)
-        };
-
+    /// Repeatedly (up to the configured maximum retries) try to
+    /// establish a connection to the specied address.
+    ///
+    /// Eventually this is will include a sleep / exponential backoff
+    /// (TODO: that)
+    fn try_create_stream(&self) -> Result<TcpStream> {
         let max_retries = self.config.max_retries;
 
         let mut i = 0;
         loop {
-            let stream = _create_stream();
+            let stream = std::net::TcpStream::connect(&self.config.addr);
             let over_max_tries = max_retries.map(|max| i > max).unwrap_or(false);
 
-            if stream.is_ok() || over_max_tries {
-                return stream;
+            match stream {
+                Ok(stream) => return TcpStream::from_stream(stream),
+                Err(err) => {
+                    if over_max_tries {
+                        return Err(err);
+                    }
+                }
             }
 
-            // TODO: Probably want a sleep / exponential back off here.
             i += 1
         }
     }
@@ -129,79 +190,14 @@ impl<'a> IrcSocket<'a> {
     /// non-recoverable exception, return the error.
     ///
     /// TODO: Need to come up with the clean exit concept.
-    fn connect(&mut self, users: &mut dyn IrcWriter) -> Result<bool> {
-        let (from_net_sender, from_net_receiver) = unbounded();
-
-        let stream = self.create_stream()?;
-        let mut write_stream = stream.try_clone().expect("clone failed");
-
-        let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
-
-        thread::spawn(move || {
-            let mut reader = BufReader::new(stream);
-            loop {
-                let result = reader
-                    .read_message()
-                    .and_then(|msg| from_net_sender.send(msg).map_err(|_| recv_err()));
-
-                if let Err(err) = result {
-                    println!("Read from network failed: {:?}", err);
-                    break;
-                }
-            }
-        });
-
-        if self.network.initialize().is_err() {
-            return Ok(true);
-        }
-
-        loop {
-            let result = crossbeam_channel::select! {
-                recv(from_net_receiver) -> msg => {
-                    msg.map_err(|_| recv_err())
-                        .and_then(|msg| {
-                            println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
-                            self.network.handle(&msg)
-                        })
-                },
-                recv(self.to_network.1) -> msg => {
-                    msg.map_err(|_| recv_err())
-                        .and_then(|msg| {
-                            println!("[\u{1b}[37;1mbirch\u{1b}[0m -> net] {}", msg);
-                            write_stream.write_message(&msg)
-                        })
-                },
-                recv(self.to_users) -> msg => {
-                    msg.map_err(|_| recv_err()).and_then(|msg| {
-                        users.write_message(&msg)
-                    })
-                },
-                recv(self.new_user.1) -> chan => {
-                    chan.map_err(|_| recv_err()).and_then(|mut chan| {
-                        self.network.state.welcome_user(&mut chan)
-                    })
-                },
-                // If we haven't received ANYTHING in 4 minutes,
-                // network connection likely failed.
-                // TODO: this is a jank way of doing this.
-                default(Duration::from_secs(240)) => {
-                    println!("no network activity in 240 seconds...");
-                    break
-                }
-            };
-
-            if let Err(err) = result {
-                println!("read failed: {}", err);
-                break;
-            }
-        }
-
+    fn connect(&mut self) -> Result<bool> {
+        // TODO: reimplement this
         Ok(true)
     }
 
-    pub fn start_loop(&mut self, users: &mut dyn IrcWriter) -> Result<()> {
+    pub fn start_loop(&mut self) -> Result<()> {
         loop {
-            match self.connect(users) {
+            match self.connect() {
                 Ok(true) => println!("connection terminated, restarting"),
                 Ok(false) => break,
                 Err(err) => {

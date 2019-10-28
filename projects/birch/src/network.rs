@@ -14,7 +14,7 @@ enum AuthKind {
     None,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum ConnectionStatus {
     Initial,
     CapabilityNegotiation,
@@ -49,6 +49,10 @@ impl NetworkConnectionState {
             init_buffer: Vec::with_capacity(10),
             motd_buffer: Vec::with_capacity(50),
         }
+    }
+
+    fn is_uninitialized(&self) -> bool {
+        self.status == ConnectionStatus::Initial
     }
 
     /// Reset the connection state back to the initial, keeping only the nick.
@@ -109,26 +113,23 @@ impl NetworkConnectionState {
 }
 
 /// Represents Birch <-> IRC network connection
+// TODO: Perhaps this is a network state?
 pub struct NetworkConnection {
     auth: AuthKind,
     pub state: NetworkConnectionState,
 
-    network: Sender<RawMessage>,
-    users: Sender<RawMessage>,
+    network: Vec<RawMessage>,
+    users: Vec<RawMessage>,
 }
 
 impl NetworkConnection {
-    pub fn new(
-        nick: &str,
-        network: Sender<RawMessage>,
-        users: Sender<RawMessage>,
-    ) -> Self {
+    pub fn new(nick: &str) -> Self {
         Self {
             auth: AuthKind::None,
             state: NetworkConnectionState::new(nick),
 
-            network,
-            users,
+            network: Vec::with_capacity(32),
+            users: Vec::with_capacity(32),
         }
     }
 
@@ -137,20 +138,20 @@ impl NetworkConnection {
         self.transition_status(ConnectionStatus::Initial)
     }
 
-    fn map_send_error<E>(_: E) -> Error {
-        Error::new(ErrorKind::Other, "send message failed")
+    pub fn user_messages(&mut self) -> std::vec::Drain<RawMessage> {
+        self.users.drain(0..)
     }
 
-    fn send_network(&mut self, command: &str, params: &[&str]) -> Result<()> {
-        self.network
-            .send(RawMessage::new(command, params))
-            .map_err(NetworkConnection::map_send_error)
+    pub fn network_messages(&mut self) -> std::vec::Drain<RawMessage> {
+        self.network.drain(0..)
     }
 
-    fn send_users(&mut self, msg: RawMessage) -> Result<()> {
-        self.users
-            .send(msg)
-            .map_err(NetworkConnection::map_send_error)
+    fn send_network(&mut self, command: &str, params: &[&str]) {
+        self.network.push(RawMessage::new(command, params));
+    }
+
+    fn send_users(&mut self, msg: RawMessage) {
+        self.users.push(msg);
     }
 
     fn transition_status(&mut self, next: ConnectionStatus) -> Result<()> {
@@ -160,7 +161,7 @@ impl NetworkConnection {
             }
 
             ConnectionStatus::CapabilityNegotiation => {
-                self.send_network("CAP", &["LS", "302"])?;
+                self.send_network("CAP", &["LS", "302"]);
             }
 
             ConnectionStatus::Authentication => match self.auth {
@@ -175,8 +176,8 @@ impl NetworkConnection {
                 // TODO: prevent unnecessary clone
                 let nick = self.state.nick.clone();
 
-                self.send_network("NICK", &[&nick])?;
-                self.send_network("USER", &[&nick, "0", "*", &nick])?;
+                self.send_network("NICK", &[&nick]);
+                self.send_network("USER", &[&nick, "0", "*", &nick]);
 
                 self.transition_status(ConnectionStatus::Registered)?;
             }
@@ -196,7 +197,7 @@ impl NetworkConnection {
 
                 for cap_str in caps {
                     if let Some(cap) = Capability::from(cap_str) {
-                        self.send_network("CAP", &["REQ", cap_str])?;
+                        self.send_network("CAP", &["REQ", cap_str]);
                         self.state.caps_pending += 1;
                     }
                 }
@@ -215,7 +216,7 @@ impl NetworkConnection {
                 self.state.caps_pending -= 1;
 
                 if self.state.caps_pending == 0 {
-                    self.send_network("CAP", &["END"])?;
+                    self.send_network("CAP", &["END"]);
                     self.transition_status(ConnectionStatus::Authentication)?;
                 }
             }
@@ -234,7 +235,7 @@ impl NetworkConnection {
         let should_forward = match kind {
             MessageKind::Ping => {
                 let param = msg.param(0).unwrap_or("");
-                self.send_network("PONG", &[param])?;
+                self.send_network("PONG", &[param]);
                 false
             }
 
@@ -256,7 +257,7 @@ impl NetworkConnection {
                         "\x01VERSION\x01" => {
                             // TODO: Probably should be configurable
                             let version = "\x01VERSION birch\x01";
-                            self.send_network("NOTICE", &[sender, version])?;
+                            self.send_network("NOTICE", &[sender, version]);
                             false
                         }
                         _ => true,
@@ -294,7 +295,7 @@ impl NetworkConnection {
 
         if should_forward {
             // TODO: remove clone
-            self.send_users(msg.clone())?;
+            self.send_users(msg.clone());
         }
 
         Ok(())
@@ -372,7 +373,7 @@ impl NetworkConnection {
                 // TODO: Handle 432 separately? Nick too long or bad characters
                 let alt = self.state.next_nick();
 
-                self.send_network("NICK", &[&alt])?;
+                self.send_network("NICK", &[&alt]);
                 // Tell the connected users that we're renaming
                 self.send_users(RawMessage::new_with_source(
                     Source {
@@ -383,7 +384,7 @@ impl NetworkConnection {
                     },
                     "NICK",
                     &[&alt]
-                ))?;
+                ));
 
                 self.state.nick = alt;
                 false
