@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_variables)]
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -227,7 +225,6 @@ impl RawMessage {
     ///                   NUL or CR or LF>
     pub fn parse(line: &str) -> Option<Self> {
         let mut line: &str = line;
-        let mut msg: Self;
 
         let tags = if line.starts_with('@') {
             let (tags, rest) = split_message(line)?;
@@ -288,7 +285,7 @@ impl fmt::Display for RawMessage {
 
         write!(f, "{}", self.command)?;
 
-        for (i, param) in self.params.iter().enumerate() {
+        for param in self.params.iter() {
             // Last is a special case
             if param.contains(' ') {
                 write!(f, " :{}", param)?;

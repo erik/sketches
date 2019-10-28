@@ -1,12 +1,8 @@
 use std::io::prelude::*;
-use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
-use std::net::SocketAddr;
-use std::thread;
-use std::time::Duration;
+use std::io::{BufRead, Error, ErrorKind, Result};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use mio::net::TcpStream;
-use mio::{Events, Poll, PollOpt, Ready, Token};
 
 use crate::proto::RawMessage;
 
@@ -71,68 +67,6 @@ pub enum SocketEvent {
     Connected,
     Disconnected,
     Received(RawMessage),
-}
-
-// TODO: This becomes IrcSocket
-pub struct DumbIrcSocket {
-    to_socket: (Sender<RawMessage>, Receiver<RawMessage>),
-    from_socket: Sender<SocketEvent>,
-}
-
-impl DumbIrcSocket {
-    pub fn new(from_socket: Sender<SocketEvent>) -> Self {
-        Self {
-            from_socket,
-            to_socket: unbounded(),
-        }
-    }
-
-    pub fn socket_sender(&self) -> Sender<RawMessage> {
-        self.to_socket.0.clone()
-    }
-
-    pub fn start(
-        &mut self,
-        read_socket: impl Read + Send + 'static,
-        write_socket: &mut (impl Write + Send),
-    ) -> Result<()> {
-        let recv_err = || Error::new(ErrorKind::Other, "receiver disconnected");
-
-        let from_socket = self.from_socket.clone();
-        thread::spawn(move || {
-            let mut reader = BufReader::new(read_socket);
-
-            // TODO: Atomic boolean for shutdown.
-            loop {
-                let result = reader.read_message().and_then(|msg| {
-                    println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
-                    from_socket
-                        .send(SocketEvent::Received(msg))
-                        .map_err(|_| recv_err())
-                });
-
-                if let Err(err) = result {
-                    println!("Read from socket failed: {:?}", err);
-                    break;
-                }
-            }
-        });
-
-        self.from_socket
-            .send(SocketEvent::Connected)
-            .map_err(|_| recv_err())?;
-
-        for msg in self.to_socket.1.clone() {
-            println!("[\u{1b}[37;1mbirch\u{1b}[0m -> net] {}", msg);
-            write_socket.write_message(&msg)?;
-        }
-
-        self.from_socket
-            .send(SocketEvent::Disconnected)
-            .map_err(|_| recv_err())?;
-
-        Ok(())
-    }
 }
 
 // TODO: ReconnectingIrcSocket, PersistentIrcSocket, something to that

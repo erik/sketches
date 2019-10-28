@@ -1,9 +1,5 @@
-#![allow(dead_code, unused_variables)]
-
 use std::collections::HashSet;
-use std::io::{Error, ErrorKind, Result};
-
-use crossbeam_channel::Sender;
+use std::io::Result;
 
 use crate::proto::{Capability, MessageKind, ModeSet, RawMessage, Source};
 use crate::socket::IrcWriter;
@@ -49,10 +45,6 @@ impl NetworkConnectionState {
             init_buffer: Vec::with_capacity(10),
             motd_buffer: Vec::with_capacity(50),
         }
-    }
-
-    fn is_uninitialized(&self) -> bool {
-        self.status == ConnectionStatus::Initial
     }
 
     /// Reset the connection state back to the initial, keeping only the nick.
@@ -196,7 +188,7 @@ impl NetworkConnection {
                 let caps = msg.trailing().unwrap_or("").split_whitespace();
 
                 for cap_str in caps {
-                    if let Some(cap) = Capability::from(cap_str) {
+                    if let Some(_) = Capability::from(cap_str) {
                         self.send_network("CAP", &["REQ", cap_str]);
                         self.state.caps_pending += 1;
                     }

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::io::{BufReader, ErrorKind, Result};
 use std::net::TcpStream;
 
