@@ -11,23 +11,48 @@ use birch::socket::{IrcReader, IrcSocketConfig, IrcWriter};
 type NetworkId = usize;
 type ClientId = usize;
 
-struct Client {
+struct Socket {
     reader: BufReader<mio::net::TcpStream>,
     writer: mio::net::TcpStream,
+}
+
+impl Socket {
+    fn from_stream(stream: &mio::net::TcpStream) -> Result<Self> {
+        let reader = BufReader::new(stream.try_clone()?);
+        let writer = stream.try_clone()?;
+        Ok(Self { reader, writer })
+    }
+}
+
+impl std::io::Read for Socket {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        self.reader.read(buf)
+    }
+}
+
+impl std::io::Write for Socket {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.writer.write(buf)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        self.writer.flush()
+    }
+}
+
+struct Client {
+    socket: Socket,
     conn: ClientConnection,
     network: Option<NetworkId>,
 }
 
 impl Client {
     fn new(stream: &mio::net::TcpStream) -> Self {
-        let reader = BufReader::new(stream.try_clone().expect("fork stream"));
-        let writer = stream.try_clone().expect("fork stream");
-
+        let socket = Socket::from_stream(stream).expect("create client socket");
         let conn = ClientConnection::new();
 
         Self {
-            reader,
-            writer,
+            socket,
             conn,
             network: None,
         }
@@ -86,9 +111,7 @@ struct Network<'a> {
     id: NetworkId,
     config: NetworkConfig<'a>,
     network: birch::network::NetworkConnection,
-
-    reader: BufReader<mio::net::TcpStream>,
-    writer: mio::net::TcpStream,
+    socket: Socket,
 }
 
 enum SocketKind {
@@ -219,7 +242,7 @@ fn main() -> Result<()> {
                             for msg in network.user_messages() {
                                 // TODO: implement this correctly
                                 for client in client_manager.with_network(0) {
-                                    client.writer.write_message(&msg)?;
+                                    client.socket.write_message(&msg)?;
                                 }
                             }
                         }
@@ -238,7 +261,7 @@ fn main() -> Result<()> {
                         .expect("activity on unassigned client id");
 
                     loop {
-                        match client.reader.read_message() {
+                        match client.socket.reader.read_message() {
                             Ok(msg) => {
                                 println!(
                                     "[birch <- \u{1b}[37;1mclient({})\u{1b}[0m] {}",
@@ -255,14 +278,14 @@ fn main() -> Result<()> {
                                     match event {
                                         ClientEvent::WriteNetwork(ref _msg) => unimplemented!(),
                                         ClientEvent::WriteClient(ref msg) => {
-                                            client.writer.write_message(msg)?
+                                            client.socket.write_message(msg)?
                                         }
                                         ClientEvent::RegistrationComplete => {
                                             // TODO: dynamic network
                                             // TODO: Update client's nick
                                             network
                                                 .state
-                                                .welcome_user(&mut client.writer)?;
+                                                .welcome_user(&mut client.socket)?;
                                         }
                                         ClientEvent::AuthAttempt(_auth) => {
                                             // TODO: actual auth here
