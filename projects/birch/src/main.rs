@@ -103,37 +103,8 @@ enum SocketKind {
     Client(ClientId),
 }
 
-struct SocketManager {
-    sockets: Slab<SocketKind>,
-}
-
-impl SocketManager {
-    fn new() -> Self {
-        Self {
-            sockets: Slab::with_capacity(1024),
-        }
-    }
-
-    fn add(&mut self, socket: SocketKind) -> Token {
-        Token(self.sockets.insert(socket))
-    }
-
-    fn find(&self, token: Token) -> Option<&SocketKind> {
-        self.sockets.get(token.0)
-    }
-
-    fn remove(&mut self, token: Token) -> bool {
-        if self.sockets.contains(token.0) {
-            self.sockets.remove(token.0);
-            true
-        } else {
-            false
-        }
-    }
-}
-
 struct BirchServer {
-    sockets: SocketManager,
+    sockets: Slab<SocketKind>,
     clients: Slab<Client>,
     // TODO: Since networks aren't dynamic, no benefit really to having this be a slab
     networks: Slab<Network>,
@@ -142,7 +113,7 @@ struct BirchServer {
 impl BirchServer {
     fn new() -> Self {
         Self {
-            sockets: SocketManager::new(),
+            sockets: Slab::with_capacity(1024),
             clients: Slab::with_capacity(32),
             networks: Slab::with_capacity(16),
         }
@@ -150,9 +121,9 @@ impl BirchServer {
 
     fn accept_client(&mut self, poll: &Poll, socket: &mio::net::TcpStream) -> Result<()> {
         let client_id = self.clients.insert(Client::new(socket));
-        let token = self.sockets.add(SocketKind::Client(client_id));
+        let token = self.sockets.insert(SocketKind::Client(client_id));
 
-        poll.register(socket, token, Ready::readable(), PollOpt::edge())?;
+        poll.register(socket, Token(token), Ready::readable(), PollOpt::edge())?;
         Ok(())
     }
 
@@ -245,7 +216,7 @@ impl BirchServer {
     ) -> Result<()> {
         let mut remove_socket = false;
 
-        match self.sockets.find(token) {
+        match self.sockets.get(token.0) {
             None => panic!("token not associated with a socket: {:?}", token),
 
             Some(&SocketKind::Listener) => loop {
@@ -283,7 +254,7 @@ impl BirchServer {
 
         // TODO: Deregister sockets (remove from managers etc)
         if remove_socket {
-            self.sockets.remove(token);
+            self.sockets.remove(token.0);
         }
 
         Ok(())
@@ -294,7 +265,7 @@ impl BirchServer {
         network.conn.initialize()?;
 
         let token = self.networks.insert(network);
-        self.sockets.add(SocketKind::Network(token));
+        self.sockets.insert(SocketKind::Network(token));
 
         Ok(token)
     }
@@ -314,12 +285,8 @@ impl BirchServer {
         }
 
         let listener = TcpListener::bind(bind_addr)?;
-        poll.register(
-            &listener,
-            self.sockets.add(SocketKind::Listener),
-            Ready::readable(),
-            PollOpt::edge(),
-        )?;
+        let tok = self.sockets.insert(SocketKind::Listener);
+        poll.register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
 
         loop {
             let mut events = Events::with_capacity(128);
