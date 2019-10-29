@@ -430,7 +430,7 @@ impl BirchServer {
         // the struct itself?
         for (id, network) in self.networks.iter_mut() {
             poll.register(
-                &network.socket.writer,
+                &network.socket,
                 Token(id),
                 Ready::readable(),
                 PollOpt::edge(),
