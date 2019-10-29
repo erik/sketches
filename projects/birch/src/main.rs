@@ -168,6 +168,7 @@ impl Network {
 
     fn reconnect(&mut self) -> Result<()> {
         self.socket = self.config.create_socket()?;
+        self.conn.initialize()?;
         self.connected = true;
 
         Ok(())
