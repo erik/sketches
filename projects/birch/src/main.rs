@@ -1,9 +1,10 @@
 use std::io::{BufReader, ErrorKind, Result};
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 
-use mio::{net::TcpListener, Evented, Events, Poll, PollOpt, Ready, Registration, Token};
+use mio::net::{TcpListener, TcpStream};
+use mio::{Evented, Events, Poll, PollOpt, Ready, Registration, Token};
 use slab::Slab;
 
 use birch::client::{ClientAuth, ClientConnection, ClientEvent};
@@ -15,8 +16,8 @@ type NetworkId = usize;
 type ClientId = usize;
 
 struct Socket {
-    reader: BufReader<mio::net::TcpStream>,
-    writer: mio::net::TcpStream,
+    reader: BufReader<TcpStream>,
+    writer: TcpStream,
 }
 
 impl Evented for Socket {
@@ -46,7 +47,7 @@ impl Evented for Socket {
 }
 
 impl Socket {
-    fn from_stream(stream: mio::net::TcpStream) -> Result<Self> {
+    fn from_stream(stream: TcpStream) -> Result<Self> {
         let reader = BufReader::new(stream.try_clone()?);
         Ok(Self {
             reader,
@@ -119,7 +120,7 @@ struct Client {
 }
 
 impl Client {
-    fn new(stream: mio::net::TcpStream) -> Self {
+    fn new(stream: TcpStream) -> Self {
         let socket = Socket::from_stream(stream).expect("create client socket");
         let conn = ClientConnection::new();
 
@@ -206,7 +207,7 @@ impl BirchServer {
         }
     }
 
-    fn accept_client(&mut self, poll: &Poll, socket: mio::net::TcpStream) -> Result<()> {
+    fn accept_client(&mut self, poll: &Poll, socket: TcpStream) -> Result<()> {
         let client_id = self.clients.insert(Client::new(socket));
         let token = self.sockets.insert(SocketKind::Client(client_id));
 
