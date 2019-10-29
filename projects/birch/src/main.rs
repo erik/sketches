@@ -138,26 +138,39 @@ struct NetworkConfig {
     auth: (String, String),
 }
 
+impl NetworkConfig {
+    fn create_socket(&self) -> Result<Socket> {
+        let stream =
+            mio::net::TcpStream::from_stream(TcpStream::connect(&self.socket.addr)?)?;
+        Socket::from_stream(stream)
+    }
+}
+
 struct Network {
     socket: Socket,
     conn: NetworkConnection,
     config: NetworkConfig,
+    connected: bool,
 }
 
 impl Network {
     fn new(config: NetworkConfig) -> Result<Self> {
-        // TODO: Wrap in retry logic
-        let stream =
-            mio::net::TcpStream::from_stream(TcpStream::connect(&config.socket.addr)?)?;
-
-        let socket = Socket::from_stream(stream).expect("create network socket");
+        let socket = config.create_socket()?;
         let conn = NetworkConnection::new(&config.nick);
 
         Ok(Self {
             socket,
             conn,
             config,
+            connected: true,
         })
+    }
+
+    fn reconnect(&mut self) -> Result<()> {
+        self.socket = self.config.create_socket()?;
+        self.connected = true;
+
+        Ok(())
     }
 
     // TODO: blah, this could be better
@@ -329,6 +342,23 @@ impl BirchServer {
         Ok(())
     }
 
+    fn reconnect_networks(&mut self, poll: &Poll) -> Result<()> {
+        for (id, network) in self.networks.iter_mut().filter(|(_, n)| !n.connected) {
+            println!("network {} is disconnected... attempting reconnect", id);
+            match network.reconnect() {
+                Ok(()) => poll.register(
+                    &network.socket,
+                    Token(self.sockets.insert(SocketKind::Network(id))),
+                    Ready::readable(),
+                    PollOpt::edge(),
+                )?,
+                Err(err) => println!("reconnect failed: {}", err),
+            }
+        }
+
+        Ok(())
+    }
+
     fn handle_poll_event(
         &mut self,
         poll: &Poll,
@@ -340,7 +370,7 @@ impl BirchServer {
 
             Some(&SocketKind::Ticker) => {
                 self.ping_clients(poll)?;
-                // TODO: network reconnects
+                self.reconnect_networks(poll)?;
             }
 
             Some(&SocketKind::Listener) => loop {
@@ -359,7 +389,8 @@ impl BirchServer {
                         // TODO: Reconnection logic
                         println!("Network errored, disconnecting: {}", e);
                         self.sockets.remove(token.0);
-                        let network = self.networks.get(network_id).unwrap();
+                        let mut network = self.networks.get_mut(network_id).unwrap();
+                        network.connected = false;
                         poll.deregister(&network.socket)?;
                         break;
                     }
