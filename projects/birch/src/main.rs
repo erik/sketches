@@ -141,8 +141,13 @@ struct NetworkConfig {
 
 impl NetworkConfig {
     fn create_socket(&self) -> Result<Socket> {
-        let stream =
-            mio::net::TcpStream::from_stream(TcpStream::connect(&self.socket.addr)?)?;
+        let net_stream = std::net::TcpStream::connect(&self.socket.addr)?;
+        let stream = TcpStream::from_stream(net_stream)?;
+
+        // Make sure we send Keep Alive packets so that we can detect
+        // e.g. the computer going to sleep.
+        stream.set_keepalive(Some(Duration::from_secs(30)))?;
+
         Socket::from_stream(stream)
     }
 }
