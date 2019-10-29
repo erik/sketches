@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 use std::collections::HashSet;
-use std::io::{Error, ErrorKind, Result};
+use std::io::Result;
 use std::time::Instant;
 
 use crate::proto::{Capability, MessageKind, RawMessage, Source};
@@ -163,9 +163,6 @@ impl ClientConnection {
         match MessageKind::from(msg) {
             // TODO: Is it worth enforcing that the PASS gets sent first?
             MessageKind::Pass => {
-                // TODO: actually handle auth here
-                // TODO: We don't know WHICH network the client wants
-                // until they actually authenticate.
                 if let Some(auth) = msg.param(0).and_then(ClientAuth::parse) {
                     self.send_client_event(ClientEvent::AuthAttempt(auth));
                     self.registration.set_pass();

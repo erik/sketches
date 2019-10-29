@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpStream};
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use slab::Slab;
 
-use birch::client::{ClientConnection, ClientEvent};
+use birch::client::{ClientAuth, ClientConnection, ClientEvent};
 use birch::network::NetworkConnection;
 use birch::socket::{IrcReader, IrcSocketConfig, IrcWriter};
 
@@ -64,15 +64,17 @@ struct NetworkConfig {
     network_name: String,
     nick: String,
     socket: IrcSocketConfig,
+    auth: (String, String),
 }
 
 struct Network {
     socket: Socket,
     conn: NetworkConnection,
+    config: NetworkConfig,
 }
 
 impl Network {
-    fn new(config: &NetworkConfig) -> Result<Self> {
+    fn new(config: NetworkConfig) -> Result<Self> {
         // TODO: Wrap in retry logic
         let stream =
             mio::net::TcpStream::from_stream(TcpStream::connect(&config.socket.addr)?)?;
@@ -80,7 +82,18 @@ impl Network {
         let socket = Socket::from_stream(&stream).expect("create network socket");
         let conn = NetworkConnection::new(&config.nick);
 
-        Ok(Self { socket, conn })
+        Ok(Self {
+            socket,
+            conn,
+            config,
+        })
+    }
+
+    // TODO: blah, this could be better
+    fn authenticate(&self, auth: &ClientAuth) -> bool {
+        auth.network == self.config.network_name
+            && auth.user == self.config.auth.0
+            && auth.password == self.config.auth.1
     }
 }
 
@@ -208,9 +221,13 @@ impl BirchServer {
                         None => panic!("registration completed without network"),
                     }
                 }
-                ClientEvent::AuthAttempt(_auth) => {
-                    let id = self.networks.iter().find(|n| true).map(|(id, _)| id);
-                    // TODO: actual auth here
+                ClientEvent::AuthAttempt(auth) => {
+                    let id = self
+                        .networks
+                        .iter()
+                        .find(|(_, n)| n.authenticate(&auth))
+                        .map(|(id, _)| id);
+
                     // TODO: set auth result back on client.conn
                     client.network = id
                 }
@@ -272,7 +289,7 @@ impl BirchServer {
         Ok(())
     }
 
-    fn add_network(&mut self, config: &NetworkConfig) -> Result<NetworkId> {
+    fn add_network(&mut self, config: NetworkConfig) -> Result<NetworkId> {
         let mut network = Network::new(config)?;
         network.conn.initialize()?;
 
@@ -316,9 +333,10 @@ impl BirchServer {
 }
 
 fn main() -> Result<()> {
-    let config = &NetworkConfig {
+    let config = NetworkConfig {
         network_name: "freenode".to_string(),
         nick: "ep".to_string(),
+        auth: ("foo".to_string(), "bar".to_string()),
         socket: IrcSocketConfig {
             addr: "irc.freenode.net:6667".parse().unwrap(),
             max_retries: Some(3),
