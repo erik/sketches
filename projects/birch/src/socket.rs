@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 use std::io::{BufRead, Error, ErrorKind, Result};
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender};
 use mio::net::TcpStream;
 
 use crate::proto::RawMessage;
@@ -37,63 +37,18 @@ impl<T: BufRead> IrcReader for T {
 }
 
 #[derive(Clone)]
-pub struct IrcChannel(pub Sender<RawMessage>);
-
-impl IrcChannel {
-    pub fn new() -> (Self, Receiver<RawMessage>) {
-        let (sender, receiver) = unbounded();
-        (IrcChannel(sender), receiver)
-    }
-}
-
-impl IrcWriter for IrcChannel {
-    fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
-        if let Err(err) = self.0.send(msg.clone()) {
-            println!("Failed to write to client: {:?}", err);
-            return Err(Error::new(ErrorKind::Other, "other end disconnected"));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
 pub struct IrcSocketConfig {
     // TODO: stop being lazy, make this &str
     pub addr: String,
     pub max_retries: Option<usize>,
 }
 
-pub enum SocketEvent {
-    Connected,
-    Disconnected,
-    Received(RawMessage),
-}
-
-// TODO: ReconnectingIrcSocket, PersistentIrcSocket, something to that
-// effect.
 pub struct IrcSocket {
     config: IrcSocketConfig,
-
     to_network: (Sender<RawMessage>, Receiver<RawMessage>),
-    from_network: Sender<SocketEvent>,
 }
 
 impl IrcSocket {
-    pub fn new(config: IrcSocketConfig, from_network: Sender<SocketEvent>) -> Self {
-        let to_network = unbounded();
-
-        Self {
-            config,
-            to_network,
-            from_network,
-        }
-    }
-
-    pub fn network_channel(&self) -> Sender<RawMessage> {
-        self.to_network.0.clone()
-    }
-
-    /// Repeatedly (up to the configured maximum retries) try to
     /// establish a connection to the specied address.
     ///
     /// Eventually this is will include a sleep / exponential backoff
@@ -117,29 +72,5 @@ impl IrcSocket {
 
             i += 1
         }
-    }
-
-    /// On connection close, return `true` when the connection should
-    /// be restarted, and false otherwise. If there is a
-    /// non-recoverable exception, return the error.
-    ///
-    /// TODO: Need to come up with the clean exit concept.
-    fn connect(&mut self) -> Result<bool> {
-        // TODO: reimplement this
-        Ok(true)
-    }
-
-    pub fn start_loop(&mut self) -> Result<()> {
-        loop {
-            match self.connect() {
-                Ok(true) => println!("connection terminated, restarting"),
-                Ok(false) => break,
-                Err(err) => {
-                    println!("connection failed: {:?}", err);
-                    return Err(err);
-                }
-            }
-        }
-        Ok(())
     }
 }
