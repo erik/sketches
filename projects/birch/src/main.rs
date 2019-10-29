@@ -1,7 +1,9 @@
 use std::io::{BufReader, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
+use std::thread;
+use std::time::Duration;
 
-use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpListener, Evented, Events, Poll, PollOpt, Ready, Registration, Token};
 use slab::Slab;
 
 use birch::client::{ClientAuth, ClientConnection, ClientEvent};
@@ -17,11 +19,39 @@ struct Socket {
     writer: mio::net::TcpStream,
 }
 
+impl Evented for Socket {
+    fn register(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
+        self.writer.register(poll, token, interest, opts)
+    }
+
+    fn reregister(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
+        self.writer.reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &Poll) -> Result<()> {
+        poll.deregister(&self.writer)
+    }
+}
+
 impl Socket {
-    fn from_stream(stream: &mio::net::TcpStream) -> Result<Self> {
+    fn from_stream(stream: mio::net::TcpStream) -> Result<Self> {
         let reader = BufReader::new(stream.try_clone()?);
-        let writer = stream.try_clone()?;
-        Ok(Self { reader, writer })
+        Ok(Self {
+            reader,
+            writer: stream,
+        })
     }
 }
 
@@ -41,6 +71,47 @@ impl std::io::Write for Socket {
     }
 }
 
+pub struct Ticker(Registration);
+
+impl Ticker {
+    pub fn new(interval: Duration) -> Self {
+        let (registration, set_readiness) = Registration::new2();
+
+        thread::spawn(move || loop {
+            thread::sleep(interval);
+            set_readiness.set_readiness(Ready::readable()).unwrap();
+        });
+
+        Self(registration)
+    }
+}
+
+impl Evented for Ticker {
+    fn register(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
+        self.0.register(poll, token, interest, opts)
+    }
+
+    fn reregister(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
+        self.0.reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &Poll) -> Result<()> {
+        poll.deregister(&self.0)
+    }
+}
+
 struct Client {
     socket: Socket,
     conn: ClientConnection,
@@ -48,7 +119,7 @@ struct Client {
 }
 
 impl Client {
-    fn new(stream: &mio::net::TcpStream) -> Self {
+    fn new(stream: mio::net::TcpStream) -> Self {
         let socket = Socket::from_stream(stream).expect("create client socket");
         let conn = ClientConnection::new();
 
@@ -79,7 +150,7 @@ impl Network {
         let stream =
             mio::net::TcpStream::from_stream(TcpStream::connect(&config.socket.addr)?)?;
 
-        let socket = Socket::from_stream(&stream).expect("create network socket");
+        let socket = Socket::from_stream(stream).expect("create network socket");
         let conn = NetworkConnection::new(&config.nick);
 
         Ok(Self {
@@ -97,7 +168,9 @@ impl Network {
     }
 }
 
+#[derive(PartialEq)]
 enum SocketKind {
+    Ticker,
     Listener,
     Network(NetworkId),
     Client(ClientId),
@@ -119,11 +192,18 @@ impl BirchServer {
         }
     }
 
-    fn accept_client(&mut self, poll: &Poll, socket: &mio::net::TcpStream) -> Result<()> {
+    fn accept_client(&mut self, poll: &Poll, socket: mio::net::TcpStream) -> Result<()> {
         let client_id = self.clients.insert(Client::new(socket));
         let token = self.sockets.insert(SocketKind::Client(client_id));
 
-        poll.register(socket, Token(token), Ready::readable(), PollOpt::edge())?;
+        poll.register(
+            &self.clients.get(client_id).unwrap().socket,
+            Token(token),
+            Ready::readable(),
+            PollOpt::edge(),
+        )?;
+
+        println!("Client connected: client_id={} token={}", client_id, token);
         Ok(())
     }
 
@@ -208,20 +288,64 @@ impl BirchServer {
         Ok(())
     }
 
+    fn ping_clients(&mut self, poll: &Poll) -> Result<()> {
+        let mut to_remove = Vec::new();
+        for (id, client) in self.clients.iter_mut() {
+            if !client.conn.ping() {
+                println!("client({}) timed out", id);
+                to_remove.push(id);
+            }
+
+            // TODO: remove duplication
+            for event in client.conn.events() {
+                match event {
+                    ClientEvent::WriteClient(ref msg) => {
+                        client.socket.write_message(msg)?
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        for client_id in to_remove.iter() {
+            self.remove_client(poll, *client_id)?;
+        }
+
+        Ok(())
+    }
+
+    // TODO: This is a bit too complicated
+    fn remove_client(&mut self, poll: &Poll, id: ClientId) -> Result<()> {
+        let client = self.clients.remove(id);
+        poll.deregister(&client.socket)?;
+
+        let (tok, _) = self
+            .sockets
+            .iter()
+            .find(|(_, s)| SocketKind::Client(id) == **s)
+            .unwrap();
+
+        self.sockets.remove(tok);
+        Ok(())
+    }
+
     fn handle_poll_event(
         &mut self,
         poll: &Poll,
         listener: &TcpListener,
         token: Token,
     ) -> Result<()> {
-        let mut remove_socket = false;
-
         match self.sockets.get(token.0) {
             None => panic!("token not associated with a socket: {:?}", token),
 
+            Some(&SocketKind::Ticker) => {
+                self.ping_clients(poll)?;
+                // TODO: network reconnects
+            }
+
             Some(&SocketKind::Listener) => loop {
                 match listener.accept() {
-                    Ok((ref socket, _)) => self.accept_client(&poll, socket)?,
+                    Ok((socket, _)) => self.accept_client(&poll, socket)?,
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
                     e => panic!("failed to accept err={:?}", e),
                 }
@@ -234,7 +358,9 @@ impl BirchServer {
                     Err(e) => {
                         // TODO: Reconnection logic
                         println!("Network errored, disconnecting: {}", e);
-                        remove_socket = true;
+                        self.sockets.remove(token.0);
+                        let network = self.networks.get(network_id).unwrap();
+                        poll.deregister(&network.socket)?;
                         break;
                     }
                 }
@@ -245,16 +371,11 @@ impl BirchServer {
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
                     Err(e) => {
                         println!("Client errored, disconnecting: {}", e);
-                        remove_socket = true;
+                        self.remove_client(poll, client_id)?;
                         break;
                     }
                 }
             },
-        }
-
-        // TODO: Deregister sockets (remove from managers etc)
-        if remove_socket {
-            self.sockets.remove(token.0);
         }
 
         Ok(())
@@ -285,8 +406,16 @@ impl BirchServer {
         }
 
         let listener = TcpListener::bind(bind_addr)?;
-        let tok = self.sockets.insert(SocketKind::Listener);
-        poll.register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
+        {
+            let tok = self.sockets.insert(SocketKind::Listener);
+            poll.register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
+        }
+
+        let ticker = Ticker::new(Duration::from_secs(60));
+        {
+            let tok = self.sockets.insert(SocketKind::Ticker);
+            poll.register(&ticker, Token(tok), Ready::readable(), PollOpt::edge())?;
+        }
 
         loop {
             let mut events = Events::with_capacity(128);
@@ -313,7 +442,5 @@ fn main() -> Result<()> {
     let mut server = BirchServer::new();
     server.add_network(config)?;
 
-    server.serve(&"127.0.0.1:9123".parse().unwrap())?;
-
-    Ok(())
+    server.serve(&"127.0.0.1:9123".parse().unwrap())
 }

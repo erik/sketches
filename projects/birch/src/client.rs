@@ -228,19 +228,21 @@ impl ClientConnection {
 
     /// Relies on assumption that this function won't be called more
     /// frequently than the ping interval.
-    pub fn ping(&mut self) {
+    pub fn ping(&mut self) -> bool {
         match self.last_ping_pong {
             // If we haven't received a PONG (or it's been more than 120 since receiving one, fail connection.)
             (Some(_ping), pong)
                 if pong.map(|it| it.elapsed().as_secs() > 120).unwrap_or(true) =>
             {
                 self.send_client("ERROR", &["ping time out"]);
+                false
             }
 
             // Either haven't yet sent a PING or the client has responded within last 120 seconds
             _ => {
                 self.last_ping_pong.0 = Some(Instant::now());
                 self.send_client("PING", &[]);
+                true
             }
         }
     }
