@@ -140,6 +140,7 @@ enum SocketKind {
 }
 
 struct BirchServer {
+    poll: Poll,
     sockets: Slab<SocketKind>,
     clients: Slab<Client>,
     // TODO: Since networks aren't dynamic, no benefit really to having this be a slab
@@ -149,22 +150,29 @@ struct BirchServer {
 impl BirchServer {
     fn new() -> Self {
         Self {
+            poll: Poll::new().expect("failed to create Poll instance"),
             sockets: Slab::with_capacity(1024),
             clients: Slab::with_capacity(32),
             networks: Slab::with_capacity(16),
         }
     }
 
-    fn accept_client(&mut self, poll: &Poll, socket: TcpStream) -> Result<()> {
-        let client_id = self.clients.insert(Client::new(socket));
+    fn accept_client(&mut self, socket: TcpStream) -> Result<()> {
+        let entry = self.clients.vacant_entry();
+
+        let client_id = entry.key();
         let token = self.sockets.insert(SocketKind::Client(client_id));
 
-        poll.register(
-            &self.clients.get(client_id).unwrap().socket,
+        let client = Client::new(socket);
+
+        self.poll.register(
+            &client.socket,
             Token(token),
             Ready::readable(),
             PollOpt::edge(),
         )?;
+
+        entry.insert(client);
 
         println!("Client connected: client_id={} token={}", client_id, token);
         Ok(())
@@ -251,7 +259,7 @@ impl BirchServer {
         Ok(())
     }
 
-    fn ping_clients(&mut self, poll: &Poll) -> Result<()> {
+    fn ping_clients(&mut self) -> Result<()> {
         let mut to_remove = Vec::new();
         for (id, client) in self.clients.iter_mut() {
             if !client.conn.ping() {
@@ -271,16 +279,16 @@ impl BirchServer {
         }
 
         for client_id in to_remove.iter() {
-            self.remove_client(poll, *client_id)?;
+            self.remove_client(*client_id)?;
         }
 
         Ok(())
     }
 
     // TODO: This is a bit too complicated
-    fn remove_client(&mut self, poll: &Poll, id: ClientId) -> Result<()> {
+    fn remove_client(&mut self, id: ClientId) -> Result<()> {
         let client = self.clients.remove(id);
-        poll.deregister(&client.socket)?;
+        self.poll.deregister(&client.socket)?;
 
         let (tok, _) = self
             .sockets
@@ -292,11 +300,11 @@ impl BirchServer {
         Ok(())
     }
 
-    fn reconnect_networks(&mut self, poll: &Poll) -> Result<()> {
+    fn reconnect_networks(&mut self) -> Result<()> {
         for (id, network) in self.networks.iter_mut().filter(|(_, n)| !n.connected) {
             println!("network {} is disconnected... attempting reconnect", id);
             match network.reconnect() {
-                Ok(()) => poll.register(
+                Ok(()) => self.poll.register(
                     &network.socket,
                     Token(self.sockets.insert(SocketKind::Network(id))),
                     Ready::readable(),
@@ -309,23 +317,18 @@ impl BirchServer {
         Ok(())
     }
 
-    fn handle_poll_event(
-        &mut self,
-        poll: &Poll,
-        listener: &TcpListener,
-        token: Token,
-    ) -> Result<()> {
+    fn handle_poll_event(&mut self, listener: &TcpListener, token: Token) -> Result<()> {
         match self.sockets.get(token.0) {
             None => panic!("token not associated with a socket: {:?}", token),
 
             Some(&SocketKind::Ticker) => {
-                self.ping_clients(poll)?;
-                self.reconnect_networks(poll)?;
+                self.ping_clients()?;
+                self.reconnect_networks()?;
             }
 
             Some(&SocketKind::Listener) => loop {
                 match listener.accept() {
-                    Ok((socket, _)) => self.accept_client(&poll, socket)?,
+                    Ok((socket, _)) => self.accept_client(socket)?,
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
                     e => panic!("failed to accept err={:?}", e),
                 }
@@ -341,7 +344,7 @@ impl BirchServer {
                         self.sockets.remove(token.0);
                         let mut network = self.networks.get_mut(network_id).unwrap();
                         network.connected = false;
-                        poll.deregister(&network.socket)?;
+                        self.poll.deregister(&network.socket)?;
                         break;
                     }
                 }
@@ -352,7 +355,7 @@ impl BirchServer {
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
                     Err(e) => {
                         println!("Client errored, disconnecting: {}", e);
-                        self.remove_client(poll, client_id)?;
+                        self.remove_client(client_id)?;
                         break;
                     }
                 }
@@ -373,12 +376,10 @@ impl BirchServer {
     }
 
     fn serve(&mut self, bind_addr: &SocketAddr) -> Result<()> {
-        let poll = Poll::new()?;
-
         // TODO: is this iffy? Should we just store the Poll object on
         // the struct itself?
         for (id, network) in self.networks.iter_mut() {
-            poll.register(
+            self.poll.register(
                 &network.socket,
                 Token(id),
                 Ready::readable(),
@@ -389,21 +390,31 @@ impl BirchServer {
         let listener = TcpListener::bind(bind_addr)?;
         {
             let tok = self.sockets.insert(SocketKind::Listener);
-            poll.register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
+            self.poll.register(
+                &listener,
+                Token(tok),
+                Ready::readable(),
+                PollOpt::edge(),
+            )?;
         }
 
         let ticker = Ticker::new(Duration::from_secs(60));
         {
             let tok = self.sockets.insert(SocketKind::Ticker);
-            poll.register(&ticker, Token(tok), Ready::readable(), PollOpt::edge())?;
+            self.poll.register(
+                &ticker,
+                Token(tok),
+                Ready::readable(),
+                PollOpt::edge(),
+            )?;
         }
 
         loop {
             let mut events = Events::with_capacity(128);
-            poll.poll(&mut events, None)?;
+            self.poll.poll(&mut events, None)?;
 
             for ev in events {
-                self.handle_poll_event(&poll, &listener, ev.token())?;
+                self.handle_poll_event(&listener, ev.token())?;
             }
         }
     }
