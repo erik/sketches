@@ -341,7 +341,6 @@ impl BirchServer {
                     Ok(_) => (),
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => break,
                     Err(e) => {
-                        // TODO: Reconnection logic
                         println!("Network errored, disconnecting: {}", e);
                         self.sockets.remove(token.0);
                         let mut network = self.networks.get_mut(network_id).unwrap();
@@ -371,24 +370,22 @@ impl BirchServer {
         let mut network = Network::new(config)?;
         network.conn.initialize()?;
 
-        let token = self.networks.insert(network);
-        self.sockets.insert(SocketKind::Network(token));
+        let entry = self.networks.vacant_entry();
+        let network_id = entry.key();
+        let id = self.sockets.insert(SocketKind::Network(network_id));
 
-        Ok(token)
+        self.poll.register(
+            &network.socket,
+            Token(id),
+            Ready::readable(),
+            PollOpt::edge(),
+        )?;
+
+        entry.insert(network);
+        Ok(network_id)
     }
 
     fn serve(&mut self, bind_addr: &SocketAddr) -> Result<()> {
-        // TODO: is this iffy? Should we just store the Poll object on
-        // the struct itself?
-        for (id, network) in self.networks.iter_mut() {
-            self.poll.register(
-                &network.socket,
-                Token(id),
-                Ready::readable(),
-                PollOpt::edge(),
-            )?;
-        }
-
         let listener = TcpListener::bind(bind_addr)?;
         {
             let tok = self.sockets.insert(SocketKind::Listener);
@@ -400,8 +397,8 @@ impl BirchServer {
             )?;
         }
 
-        let ticker = Ticker::new(Duration::from_secs(60));
         {
+            let ticker = Ticker::new(Duration::from_secs(60));
             let tok = self.sockets.insert(SocketKind::Ticker);
             self.poll.register(
                 &ticker,
