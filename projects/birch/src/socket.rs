@@ -63,7 +63,15 @@ impl MessageBuffer {
             }
 
             // No messages to be parsed yet, fill the buffer.
-            self.len += r.read(&mut self.buf[self.len..])?;
+            let len = r.read(&mut self.buf[self.len..])?;
+            if len == 0 {
+                return Err(Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "reached end of stream",
+                ));
+            }
+
+            self.len += len;
         }
     }
 }

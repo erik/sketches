@@ -63,15 +63,17 @@ struct Client {
 }
 
 impl Client {
-    fn new(stream: TcpStream) -> Self {
-        let socket = Socket::from_stream(stream).expect("create client socket");
+    fn from_stream(stream: TcpStream) -> Result<Self> {
+        stream.set_keepalive(Some(Duration::from_secs(30)))?;
+
+        let socket = Socket::from_stream(stream)?;
         let conn = ClientConnection::new();
 
-        Self {
+        Ok(Self {
             socket,
             conn,
             network: None,
-        }
+        })
     }
 }
 
@@ -157,13 +159,13 @@ impl BirchServer {
         }
     }
 
-    fn accept_client(&mut self, socket: TcpStream) -> Result<()> {
+    fn accept_client(&mut self, stream: TcpStream) -> Result<()> {
         let entry = self.clients.vacant_entry();
 
         let client_id = entry.key();
         let token = self.sockets.insert(SocketKind::Client(client_id));
 
-        let client = Client::new(socket);
+        let client = Client::from_stream(stream)?;
 
         self.poll.register(
             &client.socket,
