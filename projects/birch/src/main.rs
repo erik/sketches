@@ -18,12 +18,58 @@ type ClientId = usize;
 
 const MAX_LINE_LENGTH: usize = 1024;
 
+struct MessageBuffer {
+    buf: [u8; MAX_LINE_LENGTH],
+    len: usize,
+}
+
+impl MessageBuffer {
+    fn new() -> Self {
+        Self {
+            buf: [0u8; MAX_LINE_LENGTH],
+            len: 0,
+        }
+    }
+
+    // TODO: This logic is complicated. Test this.
+    fn extract_message(&mut self, nl_pos: usize) -> Result<RawMessage> {
+        let msg = std::str::from_utf8(&self.buf[..nl_pos])
+            .map(|line| line.trim_end_matches(|c| c == '\r' || c == '\n'))
+            .map_err(|_| Error::new(ErrorKind::Other, "invalid UTF-8"))
+            .and_then(|line| {
+                RawMessage::parse(line).ok_or_else(|| {
+                    Error::new(ErrorKind::Other, "failed to parse message")
+                })
+            });
+
+        // "Rotate" the buffer left and clear everything.
+        let end = nl_pos + 1;
+        self.buf[..end].iter_mut().for_each(|b| *b = 0);
+        self.buf.rotate_left(end);
+        self.len -= end;
+
+        return msg;
+    }
+
+    /// Continually fill buffer from `r` until an error occurs or a
+    /// message is produced.
+    fn read<R: Read>(&mut self, r: &mut R) -> Result<RawMessage> {
+        loop {
+            if let Some(nl) = self.buf.iter().position(|&c| c == b'\n') {
+                return self.extract_message(nl);
+            } else if self.len >= MAX_LINE_LENGTH {
+                // Reached max length without seeing a newline
+                return Err(Error::new(ErrorKind::Other, "max line length exceeded!"));
+            }
+
+            // No messages to be parsed yet, fill the buffer.
+            self.len += r.read(&mut self.buf[self.len..])?;
+        }
+    }
+}
+
 struct Socket {
-    // Spec says 512 "chars". Does this mean ASCII? Add in some
-    // padding anyway
-    //
-    // Second element contains current length of the buffer.
-    line_buf: ([u8; MAX_LINE_LENGTH], usize),
+    buf: MessageBuffer,
     stream: TcpStream,
 }
 
@@ -56,40 +102,14 @@ impl Evented for Socket {
 impl Socket {
     fn from_stream(stream: TcpStream) -> Result<Self> {
         Ok(Self {
-            line_buf: ([0u8; MAX_LINE_LENGTH], 0),
+            buf: MessageBuffer::new(),
             stream,
         })
     }
 
     // TODO:  This is super fragile. Need tests
-    fn read_message(&mut self) -> Result<Option<RawMessage>> {
-        let (ref mut buf, len) = self.line_buf;
-
-        if let Some(nl) = buf.iter().position(|&c| c == b'\n') {
-            let msg = std::str::from_utf8(&buf[..nl])
-                .map(|line| line.trim_end_matches(|c| c == '\r' || c == '\n'))
-                .map_err(|_| Error::new(ErrorKind::Other, "invalid UTF-8"))
-                .and_then(|line| {
-                    RawMessage::parse(line).map(Some).ok_or_else(|| {
-                        Error::new(ErrorKind::Other, "failed to parse message")
-                    })
-                });
-
-            // "Rotate" the buffer left and clear everything.
-            let end = nl + 1;
-            buf[..end].iter_mut().for_each(|b| *b = 0);
-            buf.rotate_left(end);
-            self.line_buf.1 -= end;
-
-            return msg;
-        } else if len >= MAX_LINE_LENGTH {
-            // Reached max length without seeing a newline
-            return Err(Error::new(ErrorKind::Other, "max line length exceeded!"));
-        }
-
-        // No messages to be parsed yet, fill the buffer.
-        self.line_buf.1 += self.stream.read(&mut buf[len..])?;
-        Ok(None)
+    fn read_message(&mut self) -> Result<RawMessage> {
+        self.buf.read(&mut self.stream)
     }
 }
 
@@ -264,10 +284,7 @@ impl BirchServer {
             .get_mut(network_id)
             .expect("activity on unassigned networks id");
 
-        let msg = match network.socket.read_message()? {
-            Some(msg) => msg,
-            None => return Ok(()),
-        };
+        let msg = network.socket.read_message()?;
 
         println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
         network.conn.handle(&msg)?;
@@ -299,10 +316,7 @@ impl BirchServer {
             .get_mut(client_id)
             .expect("activity on unassigned client id");
 
-        let msg = match client.socket.read_message()? {
-            Some(msg) => msg,
-            None => return Ok(()),
-        };
+        let msg = client.socket.read_message()?;
 
         println!(
             "[birch <- \u{1b}[37;1mclient({})\u{1b}[0m] {}",
