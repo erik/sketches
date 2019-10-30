@@ -1,4 +1,4 @@
-use std::io::{BufReader, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Read, Result};
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
@@ -9,15 +9,22 @@ use slab::Slab;
 
 use birch::client::{ClientAuth, ClientConnection, ClientEvent};
 use birch::network::NetworkConnection;
-use birch::socket::{IrcReader, IrcSocketConfig, IrcWriter};
+use birch::proto::RawMessage;
+use birch::socket::{IrcSocketConfig, IrcWriter};
 
 // TODO: blah
 type NetworkId = usize;
 type ClientId = usize;
 
+const MAX_LINE_LENGTH: usize = 1024;
+
 struct Socket {
-    reader: BufReader<TcpStream>,
-    writer: TcpStream,
+    // Spec says 512 "chars". Does this mean ASCII? Add in some
+    // padding anyway
+    //
+    // Second element contains current length of the buffer.
+    line_buf: ([u8; MAX_LINE_LENGTH], usize),
+    stream: TcpStream,
 }
 
 impl Evented for Socket {
@@ -28,7 +35,7 @@ impl Evented for Socket {
         interest: Ready,
         opts: PollOpt,
     ) -> Result<()> {
-        self.writer.register(poll, token, interest, opts)
+        self.stream.register(poll, token, interest, opts)
     }
 
     fn reregister(
@@ -38,37 +45,61 @@ impl Evented for Socket {
         interest: Ready,
         opts: PollOpt,
     ) -> Result<()> {
-        self.writer.reregister(poll, token, interest, opts)
+        self.stream.reregister(poll, token, interest, opts)
     }
 
     fn deregister(&self, poll: &Poll) -> Result<()> {
-        poll.deregister(&self.writer)
+        poll.deregister(&self.stream)
     }
 }
 
 impl Socket {
     fn from_stream(stream: TcpStream) -> Result<Self> {
-        let reader = BufReader::new(stream.try_clone()?);
         Ok(Self {
-            reader,
-            writer: stream,
+            line_buf: ([0u8; MAX_LINE_LENGTH], 0),
+            stream,
         })
     }
-}
 
-impl std::io::Read for Socket {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.reader.read(buf)
+    // TODO:  This is super fragile. Need tests
+    fn read_message(&mut self) -> Result<Option<RawMessage>> {
+        let (ref mut buf, len) = self.line_buf;
+
+        if let Some(nl) = buf.iter().position(|&c| c == b'\n') {
+            let msg = std::str::from_utf8(&buf[..nl])
+                .map(|line| line.trim_end_matches(|c| c == '\r' || c == '\n'))
+                .map_err(|_| Error::new(ErrorKind::Other, "invalid UTF-8"))
+                .and_then(|line| {
+                    RawMessage::parse(line).map(Some).ok_or_else(|| {
+                        Error::new(ErrorKind::Other, "failed to parse message")
+                    })
+                });
+
+            // "Rotate" the buffer left and clear everything.
+            let end = nl + 1;
+            buf[..end].iter_mut().for_each(|b| *b = 0);
+            buf.rotate_left(end);
+            self.line_buf.1 -= end;
+
+            return msg;
+        } else if len >= MAX_LINE_LENGTH {
+            // Reached max length without seeing a newline
+            return Err(Error::new(ErrorKind::Other, "max line length exceeded!"));
+        }
+
+        // No messages to be parsed yet, fill the buffer.
+        self.line_buf.1 += self.stream.read(&mut buf[len..])?;
+        Ok(None)
     }
 }
 
 impl std::io::Write for Socket {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.writer.write(buf)
+        self.stream.write(buf)
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.writer.flush()
+        self.stream.flush()
     }
 }
 
@@ -233,7 +264,10 @@ impl BirchServer {
             .get_mut(network_id)
             .expect("activity on unassigned networks id");
 
-        let msg = network.socket.reader.read_message()?;
+        let msg = match network.socket.read_message()? {
+            Some(msg) => msg,
+            None => return Ok(()),
+        };
 
         println!("[birch <- \u{1b}[37;1mnet\u{1b}[0m] {}", msg);
         network.conn.handle(&msg)?;
@@ -265,7 +299,10 @@ impl BirchServer {
             .get_mut(client_id)
             .expect("activity on unassigned client id");
 
-        let msg = client.socket.reader.read_message()?;
+        let msg = match client.socket.read_message()? {
+            Some(msg) => msg,
+            None => return Ok(()),
+        };
 
         println!(
             "[birch <- \u{1b}[37;1mclient({})\u{1b}[0m] {}",
