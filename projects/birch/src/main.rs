@@ -48,7 +48,7 @@ impl MessageBuffer {
         self.buf.rotate_left(end);
         self.len -= end;
 
-        return msg;
+        msg
     }
 
     /// Continually fill buffer from `r` until an error occurs or a

@@ -188,7 +188,7 @@ impl NetworkConnection {
                 let caps = msg.trailing().unwrap_or("").split_whitespace();
 
                 for cap_str in caps {
-                    if let Some(_) = Capability::from(cap_str) {
+                    if Capability::from(cap_str).is_some() {
                         self.send_network("CAP", &["REQ", cap_str]);
                         self.state.caps_pending += 1;
                     }
