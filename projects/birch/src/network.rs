@@ -1,9 +1,14 @@
 use std::collections::HashSet;
 use std::io::Result;
+use std::time::Duration;
 
+use mio::net::TcpStream;
+
+use crate::client::ClientAuth;
 use crate::proto::{Capability, MessageKind, ModeSet, RawMessage, Source};
-use crate::socket::IrcWriter;
+use crate::socket::{IrcSocketConfig, Socket};
 
+#[allow(dead_code)]
 enum AuthKind {
     SaslPlain(String, String),
     Pass(String),
@@ -74,7 +79,7 @@ impl NetworkConnectionState {
         self.motd_buffer.clear();
     }
 
-    pub fn welcome_user(&self, w: &mut impl IrcWriter) -> Result<()> {
+    pub fn welcome_client(&self, socket: &mut Socket) -> Result<()> {
         let birch = Source {
             nick: "birch".to_string(),
             ident: None,
@@ -82,7 +87,7 @@ impl NetworkConnectionState {
             is_server: true,
         };
 
-        w.write_message(&RawMessage::new_with_source(
+        socket.write_message(&RawMessage::new_with_source(
             birch.clone(),
             "001",
             &[&self.nick, "welcome to birch"],
@@ -91,13 +96,13 @@ impl NetworkConnectionState {
         for msg in self.init_buffer.iter() {
             let mut msg = msg.clone();
             msg.source = Some(birch.clone());
-            w.write_message(&msg)?;
+            socket.write_message(&msg)?;
         }
 
         for msg in self.motd_buffer.iter() {
             let mut msg = msg.clone();
             msg.source = Some(birch.clone());
-            w.write_message(&msg)?;
+            socket.write_message(&msg)?;
         }
 
         Ok(())
@@ -402,5 +407,64 @@ impl NetworkConnection {
         };
 
         Ok(should_forward)
+    }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub struct NetworkId(pub usize);
+
+pub struct NetworkConfig {
+    pub network_name: String,
+    pub nick: String,
+    pub socket: IrcSocketConfig,
+    pub auth: (String, String),
+}
+
+impl NetworkConfig {
+    pub fn create_socket(&self) -> Result<Socket> {
+        let net_stream = std::net::TcpStream::connect(&self.socket.addr)?;
+        let stream = TcpStream::from_stream(net_stream)?;
+
+        // Make sure we send Keep Alive packets so that we can detect
+        // e.g. the computer going to sleep.
+        stream.set_keepalive(Some(Duration::from_secs(30)))?;
+
+        Socket::from_stream(stream)
+    }
+}
+
+pub struct Network {
+    pub socket: Socket,
+    pub conn: NetworkConnection,
+    pub config: NetworkConfig,
+    pub connected: bool,
+}
+
+impl Network {
+    pub fn new(config: NetworkConfig) -> Result<Self> {
+        let socket = config.create_socket()?;
+        let conn = NetworkConnection::new(&config.nick);
+
+        Ok(Self {
+            socket,
+            conn,
+            config,
+            connected: true,
+        })
+    }
+
+    pub fn reconnect(&mut self) -> Result<()> {
+        self.socket = self.config.create_socket()?;
+        self.conn.initialize()?;
+        self.connected = true;
+
+        Ok(())
+    }
+
+    // TODO: blah, this could be better
+    pub fn authenticate(&self, auth: &ClientAuth) -> bool {
+        auth.network == self.config.network_name
+            && auth.user == self.config.auth.0
+            && auth.password == self.config.auth.1
     }
 }

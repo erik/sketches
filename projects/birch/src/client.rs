@@ -2,9 +2,13 @@
 
 use std::collections::HashSet;
 use std::io::Result;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use mio::net::TcpStream;
+
+use crate::network::NetworkId;
 use crate::proto::{Capability, MessageKind, RawMessage, Source};
+use crate::socket::Socket;
 
 /// Represented in `PASS` commands as 'user@client_id/network:password'.
 /// For now, each part will be mandatory.
@@ -212,6 +216,8 @@ impl ClientConnection {
 
             MessageKind::Join => {}
             MessageKind::Part => {}
+            MessageKind::Quit => {}
+            MessageKind::Kick => {}
 
             // TODO: Coordinate nick changes with server. We also need
             // to be informed BY the server of changes from other
@@ -255,6 +261,34 @@ impl ClientConnection {
         } else {
             self.handle_registered(msg)
         }
+    }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub struct ClientId(pub usize);
+
+pub struct Client {
+    pub socket: Socket,
+    pub conn: ClientConnection,
+    pub network: Option<NetworkId>,
+}
+
+impl Client {
+    pub fn from_stream(stream: TcpStream) -> Result<Self> {
+        stream.set_keepalive(Some(Duration::from_secs(30)))?;
+
+        let socket = Socket::from_stream(stream)?;
+        let conn = ClientConnection::new();
+
+        Ok(Self {
+            socket,
+            conn,
+            network: None,
+        })
+    }
+
+    pub fn write_message(&mut self, msg: &RawMessage) -> Result<()> {
+        self.socket.write_message(msg)
     }
 }
 

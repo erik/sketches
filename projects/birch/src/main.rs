@@ -7,13 +7,11 @@ use mio::net::{TcpListener, TcpStream};
 use mio::{Evented, Events, Poll, PollOpt, Ready, Registration, Token};
 use slab::Slab;
 
-use birch::client::{ClientAuth, ClientConnection, ClientEvent};
-use birch::network::NetworkConnection;
-use birch::socket::{IrcSocketConfig, Socket};
+use birch::client::{Client, ClientEvent, ClientId};
+use birch::network::{Network, NetworkConfig, NetworkId};
+use birch::socket::IrcSocketConfig;
 
 // TODO: blah
-type NetworkId = usize;
-type ClientId = usize;
 
 pub struct Ticker(Registration);
 
@@ -56,83 +54,6 @@ impl Evented for Ticker {
     }
 }
 
-struct Client {
-    socket: Socket,
-    conn: ClientConnection,
-    network: Option<NetworkId>,
-}
-
-impl Client {
-    fn from_stream(stream: TcpStream) -> Result<Self> {
-        stream.set_keepalive(Some(Duration::from_secs(30)))?;
-
-        let socket = Socket::from_stream(stream)?;
-        let conn = ClientConnection::new();
-
-        Ok(Self {
-            socket,
-            conn,
-            network: None,
-        })
-    }
-}
-
-struct NetworkConfig {
-    network_name: String,
-    nick: String,
-    socket: IrcSocketConfig,
-    auth: (String, String),
-}
-
-impl NetworkConfig {
-    fn create_socket(&self) -> Result<Socket> {
-        let net_stream = std::net::TcpStream::connect(&self.socket.addr)?;
-        let stream = TcpStream::from_stream(net_stream)?;
-
-        // Make sure we send Keep Alive packets so that we can detect
-        // e.g. the computer going to sleep.
-        stream.set_keepalive(Some(Duration::from_secs(30)))?;
-
-        Socket::from_stream(stream)
-    }
-}
-
-struct Network {
-    socket: Socket,
-    conn: NetworkConnection,
-    config: NetworkConfig,
-    connected: bool,
-}
-
-impl Network {
-    fn new(config: NetworkConfig) -> Result<Self> {
-        let socket = config.create_socket()?;
-        let conn = NetworkConnection::new(&config.nick);
-
-        Ok(Self {
-            socket,
-            conn,
-            config,
-            connected: true,
-        })
-    }
-
-    fn reconnect(&mut self) -> Result<()> {
-        self.socket = self.config.create_socket()?;
-        self.conn.initialize()?;
-        self.connected = true;
-
-        Ok(())
-    }
-
-    // TODO: blah, this could be better
-    fn authenticate(&self, auth: &ClientAuth) -> bool {
-        auth.network == self.config.network_name
-            && auth.user == self.config.auth.0
-            && auth.password == self.config.auth.1
-    }
-}
-
 #[derive(PartialEq)]
 enum SocketKind {
     Ticker,
@@ -153,16 +74,16 @@ impl BirchServer {
     fn new() -> Self {
         Self {
             poll: Poll::new().expect("failed to create Poll instance"),
-            sockets: Slab::with_capacity(1024),
+            sockets: Slab::with_capacity(128),
             clients: Slab::with_capacity(32),
-            networks: Slab::with_capacity(16),
+            networks: Slab::with_capacity(32),
         }
     }
 
     fn accept_client(&mut self, stream: TcpStream) -> Result<()> {
         let entry = self.clients.vacant_entry();
 
-        let client_id = entry.key();
+        let client_id = ClientId(entry.key());
         let token = self.sockets.insert(SocketKind::Client(client_id));
 
         let client = Client::from_stream(stream)?;
@@ -176,14 +97,17 @@ impl BirchServer {
 
         entry.insert(client);
 
-        println!("Client connected: client_id={} token={}", client_id, token);
+        println!(
+            "Client connected: client_id={:?} token={}",
+            client_id, token
+        );
         Ok(())
     }
 
     fn handle_network_message(&mut self, network_id: NetworkId) -> Result<()> {
         let network = self
             .networks
-            .get_mut(network_id)
+            .get_mut(network_id.0)
             .expect("activity on unassigned networks id");
 
         let msg = network.socket.read_message()?;
@@ -215,13 +139,13 @@ impl BirchServer {
     fn handle_client_message(&mut self, client_id: ClientId) -> Result<()> {
         let client = self
             .clients
-            .get_mut(client_id)
+            .get_mut(client_id.0)
             .expect("activity on unassigned client id");
 
         let msg = client.socket.read_message()?;
 
         println!(
-            "[birch <- \u{1b}[37;1mclient({})\u{1b}[0m] {}",
+            "[birch <- \u{1b}[37;1mclient({:?})\u{1b}[0m] {}",
             client_id, msg
         );
 
@@ -234,13 +158,13 @@ impl BirchServer {
                 ClientEvent::RegistrationComplete => {
                     // TODO: Update client's nick
                     match client.network {
-                        Some(id) => {
+                        Some(NetworkId(id)) => {
                             let network = self
                                 .networks
                                 .get_mut(id)
                                 .expect("client referencing unknown network");
 
-                            network.conn.state.welcome_user(&mut client.socket)?;
+                            network.conn.state.welcome_client(&mut client.socket)?;
                         }
                         None => panic!("registration completed without network"),
                     }
@@ -250,10 +174,10 @@ impl BirchServer {
                         .networks
                         .iter()
                         .find(|(_, n)| n.authenticate(&auth))
-                        .map(|(id, _)| id);
+                        .map(|(id, _)| NetworkId(id));
 
                     // TODO: set auth result back on client.conn
-                    client.network = id
+                    client.network = id;
                 }
             }
         }
@@ -280,8 +204,8 @@ impl BirchServer {
             }
         }
 
-        for client_id in to_remove.iter() {
-            self.remove_client(*client_id)?;
+        for id in to_remove.iter() {
+            self.remove_client(ClientId(*id))?;
         }
 
         Ok(())
@@ -289,7 +213,7 @@ impl BirchServer {
 
     // TODO: This is a bit too complicated
     fn remove_client(&mut self, id: ClientId) -> Result<()> {
-        let client = self.clients.remove(id);
+        let client = self.clients.remove(id.0);
         self.poll.deregister(&client.socket)?;
 
         let (tok, _) = self
@@ -308,7 +232,7 @@ impl BirchServer {
             match network.reconnect() {
                 Ok(()) => self.poll.register(
                     &network.socket,
-                    Token(self.sockets.insert(SocketKind::Network(id))),
+                    Token(self.sockets.insert(SocketKind::Network(NetworkId(id)))),
                     Ready::readable(),
                     PollOpt::edge(),
                 )?,
@@ -343,7 +267,7 @@ impl BirchServer {
                     Err(e) => {
                         println!("Network errored, disconnecting: {}", e);
                         self.sockets.remove(token.0);
-                        let mut network = self.networks.get_mut(network_id).unwrap();
+                        let mut network = self.networks.get_mut(network_id.0).unwrap();
                         network.connected = false;
                         self.poll.deregister(&network.socket)?;
                         break;
@@ -371,7 +295,7 @@ impl BirchServer {
         network.conn.initialize()?;
 
         let entry = self.networks.vacant_entry();
-        let network_id = entry.key();
+        let network_id = NetworkId(entry.key());
         let id = self.sockets.insert(SocketKind::Network(network_id));
 
         self.poll.register(
