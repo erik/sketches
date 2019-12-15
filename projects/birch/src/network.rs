@@ -31,6 +31,7 @@ pub struct NetworkConnectionState {
     caps_pending: usize,
     caps: HashSet<Capability>,
     status: ConnectionStatus,
+    away: bool,
 
     // These values may vary based on the server connected to even
     // within the same network, so we don't want to persist these long
@@ -47,6 +48,7 @@ impl NetworkConnectionState {
             caps_pending: 0,
             caps: HashSet::new(),
             status: ConnectionStatus::Initial,
+            away: false,
             init_buffer: Vec::with_capacity(10),
             motd_buffer: Vec::with_capacity(50),
         }
@@ -322,10 +324,12 @@ impl NetworkConnection {
             },
 
             305 => { // Clear AWAY
+                self.state.away = false;
                 true
             }
 
             306 => { // Set AWAY
+                self.state.away = true;
                 true
             }
 

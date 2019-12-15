@@ -1,11 +1,19 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -34,6 +42,8 @@ func init() {
 }
 
 func main() {
+	// TODO: Where should this come from?
+	cookieSecret := "asdf"
 	db, err := NewDB(dbPath)
 	if err != nil {
 		log.Fatal("unable to connect to db", err)
@@ -41,27 +51,119 @@ func main() {
 
 	db.addUser("blah", "blah")
 
-	web := NewWeb(db)
+	web := NewWeb(db, cookieSecret)
 	web.Serve(bindHost)
 }
 
 type Web struct {
-	db *DB
+	db           *DB
+	cookieSecret string
 }
 
-func NewWeb(db *DB) Web {
-	return Web{
-		db: db,
+func NewWeb(db *DB, cookieSecret string) Web {
+	return Web{db, cookieSecret}
+}
+
+func (w *Web) signCookie(value string) string {
+	mac := hmac.New(sha256.New, []byte(w.cookieSecret))
+	mac.Write([]byte(value))
+	sum := mac.Sum(nil)
+	return string(hex.EncodeToString(sum))
+}
+
+// TODO: Should just use JWTs or a regular session cookie backed by
+// memory the DB instead of this handrolled stuff.
+func (w *Web) verifyCookie(c *http.Cookie) (int, bool) {
+	// Check for expired cookies first
+	if c.Expires.After(time.Now()) {
+		return 0, false
 	}
+
+	// Next try to verify
+	values := strings.SplitN(c.Value, ".", 2)
+	if len(values) != 2 {
+		return 0, false
+	}
+
+	given := []byte(values[1])
+	expected := []byte(w.signCookie(values[0]))
+
+	if !hmac.Equal(expected, given) {
+		return 0, false
+	}
+
+	values = strings.SplitN(values[0], ",", 2)
+	uid, _ := strconv.Atoi(values[0])
+
+	// Check for expiration
+	now := time.Now().Unix()
+	if expiration, err := strconv.ParseInt(values[1], 10, 64); err != nil || expiration < now {
+		return 0, false
+	}
+
+	return uid, true
+}
+
+func (wb *Web) setLoginUser(w http.ResponseWriter, uid int) {
+	expiration := time.Now().Add(365 * 24 * time.Hour).Unix()
+	val := fmt.Sprintf("%d,%d", uid, expiration)
+	signed := wb.signCookie(val)
+	value := fmt.Sprintf("%s.%s", signed, val)
+
+	http.SetCookie(w, &http.Cookie{Name: "u", Value: value})
+}
+
+func (w *Web) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// cookie := r.Cookie("u")
+		// TODO: Verify auth here
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (wb *Web) indexHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+}
+
+func (wb *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
+	user := r.FormValue("user")
+	password := r.FormValue("password")
+
+	uid, err := wb.db.validateLogin(user, password)
+	if err != nil {
+		// TODO: Correct error response
+		log.Printf("login failed: %+v\n", err)
+		http.NotFound(w, r)
+	}
+
+	wb.setLoginUser(w, uid)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+func (wb *Web) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:  "u",
+		Value: "",
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (w *Web) Serve(bindHost string) {
-	mux := http.NewServeMux()
-
-	// TODO: Sub in Gorilla?
+	mux := mux.NewRouter()
+	mux.HandleFunc("/", w.indexHandler)
+	mux.HandleFunc("/login", w.loginHandler).
+		Methods("POST")
+	mux.HandleFunc("/logout", w.logoutHandler).
+		Methods("POST")
 
 	log.Printf("[web] starting up on %s", bindHost)
-	http.ListenAndServe(bindHost, mux)
+
+	srv := &http.Server{
+		Handler:      mux,
+		Addr:         bindHost,
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }
 
 var MIGRATIONS = []string{
@@ -98,7 +200,8 @@ CREATE TABLE IF NOT EXISTS tags (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_uniq_tags ON tags(lunk_id, tag);
 -- Does sqlite use the above index for this already?
 CREATE        INDEX IF NOT EXISTS idx_tags_by_lunk_id ON tags(lunk_id);
-`}
+`,
+}
 
 type DB struct {
 	conn *sql.DB
@@ -154,14 +257,14 @@ func (db DB) addUser(name, pw string) error {
 	}
 }
 
-func (db DB) validateLogin(user, pw string) (bool, error) {
+func (db DB) validateLogin(user, pw string) (int, error) {
 	if pwHash, err := hashPassword(pw); err != nil {
-		return false, err
+		return -1, err
 	} else {
-		var res int
-		sql := `SELECT EXISTS(SELECT 1 FROM users WHERE username = ? AND pw_hash = ?)`
-		err = db.conn.QueryRow(sql, user, pwHash).Scan(&res)
-		return (res == 1), err
+		var uid int
+		sql := `SELECT id FROM users WHERE username = ? AND pw_hash = ?`
+		err = db.conn.QueryRow(sql, user, pwHash).Scan(&uid)
+		return uid, err
 	}
 }
 
