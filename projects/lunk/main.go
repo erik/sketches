@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -122,7 +123,22 @@ func (w *Web) authMiddleware(next http.Handler) http.Handler {
 }
 
 func (wb *Web) indexHandler(w http.ResponseWriter, r *http.Request) {
+	pg, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		pg = 0
+	}
+
+	lunks, err := wb.db.getLunks(pg)
+	if err != nil {
+		log.Printf("[error] failed to get links: %+v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("lunks => %+v\n", lunks)
+
 	w.WriteHeader(200)
+	w.Header().Add("Content-Type", "text/html")
 }
 
 func (wb *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -139,21 +155,29 @@ func (wb *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
 	wb.setLoginUser(w, uid)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
+
 func (wb *Web) logoutHandler(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:  "u",
-		Value: "",
-	})
+	http.SetCookie(w, &http.Cookie{Name: "u", Value: ""})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (w *Web) Serve(bindHost string) {
 	mux := mux.NewRouter()
 	mux.HandleFunc("/", w.indexHandler)
+
+	mux.HandleFunc("/tags", w.indexHandler)
+	mux.HandleFunc("/links/{linkId}", w.indexHandler)
+	mux.HandleFunc("/search", w.indexHandler)
+
 	mux.HandleFunc("/login", w.loginHandler).
 		Methods("POST")
+
 	mux.HandleFunc("/logout", w.logoutHandler).
 		Methods("POST")
+
+	// TODO: this
+	// mux.PathPrefix("/static/").
+	// 	Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(dir))))
 
 	log.Printf("[web] starting up on %s", bindHost)
 
@@ -191,8 +215,8 @@ CREATE TABLE IF NOT EXISTS lunks (
 
 CREATE TABLE IF NOT EXISTS tags (
   id      INTEGER PRIMARY KEY autoincrement,
-  lunk_id INTEGER,
-  tag     TEXT,
+  lunk_id INTEGER NOT NULL,
+  tag     TEXT NOT NULL,
 
   FOREIGN KEY (lunk_id) REFERENCES lunks(id)
 );
@@ -203,12 +227,34 @@ CREATE        INDEX IF NOT EXISTS idx_tags_by_lunk_id ON tags(lunk_id);
 `,
 }
 
+type User struct {
+	Id       int
+	Username string
+	PwHash   string
+}
+
+type Lunk struct {
+	Id          int
+	UserId      int `db:"user_id"`
+	Url         string
+	Description string
+	via         sql.NullString
+	CreatedAt   string `db:"created_at"`
+	DeletedAt   string `db:"deleted_at"`
+}
+
+type Tag struct {
+	Id     int
+	LunkId int `db:"lunk_id"`
+	Tag    string
+}
+
 type DB struct {
-	conn *sql.DB
+	conn *sqlx.DB
 }
 
 func NewDB(uri string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", uri)
+	conn, err := sqlx.Connect("sqlite3", uri)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +301,19 @@ func (db DB) addUser(name, pw string) error {
 		_, err = db.conn.Exec(sql, name, pwHash)
 		return err
 	}
+}
+
+func (db DB) getLunks(page int) ([]Lunk, error) {
+	lunks := []Lunk{}
+	sql := `
+SELECT *
+FROM lunks
+ORDER BY created_at DESC
+OFFSET ?
+LIMIT 100`
+
+	err := db.conn.Select(&lunks, sql, 100*page)
+	return lunks, err
 }
 
 func (db DB) validateLogin(user, pw string) (int, error) {
