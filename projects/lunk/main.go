@@ -141,6 +141,16 @@ func (wb *Web) indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/html")
 }
 
+func (wb *Web) searchHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: implement this
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (wb *Web) tagHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: implement this
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func (wb *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.FormValue("user")
 	password := r.FormValue("password")
@@ -165,9 +175,9 @@ func (w *Web) Serve(bindHost string) {
 	mux := mux.NewRouter()
 	mux.HandleFunc("/", w.indexHandler)
 
-	mux.HandleFunc("/tags", w.indexHandler)
+	mux.HandleFunc("/tags/{tag}", w.tagHandler)
 	mux.HandleFunc("/links/{linkId}", w.indexHandler)
-	mux.HandleFunc("/search", w.indexHandler)
+	mux.HandleFunc("/search", w.searchHandler)
 
 	mux.HandleFunc("/login", w.loginHandler).
 		Methods("POST")
