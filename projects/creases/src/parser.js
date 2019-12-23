@@ -100,7 +100,6 @@ async function parseTCX(file) {
       if (err) {
         reject(err);
       } else {
-        console.log('TCX object is thius', result)
         resolve(extractTCXRoute(result));
       }
     });
