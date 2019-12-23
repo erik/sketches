@@ -31,17 +31,17 @@ const Dropzone = (switchScreen) => () => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
   return h('div', { className: 'dropzone', ...getRootProps() }, [
+    h('h1', null, 'Drop a route here to begin'),
     h('input', getInputProps(), null),
     h('p', null, [
       isDragActive
         ? 'riiiiight here'
-        : 'Drag and drop here (or click to select)'
+        : '(or click to select)'
     ])
   ]);
 };
 
 const DropScreen = (setScreen) => h('div', { className: 'text-center'}, [
-  h('h1', null, 'Drop a route here to begin'),
   h(Dropzone(setScreen), null, []),
   h('p', null, 'Supported file types: TCX'),
 ]);
