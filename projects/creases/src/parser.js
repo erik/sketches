@@ -1,6 +1,7 @@
 "use strict";
 
 import xml2js from 'xml2js';
+import * as Leaflet from 'leaflet';
 
 
 // Routes look like this:
@@ -91,27 +92,6 @@ function extractTCXRoute(tcx) {
   return route;
 }
 
-// https://stackoverflow.com/a/365853
-// TODO: This probably isn't incredible precise, and seems to differ
-// from the TCX calculation for the same route by ~1km over 800km
-// total. Need to swap this out with a better one at some point.
-function distanceBetween(pt1, pt2) {
-  const deg2rad = (d) => d * Math.PI / 180;
-
-  const earthRadius = 6371000;
-
-  let dLat = deg2rad(pt2.latitude - pt1.latitude);
-  let dLon = deg2rad(pt2.longitude - pt1.longitude);
-
-  const lat1 = deg2rad(pt1.latitude);
-  const lat2 = deg2rad(pt2.latitude);
-
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.sin(dLon/2) * Math.sin(dLon/2) * Math.cos(lat1) * Math.cos(lat2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return earthRadius * c;
-}
-
 function extractGPXRoute(gpx) {
   if (!gpx.gpx || !gpx.gpx.trk || gpx.gpx.trk.length === 0) {
     throw new Error('Unexpected formatting for GPX file!');
@@ -133,7 +113,11 @@ function extractGPXRoute(gpx) {
       longitude: +get(pt, '$.lon'),
     };
 
-    route.totalDistance += lastPt === null ? 0 : distanceBetween(lastPt, coord);
+    route.totalDistance += lastPt === null
+      ? 0 : Leaflet.CRS.EPSG4326.distance(
+        Leaflet.latLng(lastPt.latitude, lastPt.longitude),
+        Leaflet.latLng(coord.latitude, coord.longitude)
+      );
 
     route.routePoints.push({
       ...coord,
