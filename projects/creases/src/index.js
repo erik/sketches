@@ -93,9 +93,54 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
   }, []);
 
   const addPanel = () => {
-    const {lat, lng} = mapRef.current.getCenter();
+    const bounds = mapRef.current.getBounds().pad(-0.4);
 
-    // TODO: Place scaled rectangle on the map, make it draggable etc.
+    const width = Math.abs(bounds.getEast() - bounds.getWest());
+    const height = Math.abs(bounds.getNorth() - bounds.getSouth());
+
+    const index = panels.length;
+
+    // create an orange rectangle
+    const rect = Leaflet.rectangle(bounds, {color: "#ff7800", weight: 1})
+          .bindTooltip(`Map Panel ${index+1}`, {permanent: true});
+
+    rect.on({
+      mousedown: () => {
+        rect.closeTooltip();
+        mapRef.current.dragging.disable();
+        mapRef.current.on('mousemove', (e) => {
+          const bounds = [
+            [e.latlng.lat - height / 2, e.latlng.lng - width / 2],
+            [e.latlng.lat + height / 2, e.latlng.lng + width / 2],
+          ];
+          rect.setBounds(bounds);
+        });
+
+        mapRef.current.on('mouseup', () => {
+          mapRef.current.dragging.enable();
+          mapRef.current.removeEventListener('mousemove');
+          rect.openTooltip();
+        });
+      },
+    });
+
+    rect.addTo(mapRef.current);
+
+    panels.push({
+      rect,
+      zoomLevel: mapRef.current.getZoom(),
+    });
+    setPanels(panels);
+  };
+
+  const removePanel = () => {
+    if (panels.length === 0)
+      return;
+
+    const panel = panels.pop();
+    panel.rect.remove();
+
+    setPanels(panels);
   };
 
   const renderMap = () => {
@@ -109,6 +154,7 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     h('div', {id: 'map', style: {height: '500px'}}, null),
     h('div', {}, [
       h('button', {type: 'button', className: 'btn', onClick: addPanel}, 'Add Panel'),
+      h('button', {type: 'button', className: 'btn btn-danger', onClick: removePanel}, 'Remove Panel'),
       h('button', {type: 'button', className: 'btn btn-primary', onClick: renderMap}, 'Render Map')
     ]),
   ]);
