@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"strconv"
@@ -55,6 +56,8 @@ func main() {
 	web := NewWeb(db, cookieSecret)
 	web.Serve(bindHost)
 }
+
+var templates = template.Must(template.ParseGlob("views/*"))
 
 type Web struct {
 	db           *DB
@@ -138,7 +141,11 @@ func (wb *Web) indexHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("lunks => %+v\n", lunks)
 
 	w.WriteHeader(200)
-	w.Header().Add("Content-Type", "text/html")
+	if err = templates.ExecuteTemplate(w, "index.html", lunks); err != nil {
+		log.Printf("[error] failed to render template: %+v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (wb *Web) searchHandler(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +255,7 @@ type Lunk struct {
 	UserId      int `db:"user_id"`
 	Url         string
 	Description string
-	via         sql.NullString
+	Via         sql.NullString
 	CreatedAt   string `db:"created_at"`
 	DeletedAt   string `db:"deleted_at"`
 }
@@ -319,8 +326,9 @@ func (db DB) getLunks(page int) ([]Lunk, error) {
 SELECT *
 FROM lunks
 ORDER BY created_at DESC
+LIMIT 100
 OFFSET ?
-LIMIT 100`
+`
 
 	err := db.conn.Select(&lunks, sql, 100*page)
 	return lunks, err

@@ -1,0 +1,16 @@
+{{ define "base" }}
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <title>Some lunks</title>
+  </head>
+
+  <body>
+    {{ block "body" . }}
+        Something should show here, ideally.
+    {{ end }}
+  </body>
+</html>
+
+{{ end }}
