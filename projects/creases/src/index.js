@@ -202,8 +202,8 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
           canvas.toBlob(blob => {
             resolve({
               src: URL.createObjectURL(blob),
-              width: dim.x,
-              height: dim.y,
+              // width: dim.x,
+              // height: dim.y,
             });
           });
         });
@@ -224,6 +224,29 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     setRenders(renders);
   };
 
+  const downloadRenders = () => {
+    let link = document.createElement('a');
+    for (let i = 0; i < renders.length; ++i) {
+      const render = renders[i];
+      link.download = 'creases_route_' + i.toString().padStart(3, '0') + '.png';
+      link.href = render.src;
+      link.click();
+    }
+  };
+
+  let renderView;
+  if (renders.length > 0) {
+    renderView = h('div', {className: 'container'}, [
+      h('hr', {}),
+      h('button', {type: 'button', className: 'btn btn-primary', onClick: downloadRenders}, 'Download Renders'),
+      h('div', {
+        className: 'row',
+      }, renders.map(it => h('div', {
+        className: 'col-6'
+      }, h('img', {width: '100%', 'padding-top': '2em', ...it})))),
+    ]);
+  }
+
   // FIXME: Styling is uhhh bad.
   return h('div', {}, [
     h('h1', {}, data.route.name),
@@ -231,9 +254,9 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     h('div', {}, [
       h('button', {type: 'button', className: 'btn', onClick: addPanel}, 'Add Panel'),
       h('button', {type: 'button', className: 'btn btn-danger', onClick: removePanel}, 'Remove Panel'),
-      h('button', {type: 'button', className: 'btn btn-primary', onClick: renderMap}, 'Render Map')
-    ],
-      h('div', {}, renders.map(it => h('img', it)))),
+      h('button', {type: 'button', className: 'btn btn-primary', onClick: renderMap}, 'Render Map'),
+    ]),
+    renderView,
     ]);
 };
 
