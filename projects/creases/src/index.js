@@ -4,6 +4,7 @@ import React, { createElement as h, useState, useCallback, useEffect } from 'rea
 import ReactDOM from 'react-dom';
 import { useDropzone } from 'react-dropzone';
 import * as Leaflet from 'leaflet';
+import leafletImage from 'leaflet-image';
 
 import parser from './parser.js';
 
@@ -63,33 +64,41 @@ const RenderRouteScreen = ({switchScreens, data}) => {
 const RenderOptionsScreen = ({switchScreens, data}) => {
   const mapRef = React.useRef(null);
   const [panels, setPanels] = useState([]);
+  const [renders, setRenders] = useState([]);
+  const [route, setRoute] = useState(null);
+  const [waypoints, setWaypoints] = useState(null);
+
 
   useEffect(() => {
     const points = data.route.routePoints.map(it => [it.latitude, it.longitude]);
-    const line = new Leaflet.polyline(points);
+    const route = new Leaflet.polyline(points, {noClip: true});
+    setRoute(route);
 
-    const waypoints = data.route.wayPoints
+    const wpts = data.route.wayPoints
           .map(it => new Leaflet.marker([
             it.latitude,
             it.longitude
           ], {title: it.name}).bindTooltip(it.name));
+    setWaypoints(wpts);
 
     mapRef.current = new Leaflet.map('map', {
       center: [0, 0],
       zoom: 13,
+      preferCanvas: true,
       layers: [
-        ...waypoints,
-        line,
+        ...wpts,
+        route,
         // TODO: This should be customizable
         new Leaflet.TileLayer(
-          "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           }),
       ]
     });
 
     // Zoom to the route.
-    mapRef.current.fitBounds(line.getBounds());
+    mapRef.current.fitBounds(route.getBounds());
   }, []);
 
   const addPanel = () => {
@@ -143,21 +152,82 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     setPanels(panels);
   };
 
-  const renderMap = () => {
-    // TODO: Write me
-    // Something like: switchScreens(renderOptions, data)
+  const renderMap = async () => {
+    const renders = [];
+
+    const bounds = panels.map(p => p.rect.getBounds());
+    const centers = panels.map(p => p.rect.getCenter());
+
+    // Pop open all tooltips
+    for (const wpt of waypoints) {
+      wpt.openTooltip();
+    }
+
+    // First, make all the panels invisible
+    for (const panel of panels) {
+      panel.rect.remove();
+    }
+
+    const dim = mapRef.current.getSize();
+
+    const renderPanel = (p) => new Promise((resolve, reject) => {
+      const b = bounds.shift();
+      const c = centers.shift();
+      console.log('inspecting: ', p, b);
+
+      mapRef.current.fitBounds(b);
+      mapRef.current.setView(c, mapRef.current.getZoom());
+
+      // We do this within a setTimeout so that the map has a chance
+      // to rerender before we take the snapshot.
+      //
+      // It's real slow anyway :(
+      //
+      // TODO: Maybe there's an event we can listen to instead?
+      setTimeout(() => {
+        console.log('ready!')
+        leafletImage(mapRef.current, (err, canvas) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          canvas.toBlob(blob => {
+            resolve({
+              src: URL.createObjectURL(blob),
+              width: dim.x,
+              height: dim.y,
+            });
+          });
+        });
+      }, 1000);
+    });
+
+    for (const panel of panels) {
+      const render = await renderPanel(panel);
+      renders.push(render);
+    }
+
+    // Make them visible again
+    for (const panel of panels) {
+      panel.rect.addTo(mapRef.current);
+    }
+
+    mapRef.current.fitBounds(route.getBounds());
+    setRenders(renders);
   };
 
   // FIXME: Styling is uhhh bad.
   return h('div', {}, [
     h('h1', {}, data.route.name),
-    h('div', {id: 'map', style: {height: '500px'}}, null),
+    h('div', {id: 'map', style: {height: '900px'}}, null),
     h('div', {}, [
       h('button', {type: 'button', className: 'btn', onClick: addPanel}, 'Add Panel'),
       h('button', {type: 'button', className: 'btn btn-danger', onClick: removePanel}, 'Remove Panel'),
       h('button', {type: 'button', className: 'btn btn-primary', onClick: renderMap}, 'Render Map')
-    ]),
-  ]);
+    ],
+      h('div', {}, renders.map(it => h('img', it)))),
+    ]);
 };
 
 const AppScreens = {
