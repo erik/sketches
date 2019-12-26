@@ -1,8 +1,7 @@
-"use strict";
+'use strict';
 
 import xml2js from 'xml2js';
 import * as Leaflet from 'leaflet';
-
 
 // Routes look like this:
 //
@@ -24,11 +23,10 @@ import * as Leaflet from 'leaflet';
 //   }]
 // }
 
-
 const readFileContents = (file, isBinary) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = e => {
       const result = e.target.result;
       return resolve(result);
     };
@@ -58,7 +56,9 @@ function extractTCXRoute(tcx) {
   tcx = tcx.TrainingCenterDatabase;
 
   if (!tcx.Courses || tcx.Courses.length === 0) {
-    throw new Error('No courses defined, is this an activity instead of a route?');
+    throw new Error(
+      'No courses defined, is this an activity instead of a route?'
+    );
   }
 
   const course = get(tcx, 'Courses.0.Course.0');
@@ -85,7 +85,7 @@ function extractTCXRoute(tcx) {
       name: get(pt, 'Name.0') || 'Untitled Point',
       description: get(pt, 'Notes.0') || '',
       latitude: +get(pt, 'Position.0.LatitudeDegrees.0'),
-      longitude: +get(pt, 'Position.0.LongitudeDegrees.0'),
+      longitude: +get(pt, 'Position.0.LongitudeDegrees.0')
     });
   }
 
@@ -110,14 +110,16 @@ function extractGPXRoute(gpx) {
   for (let pt of get(gpx, 'trk.0.trkseg.0.trkpt')) {
     const coord = {
       latitude: +get(pt, '$.lat'),
-      longitude: +get(pt, '$.lon'),
+      longitude: +get(pt, '$.lon')
     };
 
-    route.totalDistance += lastPt === null
-      ? 0 : Leaflet.CRS.EPSG4326.distance(
-        Leaflet.latLng(lastPt.latitude, lastPt.longitude),
-        Leaflet.latLng(coord.latitude, coord.longitude)
-      );
+    route.totalDistance +=
+      lastPt === null
+        ? 0
+        : Leaflet.CRS.EPSG4326.distance(
+            Leaflet.latLng(lastPt.latitude, lastPt.longitude),
+            Leaflet.latLng(coord.latitude, coord.longitude)
+          );
 
     route.routePoints.push({
       ...coord,
@@ -133,7 +135,7 @@ function extractGPXRoute(gpx) {
       name: get(pt, 'name.0') || 'Untitled Point',
       description: get(pt, 'desc.0') || '',
       latitude: +get(pt, '$.lat'),
-      longitude: +get(pt, '$.lon'),
+      longitude: +get(pt, '$.lon')
     });
   }
 
@@ -158,20 +160,19 @@ async function parseXML(file) {
 export async function parseFile(file) {
   const extension = file.name.split('.').pop();
   switch ((extension || '').toUpperCase()) {
-  case 'TCX': {
-    const xml = await parseXML(file);
-    return extractTCXRoute(xml);
-  }
+    case 'TCX': {
+      const xml = await parseXML(file);
+      return extractTCXRoute(xml);
+    }
 
-  case 'GPX': {
-    const xml = await parseXML(file);
-    return extractGPXRoute(xml);
-  }
+    case 'GPX': {
+      const xml = await parseXML(file);
+      return extractGPXRoute(xml);
+    }
 
-  default:
-    throw new Error(`Unsupported file type: ${extension}`);
+    default:
+      throw new Error(`Unsupported file type: ${extension}`);
   }
 }
-
 
 export default { parseFile };
