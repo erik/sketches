@@ -66,7 +66,6 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
   const [panels, setPanels] = useState([]);
   const [renders, setRenders] = useState([]);
   const [route, setRoute] = useState(null);
-  const [waypoints, setWaypoints] = useState(null);
 
 
   useEffect(() => {
@@ -74,28 +73,43 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     const route = new Leaflet.polyline(points, {noClip: true});
     setRoute(route);
 
-    const wpts = data.route.wayPoints
+    const waypoints = Leaflet.layerGroup(
+      data.route.wayPoints
           .map(it => new Leaflet.marker([
             it.latitude,
             it.longitude
-          ], {title: it.name}).bindTooltip(it.name));
-    setWaypoints(wpts);
+          ], {title: it.name}).bindTooltip(it.name)));
+
+    const tileLayers = {
+      'OSM': Leaflet.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }),
+      'ESRI.WorldTopo': Leaflet.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
+        }),
+      'Open Topo': Leaflet.tileLayer(
+        'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          maxZoom: 17,
+          attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
+        }),
+    };
 
     mapRef.current = new Leaflet.map('map', {
       center: [0, 0],
       zoom: 13,
       preferCanvas: true,
       layers: [
-        ...wpts,
+        waypoints,
         route,
-        // TODO: This should be customizable
-        new Leaflet.TileLayer(
-          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          }),
+        tileLayers.OSM,
       ]
     });
+
+    Leaflet.control.layers(tileLayers, {Waypoints: waypoints})
+      .addTo(mapRef.current);
 
     // Zoom to the route.
     mapRef.current.fitBounds(route.getBounds());
@@ -158,11 +172,6 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     const bounds = panels.map(p => p.rect.getBounds());
     const centers = panels.map(p => p.rect.getCenter());
 
-    // Pop open all tooltips
-    for (const wpt of waypoints) {
-      wpt.openTooltip();
-    }
-
     // First, make all the panels invisible
     for (const panel of panels) {
       panel.rect.remove();
@@ -173,7 +182,6 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
     const renderPanel = (p) => new Promise((resolve, reject) => {
       const b = bounds.shift();
       const c = centers.shift();
-      console.log('inspecting: ', p, b);
 
       mapRef.current.fitBounds(b);
       mapRef.current.setView(c, mapRef.current.getZoom());
@@ -185,7 +193,6 @@ const RenderOptionsScreen = ({switchScreens, data}) => {
       //
       // TODO: Maybe there's an event we can listen to instead?
       setTimeout(() => {
-        console.log('ready!')
         leafletImage(mapRef.current, (err, canvas) => {
           if (err) {
             reject(err);
