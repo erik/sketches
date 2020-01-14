@@ -70,8 +70,8 @@ def fetch_route_map(map_url):
     points = polyline.split('a')
     for i in range(0, len(points)-1, 2):
         coords.append({
-            'lat': float(points[i]),
-            'lon': float(points[i+1]),
+            'lat': float(points[i+1]),
+            'lon': float(points[i]),
         })
 
     print(' ... done (%d coords)' % len(coords))
