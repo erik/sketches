@@ -31,11 +31,9 @@ def scrape_route_list(html):
 
     for link in soup.select('#wikitext a[href*="/Routes/"]'):
         href = link.get('href')
-        routes.append({
-            'name': link.text,
-            'number': int(href.strip(ROUTE_BASE_URL)),
-            'url': href,
-        })
+        routes.append(
+            {'name': link.text, 'number': int(href.strip(ROUTE_BASE_URL)), 'url': href,}
+        )
     print('done (%d routes)' % len(routes))
 
     return routes
@@ -72,12 +70,11 @@ def fetch_route_map(map_url):
 
     coords = []
     points = polyline.split('a')
-    for i in range(0, len(points)-1, 2):
+    for i in range(0, len(points) - 1, 2):
         # lat, lon
-        coords.append([
-            float(points[i+1]),
-            float(points[i]),
-        ])
+        coords.append(
+            [float(points[i + 1]), float(points[i]),]
+        )
 
     return coords
 
@@ -85,11 +82,8 @@ def fetch_route_map(map_url):
 def route_to_geojson(route_meta, coords):
     return {
         'type': 'Feature',
-        'geometry': {
-            'type': 'LineString',
-            'coordinates': [coords]
-        },
-        'properties': route_meta
+        'geometry': {'type': 'LineString', 'coordinates': [coords]},
+        'properties': route_meta,
     }
 
 
@@ -137,13 +131,12 @@ def main():
         simple_geo = route_to_geojson({**r, **desc}, simple_coords)
         routes.append(simple_geo)
 
-        print(' ... done (%d coords, simplified to %d)' % (
-            len(coords), len(simple_coords)))
+        print(
+            ' ... done (%d coords, simplified to %d)'
+            % (len(coords), len(simple_coords))
+        )
 
-    collection = {
-        'type': 'FeatureCollection',
-        'features': routes
-    }
+    collection = {'type': 'FeatureCollection', 'features': routes}
 
     print('Dumping full resolution to file...')
     with open(OUTPUT_DIR, 'index.geojson', 'w') as fp:
