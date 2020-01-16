@@ -82,7 +82,7 @@ def fetch_route_map(map_url):
 def route_to_geojson(route_meta, coords):
     return {
         'type': 'Feature',
-        'geometry': {'type': 'LineString', 'coordinates': [coords]},
+        'geometry': {'type': 'LineString', 'coordinates': coords},
         'properties': route_meta,
     }
 
@@ -92,7 +92,7 @@ def simplify_route(coords):
     # representing the full route and limiting the data.
     tolerance = 0.001
     line = shapely.geometry.LineString(coords)
-    return line.simplify(tolerance).coords
+    return list(line.simplify(tolerance).coords)
 
 
 def to_file_name(route):
@@ -139,7 +139,7 @@ def main():
     collection = {'type': 'FeatureCollection', 'features': routes}
 
     print('Dumping full resolution to file...')
-    with open(OUTPUT_DIR, 'index.geojson', 'w') as fp:
+    with open(os.path.join(OUTPUT_DIR, 'index.geojson'), 'w') as fp:
         json.dump(collection, fp, indent=4)
     print('All done!')
 
