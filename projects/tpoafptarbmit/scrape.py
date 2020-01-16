@@ -3,13 +3,17 @@
 from urllib.parse import parse_qsl
 import json
 import os
+import os.path
+import re
 import sys
 
-import requests
 from bs4 import BeautifulSoup
+import requests
+import shapely.geometry
 
 
 ROUTE_BASE_URL = 'http://www.thepassageride.com/Routes/'
+OUTPUT_DIR = 'data/'
 
 
 def fetch_text(url):
@@ -69,12 +73,12 @@ def fetch_route_map(map_url):
     coords = []
     points = polyline.split('a')
     for i in range(0, len(points)-1, 2):
-        coords.append({
-            'lat': float(points[i+1]),
-            'lon': float(points[i]),
-        })
+        # lat, lon
+        coords.append([
+            float(points[i+1]),
+            float(points[i]),
+        ])
 
-    print(' ... done (%d coords)' % len(coords))
     return coords
 
 
@@ -83,16 +87,31 @@ def route_to_geojson(route_meta, coords):
         'type': 'Feature',
         'geometry': {
             'type': 'LineString',
-            'coordinates': [
-                [c['lat'], c['lon']]
-                for c in coords
-            ]
+            'coordinates': [coords]
         },
         'properties': route_meta
     }
 
 
+def simplify_route(coords):
+    # This seems to be a good trade off between accurately
+    # representing the full route and limiting the data.
+    tolerance = 0.001
+    line = shapely.geometry.LineString(coords)
+    return line.simplify(tolerance).coords
+
+
+def to_file_name(route):
+    name = route['name'].lower()
+    name = re.sub('[^a-z0-9]', '_', name)
+    name = re.sub('_+', '_', name)
+
+    return '%3d_%s.geojson' % (route['number'], name)
+
+
 def main():
+    os.makedirs(os.path.join(OUTPUT_DIR, "routes"), exist_ok=True)
+
     html = fetch_text(ROUTE_BASE_URL)
 
     routes = []
@@ -106,18 +125,31 @@ def main():
         else:
             coords = []
 
-        geo = route_to_geojson({**r, **desc}, coords)
-        routes.append(geo)
+        full_geo = route_to_geojson({**r, **desc}, coords)
+
+        # Full resolution for the individual route file, low
+        # resolution for the overview file.
+        f = os.path.join(OUTPUT_DIR, 'routes', to_file_name(r))
+        with open(f, 'w') as fp:
+            json.dump(full_geo, fp, indent=4)
+
+        simple_coords = simplify_route(coords) if coords else []
+        simple_geo = route_to_geojson({**r, **desc}, simple_coords)
+        routes.append(simple_geo)
+
+        print(' ... done (%d coords, simplified to %d)' % (
+            len(coords), len(simple_coords)))
 
     collection = {
         'type': 'FeatureCollection',
         'features': routes
     }
 
-    print('Dumping to file...')
-    with open('tpoafptarbmit.geojson', 'w') as fp:
+    print('Dumping full resolution to file...')
+    with open(OUTPUT_DIR, 'index.geojson', 'w') as fp:
         json.dump(collection, fp, indent=4)
     print('All done!')
+
 
 if __name__ == '__main__':
     main()
