@@ -45,6 +45,13 @@ function fetchRoutes() {
         layers: [LAYERS.OSM, donutShop],
     });
 
+    L.control
+        .layers(LAYERS, {
+            'California Donuts': donutShop,
+            // TODO: hide/show GeoJSON layer if possible
+        })
+        .addTo(map);
+
     fetchRoutes()
         .then(routes => L.geoJSON(routes, {
             onEachFeature: (feature, layer) => {
