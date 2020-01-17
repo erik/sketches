@@ -1,0 +1,24 @@
+{
+  "name": "tpoafptarbmit",
+  "version": "1.0.0",
+  "description": "Archive of The Passage of a Few People Through a Rather Brief Moment in Time",
+  "main": "index.js",
+  "scripts": {
+    "build": "parcel index.html"
+  },
+  "author": "",
+  "license": "GPL-3.0+",
+  "dependencies": {
+    "leaflet": "^1.6.0",
+    "tailwind": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.5.7",
+    "parcel-bundler": "^1.12.4",
+    "postcss": "^7.0.26",
+    "postcss-import": "^12.0.1",
+    "postcss-modules": "^1.5.0",
+    "tailwindcss": "^1.1.4",
+    "typescript": "^3.7.5"
+  }
+}
