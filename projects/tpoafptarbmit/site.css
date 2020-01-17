@@ -1,0 +1,16 @@
+@import "leaflet/dist/leaflet";
+
+@import "tailwindcss/dist/base";
+@import "tailwindcss/dist/components";
+@import "tailwindcss/dist/utilities";
+
+
+#map {
+    width: 100%;
+    height: 85vh;
+}
+
+.route-info {
+    max-height: 300px;
+    overflow-y: scroll;
+}
