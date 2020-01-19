@@ -147,7 +147,7 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
             };
 
             routeColumns[colIndex]?.appendChild(node);
-            if (i >= (1+colIndex) * perColumn) {
+            if (i+1 >= (1+colIndex) * perColumn) {
                 colIndex++;
             }
         });
