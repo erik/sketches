@@ -23,6 +23,7 @@
 .hover-underline:hover {
     text-decoration: underline;
 }
+
 .route-item {
     border: 1px solid theme('colors.gray.100');
     @apply px-2;

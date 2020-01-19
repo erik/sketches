@@ -99,7 +99,6 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
 
         layer.bringToFront();
         layer.setStyle(routeStyles.highlight);
-        layer.openPopup();
     };
 
     const createGeoJsonLayer = (routes: GeoJson.FeatureCollection) => L.geoJSON(routes, {
@@ -130,14 +129,15 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
             node.setAttribute('class', 'route-item cursor-pointer hover-underline');
             node.appendChild(document.createTextNode(`#${props?.number??''} - ${props?.name?? 'Unnamed'}`));
             node.onclick = () => {
-                // TODO: Popup opens in a weird location.
                 // Since we're reversed we have to look from the end
                 const group = routeFeatures[routeFeatures.length - 1 - i];
                 // TODO: the "eachLayer" thing is pretty gross.
                 group.eachLayer((l: L.Layer) => {
                     const lg = <L.FeatureGroup>l;
-                    map.fitBounds(lg.getBounds());
+
                     highlightLayer(lg);
+                    lg.openPopup();
+                    map.fitBounds(lg.getBounds());
                 });
 
                 // Back to the top
