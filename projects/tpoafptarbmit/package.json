@@ -4,7 +4,8 @@
   "description": "Archive of The Passage of a Few People Through a Rather Brief Moment in Time",
   "main": "index.js",
   "scripts": {
-    "build": "parcel index.html"
+    "build": "parcel index.html",
+    "tsc": "tsc --noEmit --watch"
   },
   "author": "",
   "license": "GPL-3.0+",
