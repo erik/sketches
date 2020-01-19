@@ -19,3 +19,15 @@
     background: none;
     border: none;
 }
+
+.hover-underline:hover {
+    text-decoration: underline;
+}
+.route-item {
+    border: 1px solid theme('colors.gray.100');
+    @apply px-2;
+}
+
+.route-item:nth-child(odd) {
+    @apply bg-gray-200;
+}

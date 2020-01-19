@@ -43,8 +43,6 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
 }
 
 (function() {
-    let geoJson: L.GeoJSON;
-
     const donutShop = L.marker(CALIFORNIA_DONUTS, {
         icon: L.divIcon({
             className: 'donut-shop-icon',
@@ -90,21 +88,66 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
     // Last route we had highlighted, so that it can be cleared.
     let previousRoute: L.FeatureGroup | null;
 
+    // Track each route individually rather than adding the entire geoJson
+    // object to the map at once.
+    const routeFeatures: L.LayerGroup[] = [];
+
+    const highlightLayer = (layer: L.FeatureGroup) => {
+        previousRoute?.closePopup();
+        previousRoute?.setStyle(routeStyles.base);
+        previousRoute = layer;
+
+        layer.bringToFront();
+        layer.setStyle(routeStyles.highlight);
+        layer.openPopup();
+    };
+
     const createGeoJsonLayer = (routes: GeoJson.FeatureCollection) => L.geoJSON(routes, {
         style: routeStyles.base,
         onEachFeature: (feature, layer: L.FeatureGroup) => {
-            layer.bindPopup(popupForFeature(feature.properties));
-            layer.on('click', () => {
-                previousRoute?.setStyle(routeStyles.base);
-                previousRoute = layer;
+            const lg: L.LayerGroup = L.layerGroup()
+                .addLayer(
+                    layer
+                        .bindPopup(popupForFeature(feature.properties))
+                        .on('click', () => highlightLayer(layer)))
+                .addTo(map);
 
-                layer.bringToFront();
-                layer.setStyle(routeStyles.highlight);
-            });
+            routeFeatures.push(lg);
         }
     });
 
     fetchRoutes().then(routes => {
-        geoJson = createGeoJsonLayer(routes).addTo(map);
+        const geoJson = createGeoJsonLayer(routes);
+
+        const routeColumns = document.querySelectorAll('.route-col');
+        const perColumn = Math.round(routeFeatures.length / routeColumns.length);
+        let colIndex = 0;
+
+        routes.features.reverse().forEach((route, i) => {
+            const props = route.properties;
+
+            const node = document.createElement('div');
+            node.setAttribute('class', 'route-item cursor-pointer hover-underline');
+            node.appendChild(document.createTextNode(`#${props?.number??''} - ${props?.name?? 'Unnamed'}`));
+            node.onclick = () => {
+                // TODO: Popup opens in a weird location.
+                // Since we're reversed we have to look from the end
+                const group = routeFeatures[routeFeatures.length - 1 - i];
+                // TODO: the "eachLayer" thing is pretty gross.
+                group.eachLayer((l: L.Layer) => {
+                    const lg = <L.FeatureGroup>l;
+                    map.fitBounds(lg.getBounds());
+                    highlightLayer(lg);
+                });
+
+                // Back to the top
+                window.scrollTo(0, 0);
+            };
+
+            routeColumns[colIndex]?.appendChild(node);
+            if (i >= (1+colIndex) * perColumn) {
+                colIndex++;
+            }
+        });
     });
 })();
