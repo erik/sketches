@@ -126,7 +126,9 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
             const props = route.properties;
 
             const node = document.createElement('div');
-            node.setAttribute('class', 'route-item cursor-pointer hover-underline');
+            node.setAttribute('class', 'route-item hover-underline');
+            node.setAttribute('title', props?.name);
+
             node.appendChild(document.createTextNode(`#${props?.number??''} - ${props?.name?? 'Unnamed'}`));
             node.onclick = () => {
                 // Since we're reversed we have to look from the end
