@@ -143,6 +143,7 @@ function fetchRoutes(): Promise<GeoJson.FeatureCollection> {
                 });
 
                 // Back to the top
+                // TODO: Scroll not to the top of the page, but the top of the map
                 window.scrollTo(0, 0);
             };
 
