@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from urllib.parse import parse_qsl
+from urllib.request import urlretrieve
 import json
 import os
 import os.path
@@ -50,10 +51,40 @@ def fetch_route_description(route_url):
     if map_url is not None:
         map_url = map_url.get('href')
 
+    # Media embedded in description
+    media_urls = [
+        i.get('src')
+        for i in soup.select('img[src*="/wiki/uploads/"]')
+        if 'thumbs' not in i.get('class')
+    ]
+
+    thumbs = [
+        i.get('href')
+        for i in soup.select('a.thumblink[href*="/wiki/uploads/"]')
+    ]
+
     return {
         'map_url': map_url,
         'description': '\n'.join(description),
+        'media': media_urls + thumbs,
+        'thumbs': thumbs,
     }
+
+
+def download_media(desc):
+    out = {
+        url: 'media/%s' % normalize_file_name(url)
+        for url in desc['media']
+    }
+
+    # Download all the requested media
+    for url, path in out.items():
+        print('\t' + url)
+        urlretrieve(url, filename=os.path.join(OUTPUT_DIR, path))
+        desc['description'] = desc['description'].replace(url, path)
+
+    desc['thumbs'] = [out[t] for t in desc['thumbs']]
+    return desc
 
 
 def fetch_route_map(map_url):
@@ -69,12 +100,10 @@ def fetch_route_map(map_url):
     polyline = [x[1] for x in data if x[0] == 'polyline'][0]
 
     coords = []
-    points = polyline.split('a')
+    points = [float(pt) for pt in polyline.split('a')]
     for i in range(0, len(points) - 1, 2):
         # lat, lon
-        coords.append(
-            [float(points[i + 1]), float(points[i]),]
-        )
+        coords.append([points[i + 1], points[i]])
 
     return coords
 
@@ -95,16 +124,20 @@ def simplify_route(coords):
     return list(line.simplify(tolerance).coords)
 
 
-def to_file_name(route):
-    name = route['name'].lower()
-    name = re.sub('[^a-z0-9]', '_', name)
-    name = re.sub('_+', '_', name)
+def normalize_file_name(name):
+    name = name.lower()
+    name = re.sub('[^a-z0-9\.]', '_', name)
+    return re.sub('_+', '_', name)
 
-    return '%3d_%s.geojson' % (route['number'], name)
+
+def to_file_name(route):
+    name = '%03d_%s.geojson' % (route['number'], route['name'])
+    return normalize_file_name(name)
 
 
 def main():
-    os.makedirs(os.path.join(OUTPUT_DIR, "routes"), exist_ok=True)
+    for d in ['routes', 'media']:
+        os.makedirs(os.path.join(OUTPUT_DIR, d), exist_ok=True)
 
     html = fetch_text(ROUTE_BASE_URL)
 
@@ -113,17 +146,20 @@ def main():
         print('#%d "%s"' % (r['number'], r['name']))
 
         desc = fetch_route_description(r['url'])
+        desc = download_media(desc)
 
+        coords = []
         if desc['map_url'] is not None:
             coords = fetch_route_map(desc['map_url'])
-        else:
-            coords = []
+
+        path = os.path.join('routes', to_file_name(r))
+        desc['geojson'] = path
 
         full_geo = route_to_geojson({**r, **desc}, coords)
 
         # Full resolution for the individual route file, low
         # resolution for the overview file.
-        f = os.path.join(OUTPUT_DIR, 'routes', to_file_name(r))
+        f = os.path.join(OUTPUT_DIR, path)
         with open(f, 'w') as fp:
             json.dump(full_geo, fp, indent=4)
 
