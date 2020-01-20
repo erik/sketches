@@ -16,10 +16,17 @@
   "devDependencies": {
     "@types/leaflet": "^1.5.7",
     "parcel-bundler": "^1.12.4",
+    "parcel-plugin-static-files-copy": "^2.2.2",
     "postcss": "^7.0.26",
     "postcss-import": "^12.0.1",
     "postcss-modules": "^1.5.0",
     "tailwindcss": "^1.1.4",
     "typescript": "^3.7.5"
+  },
+  "staticFiles": {
+    "staticPath": [{
+      "staticPath": "data",
+      "staticOutDir": "data"
+    }]
   }
 }
