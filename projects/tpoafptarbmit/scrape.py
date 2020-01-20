@@ -55,19 +55,19 @@ def fetch_route_description(route_url):
     media_urls = [
         i.get('src')
         for i in soup.select('img[src*="/wiki/uploads/"]')
-        if 'thumbs' not in i.get('class')
+        if 'thumbs' not in i.get('class', '')
     ]
 
     thumbs = [
-        i.get('href')
-        for i in soup.select('a.thumblink[href*="/wiki/uploads/"]')
+        # NOTE: Skipping this for now, simply too much data to enable by default
+        # i.get('href')
+        # for i in soup.select('a.thumblink[href*="/wiki/uploads/"]')
     ]
 
     return {
         'map_url': map_url,
         'description': '\n'.join(description),
         'media': media_urls + thumbs,
-        'thumbs': thumbs,
     }
 
 
@@ -83,7 +83,7 @@ def download_media(desc):
         urlretrieve(url, filename=os.path.join(OUTPUT_DIR, path))
         desc['description'] = desc['description'].replace(url, path)
 
-    desc['thumbs'] = [out[t] for t in desc['thumbs']]
+    desc['media'] = [out[m] for m in desc['media']]
     return desc
 
 
