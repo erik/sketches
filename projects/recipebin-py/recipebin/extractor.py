@@ -1,6 +1,6 @@
 """Extract & normalize recipe content."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import extruct
@@ -16,8 +16,8 @@ class Recipe:
 
     # TODO: At some point ingredients + instructions will be getting
     # more complex to handle grouping etc.
-    ingredients: List[str] = []
-    instructions: List[str] = []
+    ingredients: List[str] = field(default_factory=list)
+    instructions: List[str] = field(default_factory=list)
 
     # TODO: support optional fields.
     # yield: Optional[str]
@@ -47,10 +47,7 @@ class Microdata:
         return self._inner.get(k, default)
 
     def is_recipe_type(self) -> bool:
-        return (
-            self.get("@context") == "https://schema.org"
-            and self.get("@id") == "Recipe"
-        )
+        return self.get("@type") == "Recipe"
 
     def extract_recipe(self) -> Recipe:
         """Given something approximating a JSON-LD object in roughly the
@@ -64,7 +61,7 @@ class Microdata:
             if isinstance(v, list):
                 # TODO: breaks if v is not list of str
                 v = [self._sanitize_str(s) for s in v]
-                return [s for s in v if v != '']
+                return [s for s in v if v != ""]
             elif isinstance(v, str):
                 return self._sanitize_str(v)
             return v
@@ -121,8 +118,21 @@ class Microdata:
         return self._coerce_list(i)
 
     def _get_instructions(self) -> List[str]:
-        i = self._get_first("recipeInstruction", "instructions", default=[])
-        return self._coerce_list(i)
+        i = self._get_first(
+            "recipeInstruction",
+            "recipeInstructions",
+            "instructions",
+            default=[],
+        )
+        instructions = []
+        for inst in self._coerce_list(i):
+            if isinstance(inst, str):
+                instructions.append(inst)
+            elif isinstance(inst, dict) and inst.get("@type") == "HowToStep":
+                if "text" in inst:
+                    instructions.append(inst["text"])
+
+        return instructions
 
     def _sanitize_str(self, s: str) -> str:
         # TODO: this
@@ -133,12 +143,29 @@ def _extract_recipe_microdata(html: str) -> List[Microdata]:
     extracted = extruct.extract(
         html, syntaxes=["microdata", "json-ld"], uniform=True
     )
-    return [m for m in map(Microdata, extracted) if m.is_recipe_type()]
+
+    data: List[Dict[str, Any]] = []
+    for ex in extracted.values():
+        if not ex or not isinstance(ex, list):
+            continue
+
+        # Try to normalize for some common variants of JSON-LD
+        for v in ex:
+            if "@graph" in v:
+                data.extend(v["@graph"])
+            elif v.get("@type") == "WebPage" and "mainEntity" in v:
+                data.append(v["mainEntity"])
+            else:
+                data.append(v)
+
+    return [m for m in map(Microdata, data) if m.is_recipe_type()]
 
 
 def extract_recipes(html: str) -> List[Recipe]:
     """Given a string of HTML, try to parse and normalize the recipe
     microdata.
     """
-    recipes = map(lambda r: r.extract_recipe(), _extract_recipe_microdata(html))
+    recipes = map(
+        lambda r: r.extract_recipe(), _extract_recipe_microdata(html)
+    )
     return [r for r in recipes if r.is_valid()]
