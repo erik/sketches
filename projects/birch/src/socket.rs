@@ -9,7 +9,7 @@ pub trait IrcWriter {
     fn write_message(&mut self, msg: &RawMessage) -> Result<()>;
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct IrcSocketConfig {
     // TODO: stop being lazy, make this &str
     pub addr: String,
@@ -37,9 +37,8 @@ impl MessageBuffer {
             .map(|line| line.trim_end_matches(|c| c == '\r' || c == '\n'))
             .map_err(|_| Error::new(ErrorKind::Other, "invalid UTF-8"))
             .and_then(|line| {
-                RawMessage::parse(line).ok_or_else(|| {
-                    Error::new(ErrorKind::Other, "failed to parse message")
-                })
+                RawMessage::parse(line)
+                    .ok_or_else(|| Error::new(ErrorKind::Other, "failed to parse message"))
             });
 
         // "Rotate" the buffer left and clear everything.
@@ -102,23 +101,11 @@ impl Socket {
 }
 
 impl Evented for Socket {
-    fn register(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> Result<()> {
+    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
         self.stream.register(poll, token, interest, opts)
     }
 
-    fn reregister(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> Result<()> {
+    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
         self.stream.reregister(poll, token, interest, opts)
     }
 

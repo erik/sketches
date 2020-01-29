@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Evented, Events, Poll, PollOpt, Ready, Registration, Token};
+use rusqlite::{Connection, Result as SqlResult, NO_PARAMS};
 use slab::Slab;
 
 use birch::client::{Client, ClientEvent, ClientId};
@@ -29,23 +30,11 @@ impl Ticker {
 }
 
 impl Evented for Ticker {
-    fn register(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> Result<()> {
+    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
         self.0.register(poll, token, interest, opts)
     }
 
-    fn reregister(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> Result<()> {
+    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
         self.0.reregister(poll, token, interest, opts)
     }
 
@@ -196,9 +185,7 @@ impl BirchServer {
             // TODO: remove duplication
             for event in client.conn.events() {
                 match event {
-                    ClientEvent::WriteClient(ref msg) => {
-                        client.socket.write_message(msg)?
-                    }
+                    ClientEvent::WriteClient(ref msg) => client.socket.write_message(msg)?,
                     _ => unreachable!(),
                 }
             }
@@ -313,23 +300,15 @@ impl BirchServer {
         let listener = TcpListener::bind(bind_addr)?;
         {
             let tok = self.sockets.insert(SocketKind::Listener);
-            self.poll.register(
-                &listener,
-                Token(tok),
-                Ready::readable(),
-                PollOpt::edge(),
-            )?;
+            self.poll
+                .register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
         }
 
         {
             let ticker = Ticker::new(Duration::from_secs(60));
             let tok = self.sockets.insert(SocketKind::Ticker);
-            self.poll.register(
-                &ticker,
-                Token(tok),
-                Ready::readable(),
-                PollOpt::edge(),
-            )?;
+            self.poll
+                .register(&ticker, Token(tok), Ready::readable(), PollOpt::edge())?;
         }
 
         loop {
@@ -343,19 +322,63 @@ impl BirchServer {
     }
 }
 
+struct Database(Connection);
+
+impl Database {
+    fn new(path: &str) -> Self {
+        let conn = Connection::open(&path).expect("failed to create database");
+
+        let mut db = Self(conn);
+
+        db.auto_migrate().expect("migration failed");
+
+        db
+    }
+    fn auto_migrate(&mut self) -> SqlResult<()> {
+        self.0.execute_batch(include_str!("sql/schema/base.sql"))
+    }
+
+    fn fetch_networks(&mut self) -> SqlResult<Vec<NetworkConfig>> {
+        let mut stmt = self.0.prepare(include_str!("sql/query/get_networks.sql"))?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+
+        let mut configs = Vec::new();
+        while let Some(row) = rows.next()? {
+            configs.push(NetworkConfig {
+                network_name: row.get(0)?,
+                nick: row.get(1)?,
+                // TODO: Change how auth works so we don't hard code this.
+                auth: ("foo".to_string(), "bar".to_string()),
+                socket: IrcSocketConfig {
+                    addr: row.get::<usize, String>(2)?.parse().unwrap(),
+                    // TODO: Should this be configurable?
+                    max_retries: Some(3),
+                },
+            })
+        }
+
+        Ok(configs)
+    }
+}
+
+// TODO: Want to add CLI-style interface here so that we can run
+// `birch create` to add configurations etc.
 fn main() -> Result<()> {
-    let config = NetworkConfig {
-        network_name: "freenode".to_string(),
-        nick: "ep".to_string(),
-        auth: ("foo".to_string(), "bar".to_string()),
-        socket: IrcSocketConfig {
-            addr: "irc.freenode.net:6667".parse().unwrap(),
-            max_retries: Some(3),
-        },
-    };
+    // TODO: Database URL should be configurable
+    let mut db = Database::new("/tmp/birch.sqlite");
 
     let mut server = BirchServer::new();
-    server.add_network(config)?;
+
+    let configs = db.fetch_networks().expect("TODO: map error types");
+    if configs.is_empty() {
+        println!("No network configurations, nothing to do!");
+        return Ok(());
+    }
+
+    for config in configs.into_iter() {
+        println!("Adding configuration: {:?}", config);
+        server.add_network(config)?;
+    }
 
     server.serve(&"127.0.0.1:9123".parse().unwrap())
 }
