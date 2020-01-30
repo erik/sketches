@@ -145,7 +145,7 @@ impl ClientConnection {
 
                 self.send_client("CAP", &["LS", "*", &caps]);
             }
-            // Do we actually need to do anything?
+            // TODO: Do we actually need to do anything in this case?
             "END" => {}
             "REQ" => {
                 for cap_str in msg.param(1).unwrap_or("").split_whitespace() {

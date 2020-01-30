@@ -30,11 +30,23 @@ impl Ticker {
 }
 
 impl Evented for Ticker {
-    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
+    fn register(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
         self.0.register(poll, token, interest, opts)
     }
 
-    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
+    fn reregister(
+        &self,
+        poll: &Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> Result<()> {
         self.0.reregister(poll, token, interest, opts)
     }
 
@@ -185,7 +197,9 @@ impl BirchServer {
             // TODO: remove duplication
             for event in client.conn.events() {
                 match event {
-                    ClientEvent::WriteClient(ref msg) => client.socket.write_message(msg)?,
+                    ClientEvent::WriteClient(ref msg) => {
+                        client.socket.write_message(msg)?
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -300,15 +314,23 @@ impl BirchServer {
         let listener = TcpListener::bind(bind_addr)?;
         {
             let tok = self.sockets.insert(SocketKind::Listener);
-            self.poll
-                .register(&listener, Token(tok), Ready::readable(), PollOpt::edge())?;
+            self.poll.register(
+                &listener,
+                Token(tok),
+                Ready::readable(),
+                PollOpt::edge(),
+            )?;
         }
 
         {
             let ticker = Ticker::new(Duration::from_secs(60));
             let tok = self.sockets.insert(SocketKind::Ticker);
-            self.poll
-                .register(&ticker, Token(tok), Ready::readable(), PollOpt::edge())?;
+            self.poll.register(
+                &ticker,
+                Token(tok),
+                Ready::readable(),
+                PollOpt::edge(),
+            )?;
         }
 
         loop {
