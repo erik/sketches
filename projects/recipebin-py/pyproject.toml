@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "recipebin"
+version = "0.1.0"
+description = ""
+authors = ["Erik Price <github@erikprice.net>"]
+license = "AGPL-3.0"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+flask = "^1.1.1"
+flask-sqlalchemy = "^2.4.1"
+psycopg2 = "^2.8.4"
+
+[tool.poetry.dev-dependencies]
+
+[tool.black]
+line-length = 79
+target-version = ['py37']
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+
+[mypy-extruct]
+ignore_missing_imports = true
