@@ -51,6 +51,6 @@ def index() -> str:
 def trigger_scrape():
     obj = OptimisiticDict(flask.request.get_json(force=True))
 
-    req = requests.get(obj['url'])
+    req = requests.get(obj["url"])
     recipes = extractor.extract_recipes(req.text)
-    return flask.jsonify({'recipes': recipes})
+    return flask.jsonify({"recipes": recipes})

@@ -39,6 +39,34 @@ class Recipe:
         )
 
 
+def _coerce_scalar(v: Any) -> Any:
+    if isinstance(v, list):
+        return v[0] if v != [] else ""
+    else:
+        # TODO: more nuance. dicts?
+        return str(v)
+
+
+def _coerce_str(s: Any) -> str:
+    if isinstance(s, str):
+        return s
+    elif isinstance(s, list):
+        return str(_coerce_scalar(s))
+    else:
+        return str(s)
+
+
+def _coerce_list(x: Optional[Any]) -> List[Any]:
+    if x is None:
+        return []
+    return [x] if not isinstance(x, list) else x
+
+
+def _sanitize_str(s: str) -> str:
+    # TODO: this
+    return s.strip()
+
+
 @dataclass
 class Microdata:
     _inner: Dict[str, Any]
@@ -60,15 +88,14 @@ class Microdata:
         def _(v: Any) -> Any:
             if isinstance(v, list):
                 # TODO: breaks if v is not list of str
-                v = [self._sanitize_str(s) for s in v]
-                return [s for s in v if v != ""]
+                return [s for s in map(_sanitize_str, v) if s != ""]
             elif isinstance(v, str):
-                return self._sanitize_str(v)
+                return _sanitize_str(v)
             return v
 
         return Recipe(
             name=_(self._get_str("name")),
-            author=_(self._get_str("author")),
+            author=_(self._get_author()),
             image=_(self._get_str("image")),
             description=_(self._get_str("description")),
             ingredients=_(self._get_ingredients()),
@@ -83,39 +110,23 @@ class Microdata:
         return default
 
     def _get_str(self, k: str, default: str = "") -> str:
-        s = self._coerce_str(self.get(k, default))
+        s = _coerce_str(self.get(k, default))
         return s.strip()
 
     def _get_list(self, k: str) -> List[str]:
-        return self._coerce_list(self.get(k))
+        return _coerce_list(self.get(k))
 
-    # TODO: pull some of these out of this class. No need for them to
-    # be here.
-    def _coerce_scalar(self, v: Any) -> Any:
-        if isinstance(v, list):
-            return v[0] if v != [] else ""
-        else:
-            # TODO: more nuance. dicts?
-            return str(v)
-
-    def _coerce_str(self, s: Any) -> str:
-        if isinstance(s, str):
-            return s
-        elif isinstance(s, list):
-            return str(self._coerce_scalar(s))
-        else:
-            return str(s)
-
-    def _coerce_list(self, x: Optional[Any]) -> List[Any]:
-        if x is None:
-            return []
-        return [x] if not isinstance(x, list) else x
+    def _get_author(self) -> Optional[str]:
+        obj = self.get("author", {})
+        if isinstance(obj, dict):
+            return obj.get("name") if obj.get("@type") == "Person" else None
+        return _coerce_str(obj)
 
     def _get_ingredients(self) -> List[str]:
         i = self._get_first(
             "recipeIngredient", "ingredients", "ingredient", default=[]
         )
-        return self._coerce_list(i)
+        return _coerce_list(i)
 
     def _get_instructions(self) -> List[str]:
         i = self._get_first(
@@ -125,7 +136,7 @@ class Microdata:
             default=[],
         )
         instructions = []
-        for inst in self._coerce_list(i):
+        for inst in _coerce_list(i):
             if isinstance(inst, str):
                 instructions.append(inst)
             elif isinstance(inst, dict) and inst.get("@type") == "HowToStep":
@@ -133,10 +144,6 @@ class Microdata:
                     instructions.append(inst["text"])
 
         return instructions
-
-    def _sanitize_str(self, s: str) -> str:
-        # TODO: this
-        return s.strip()
 
 
 def _extract_recipe_microdata(html: str) -> List[Microdata]:
