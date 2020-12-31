@@ -1,12 +1,26 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base32"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gorilla/mux"
 )
+
+func GenerateRandomString(length int) string {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
+	return base32.StdEncoding.EncodeToString(bytes)
+}
 
 type Config struct {
 	ListenAddr string
@@ -14,28 +28,118 @@ type Config struct {
 	BuildDir   string
 }
 
+type Ordering struct {
+	Key       string
+	Ascending bool
+}
+
 type Storage interface {
-	JournalList() ([]JournalModel, error)
-	JournalGet(int64) (*JournalModel, error)
-	JournalCreate(*JournalModel) error
-	JournalUpdate(*JournalModel) error
+	JournalList(Ordering) ([]JournalModel, error)
+	JournalGet(string) (*JournalModel, error)
+	JournalUpsert(*JournalModel) error
 	JournalDelete(*JournalModel) error
 
-	EntryList() ([]EntryModel, error)
-	EntryGet(int64) (*EntryModel, error)
-	EntryCreate(*EntryModel) error
-	EntryUpdate(*EntryModel) error
+	EntryList(Ordering) ([]EntryModel, error)
+	EntryGet(string) (*EntryModel, error)
+	EntryUpsert(*EntryModel) error
 	EntryDelete(*EntryModel) error
 
-	MediaList() ([]MediaModel, error)
-	MediaGet(int64) (*MediaModel, error)
-	MediaCreate(*MediaModel) error
-	MediaUpdate(*MediaModel) error
+	MediaList(Ordering) ([]MediaModel, error)
+	MediaGet(string) (*MediaModel, error)
+	MediaUpsert(*MediaModel) error
 	MediaDelete(*MediaModel) error
 }
 
+type FlatStorage struct {
+	Dir      string
+	Journals map[string]JournalModel
+	Entries  map[string]EntryModel
+	Media    map[string]MediaModel
+
+	// TODO: metadata for the whole site?
+	// Configuration map[string]string
+}
+
+func NewFlatStorage(dir string) (*FlatStorage, error) {
+	fs := &FlatStorage{Dir: dir}
+
+	jd := filepath.Join(dir, "journals")
+	if err := os.MkdirAll(jd, os.ModeDir); err != nil {
+		return nil, err
+	}
+
+	if err := fs.slurpJournals(jd); err != nil {
+		return nil, err
+	}
+
+	return fs, nil
+}
+
+func (fs *FlatStorage) slurpJournals(journalsDir string) error {
+	items, err := ioutil.ReadDir(journalsDir)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		if !item.IsDir() {
+			fmt.Printf("WARN, unknown file in journals directory: %+v\n", item)
+			continue
+		}
+
+		jd := filepath.Join(journalsDir, item.Name())
+		if err = fs.slurpJournalContent(jd); err != nil {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func slurpJSON(dir string, name string, receiver interface{}) error {
+	path := filepath.Join(dir, name)
+	text, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	if err = json.Unmarshal(text, receiver); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fs *FlatStorage) slurpJournalContent(journalDir string) error {
+	items, err := ioutil.ReadDir(journalDir)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		journal := JournalModel{}
+
+		if !item.IsDir() {
+			switch item.Name() {
+			case "metadata.json":
+				if err = slurpJSON(journalDir, item.Name(), &journal); err != nil {
+					return err
+				}
+
+			default:
+				fmt.Printf("Unknown file in journal directory: %+v\n", item)
+			}
+		} else {
+		}
+	}
+	return nil
+}
+
+// TODO -
+// func (fs *FlatStorage) JournalList(ord Ordering) ([]JournalModel, error) {}
+
 type JournalModel struct {
-	ID          int64
+	ID          string
 	Title       string
 	Description string
 	URL         string
@@ -48,8 +152,8 @@ type JournalModel struct {
 }
 
 type EntryModel struct {
-	ID           int64
-	CollectionID int64
+	ID           string
+	CollectionID string
 	URL          string
 	Parts        []EntryPartWrapper
 
@@ -59,8 +163,8 @@ type EntryModel struct {
 }
 
 type MediaModel struct {
-	ID          int64
-	EntryID     int64
+	ID          string
+	EntryID     string
 	Name        string
 	PublicURL   string
 	Size        int64
@@ -76,9 +180,9 @@ type MediaModel struct {
 type EntryPartKind string
 
 const (
-	Markdown EntryPartKind = "markdown"
-	Media                  = "media"
-	Gallery                = "gallery"
+	Markdown    EntryPartKind = "markdown"
+	InlineMedia               = "inline-media"
+	// Gallery                = "gallery"
 )
 
 type EntryPartWrapper struct {
@@ -95,19 +199,20 @@ type MarkdownEntry struct {
 	Text string `json:"text"`
 }
 
-type MediaEntry struct {
-	MediaID      int64  `json:"media_id"`
+type InlineMediaEntry struct {
+	MediaID      string `json:"media_id"`
 	CaptionTitle string `json:"caption_title"`
 	Caption      string `json:"caption"`
 	FullWidth    bool   `json:"full_width"`
 	FullHeight   bool   `json:"full_height"`
 }
 
-type GalleryEntry struct {
-	Title   string       `json:"title"`
-	Caption string       `json:"caption"`
-	Media   []MediaEntry `json:"media"`
-}
+// TODO
+// type GalleryEntry struct {
+// 	Title   string             `json:"title"`
+// 	Caption string             `json:"caption"`
+// 	Media   []InlineMediaEntry `json:"media"`
+// }
 
 func main() {
 	config := Config{
@@ -138,32 +243,47 @@ func serveAPI(router *mux.Router, c Config) {
 
 	// TODO: authentication middleware here
 
+	sr.HandleFunc("/media", handler.listMedia).Methods(http.MethodGet)
 	sr.HandleFunc("/media", handler.createMedia).Methods(http.MethodPost)
+	sr.HandleFunc("/media/{ID}", handler.editMedia).Methods(http.MethodPut)
 
-	sr.HandleFunc("/journal", handler.listJournals).Methods(http.MethodGet)
-	sr.HandleFunc("/journal", handler.createJournal).Methods(http.MethodPost)
-	sr.HandleFunc("/journal/{ID}", handler.getJournal).Methods(http.MethodGet)
-	sr.HandleFunc("/journal/{ID}", handler.editJournal).Methods(http.MethodPut)
-	sr.HandleFunc("/journal/{ID}", handler.deleteJournal).Methods(http.MethodDelete)
+	sr.HandleFunc("/journals", handler.listJournals).Methods(http.MethodGet)
+	sr.HandleFunc("/journals", handler.createJournal).Methods(http.MethodPost)
+	sr.HandleFunc("/journals/{ID}", handler.getJournal).Methods(http.MethodGet)
+	sr.HandleFunc("/journals/{ID}", handler.editJournal).Methods(http.MethodPut)
+	sr.HandleFunc("/journals/{ID}", handler.deleteJournal).Methods(http.MethodDelete)
 
-	sr.HandleFunc("/entry", handler.listEntries).Methods(http.MethodGet)
-	sr.HandleFunc("/entry", handler.createEntry).Methods(http.MethodPost)
-	sr.HandleFunc("/entry/{entryID}", handler.getEntry).Methods(http.MethodGet)
-	sr.HandleFunc("/entry/{entryID}", handler.editEntry).Methods(http.MethodPut)
-	sr.HandleFunc("/entry/{entryID}", handler.deleteEntry).Methods(http.MethodDelete)
+	sr.HandleFunc("/entries", handler.listEntries).Methods(http.MethodGet)
+	sr.HandleFunc("/entries", handler.createEntry).Methods(http.MethodPost)
+	sr.HandleFunc("/entries/{entryID}", handler.getEntry).Methods(http.MethodGet)
+	sr.HandleFunc("/entries/{entryID}", handler.editEntry).Methods(http.MethodPut)
+	sr.HandleFunc("/entries/{entryID}", handler.deleteEntry).Methods(http.MethodDelete)
 }
 
 func serveUI(router *mux.Router, c Config) {
+	handler := UIHandler{c}
 	sr := router.NewRoute().Subrouter()
 
 	sr.PathPrefix("/static/").
 		Handler(http.StripPrefix("/static/",
 			http.FileServer(http.Dir(c.StaticDir))))
 
+	sr.HandleFunc("/journals", handler.listJournals).Methods(http.MethodGet)
+	sr.HandleFunc("/journals/{ID}", handler.showJournal).Methods(http.MethodGet)
+	sr.HandleFunc("/journals/{ID}/{ID}", handler.showEntry).Methods(http.MethodGet)
+
 	sr.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		http.ServeFile(w, req, "index.html")
 	})
 }
+
+type UIHandler struct {
+	config Config
+}
+
+func (*UIHandler) listJournals(w http.ResponseWriter, req *http.Request) {}
+func (*UIHandler) showJournal(w http.ResponseWriter, req *http.Request)  {}
+func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request)    {}
 
 type APIHandler struct {
 	config Config
@@ -171,7 +291,9 @@ type APIHandler struct {
 
 // Media
 
+func (*APIHandler) listMedia(w http.ResponseWriter, req *http.Request)   {}
 func (*APIHandler) createMedia(w http.ResponseWriter, req *http.Request) {}
+func (*APIHandler) editMedia(w http.ResponseWriter, req *http.Request)   {}
 
 // Journals
 
