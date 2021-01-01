@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -111,27 +112,51 @@ func slurpJSON(dir string, name string, receiver interface{}) error {
 }
 
 func (fs *FlatStorage) slurpJournalContent(journalDir string) error {
-	items, err := ioutil.ReadDir(journalDir)
+
+	journal := JournalModel{}
+	if err := slurpJSON(journalDir, "journal.json", &journal); err != nil {
+		return err
+	} else {
+		fs.Journals[journal.ID] = journal
+	}
+
+	media := []MediaModel{}
+	if err := slurpJSON(journalDir, "media.json", &media); err != nil {
+		return err
+	} else {
+		for _, m := range media {
+			fs.Media[m.ID] = m
+		}
+	}
+
+	entriesPath := filepath.Join(journalDir, "entries")
+	if err := fs.slurpJournalEntries(entriesPath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fs *FlatStorage) slurpJournalEntries(entriesPath string) error {
+	items, err := ioutil.ReadDir(entriesPath)
 	if err != nil {
 		return err
 	}
 
-	for _, item := range items {
-		journal := JournalModel{}
-
-		if !item.IsDir() {
-			switch item.Name() {
-			case "metadata.json":
-				if err = slurpJSON(journalDir, item.Name(), &journal); err != nil {
-					return err
-				}
-
-			default:
-				fmt.Printf("Unknown file in journal directory: %+v\n", item)
-			}
-		} else {
+	for _, entFile := range items {
+		if entFile.IsDir() || !strings.HasSuffix(entFile.Name(), ".json") {
+			fmt.Println("Skipping unexpected item inside entries directory")
+			continue
 		}
+
+		entry := EntryModel{}
+		if err = slurpJSON(entriesPath, entFile.Name(), &entry); err != nil {
+			return err
+		}
+
+		fs.Entries[entry.ID] = entry
 	}
+
 	return nil
 }
 
@@ -163,8 +188,10 @@ type EntryModel struct {
 }
 
 type MediaModel struct {
-	ID          string
-	EntryID     string
+	ID        string
+	JournalID string
+	EntryID   string
+
 	Name        string
 	PublicURL   string
 	Size        int64
