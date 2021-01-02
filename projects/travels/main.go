@@ -6,41 +6,62 @@ import (
 
 	"github.com/gorilla/mux"
 
-	_ "github.com/erik/travels/model"
-	_ "github.com/erik/travels/storage"
+	"github.com/erik/travels/storage"
 )
 
 type Config struct {
-	ListenAddr string
-	StaticDir  string
-	BuildDir   string
+	ListenAddr     string
+	StaticDir      string
+	BuildDir       string
+	FlatStorageDir string
+}
+
+type AppContext struct {
+	Config  Config
+	Storage storage.Storage
+}
+
+func BuildAppContext(conf Config) AppContext {
+	// TODO: this needs more configurability
+	store := storage.NewFlatStorage(
+		conf.FlatStorageDir,
+	)
+
+	return AppContext{
+		Config:  conf,
+		Storage: &store,
+	}
 }
 
 func main() {
+	// TODO: Read this from environment
 	config := Config{
-		ListenAddr: "127.0.0.1:8080",
-		StaticDir:  "static/",
-		BuildDir:   "/tmp/output",
+		ListenAddr:     "127.0.0.1:8080",
+		StaticDir:      "static/",
+		BuildDir:       "/tmp/output",
+		FlatStorageDir: "/tmp/input",
 	}
 
-	router := NewRouter(config)
+	appCtx := BuildAppContext(config)
+
+	router := NewRouter(&appCtx)
 	http.Handle("/", router)
 
 	fmt.Printf("Starting up! %+v\n", config)
 	http.ListenAndServe(config.ListenAddr, nil)
 }
 
-func NewRouter(c Config) *mux.Router {
+func NewRouter(appCtx *AppContext) *mux.Router {
 	router := mux.NewRouter()
 
-	serveAPI(router, c)
-	serveUI(router, c)
+	serveAPI(router, appCtx)
+	serveUI(router, appCtx)
 
 	return router
 }
 
-func serveAPI(router *mux.Router, c Config) {
-	handler := APIHandler{c}
+func serveAPI(router *mux.Router, appCtx *AppContext) {
+	handler := APIHandler{appCtx}
 	sr := router.PathPrefix("/api/v1").Subrouter()
 
 	// TODO: authentication middleware here
@@ -62,13 +83,13 @@ func serveAPI(router *mux.Router, c Config) {
 	sr.HandleFunc("/entries/{entryID}", handler.deleteEntry).Methods(http.MethodDelete)
 }
 
-func serveUI(router *mux.Router, c Config) {
-	handler := UIHandler{c}
+func serveUI(router *mux.Router, appCtx *AppContext) {
+	handler := UIHandler{appCtx}
 	sr := router.NewRoute().Subrouter()
 
 	sr.PathPrefix("/static/").
 		Handler(http.StripPrefix("/static/",
-			http.FileServer(http.Dir(c.StaticDir))))
+			http.FileServer(http.Dir(appCtx.Config.StaticDir))))
 
 	sr.HandleFunc("/journals", handler.listJournals).Methods(http.MethodGet)
 	sr.HandleFunc("/journals/{ID}", handler.showJournal).Methods(http.MethodGet)
@@ -79,17 +100,13 @@ func serveUI(router *mux.Router, c Config) {
 	})
 }
 
-type UIHandler struct {
-	config Config
-}
+type UIHandler struct{ *AppContext }
 
 func (*UIHandler) listJournals(w http.ResponseWriter, req *http.Request) {}
 func (*UIHandler) showJournal(w http.ResponseWriter, req *http.Request)  {}
 func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request)    {}
 
-type APIHandler struct {
-	config Config
-}
+type APIHandler struct{ *AppContext }
 
 // Media
 

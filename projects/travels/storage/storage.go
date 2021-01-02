@@ -15,7 +15,7 @@ type Storage interface {
 	EntryUpsert(model.Entry) error
 	EntryDelete(model.Entry) error
 
-	MediaListByJournalID() ([]model.Media, error)
+	MediaListByJournalID(string) ([]model.Media, error)
 	MediaGetByID(string, string) (*model.Media, error)
 	MediaUpsert(model.Media) error
 	MediaDelete(model.Media) error

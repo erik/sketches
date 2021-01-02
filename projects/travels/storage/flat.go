@@ -38,19 +38,20 @@ type FlatStorage struct {
 	// Configuration map[string]string
 }
 
-func NewFlatStorage(dir string) (*FlatStorage, error) {
-	fs := &FlatStorage{Dir: dir}
+// TODO: remove the panics? are these recoverable?
+func NewFlatStorage(dir string) FlatStorage {
+	fs := FlatStorage{Dir: dir}
 
 	jd := filepath.Join(dir, "journals")
 	if err := os.MkdirAll(jd, os.ModeDir); err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	if err := fs.slurpJournals(jd); err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return fs, nil
+	return fs
 }
 
 func (fs *FlatStorage) slurpJournals(journalsDir string) error {
@@ -189,7 +190,7 @@ func (fs *FlatStorage) JournalUpsert(update model.Journal) error {
 	return nil
 }
 
-func (fs *FlatStorage) JournalDelete(*model.Journal) error { panic("not implemented") }
+func (fs *FlatStorage) JournalDelete(model.Journal) error { panic("not implemented") }
 
 func (fs *FlatStorage) EntryListByJournalID(journalID string) ([]model.Entry, error) {
 	journal, found := fs.Journals[journalID]
