@@ -30,34 +30,29 @@ type Config struct {
 	BuildDir   string
 }
 
-type Ordering struct {
-	Key       string
-	Ascending bool
-}
-
 type Storage interface {
-	JournalList(Ordering) ([]JournalModel, error)
+	JournalList() ([]JournalModel, error)
 	JournalGetByID(string) (*JournalModel, error)
-	JournalUpsert(*JournalModel) error
-	JournalDelete(*JournalModel) error
+	JournalUpsert(JournalModel) error
+	JournalDelete(JournalModel) error
 
-	EntryListByJournalID(string, Ordering) ([]EntryModel, error)
-	EntryGetByID(string) (*EntryModel, error)
-	EntryUpsert(*EntryModel) error
-	EntryDelete(*EntryModel) error
+	EntryListByJournalID(string) ([]EntryModel, error)
+	EntryGetByID(string, string) (*EntryModel, error)
+	EntryUpsert(EntryModel) error
+	EntryDelete(EntryModel) error
 
-	MediaListByJournalID(Ordering) ([]MediaModel, error)
-	MediaGetByID(string) (*MediaModel, error)
-	MediaUpsert(*MediaModel) error
-	MediaDelete(*MediaModel) error
+	MediaListByJournalID() ([]MediaModel, error)
+	MediaGetByID(string, string) (*MediaModel, error)
+	MediaUpsert(MediaModel) error
+	MediaDelete(MediaModel) error
 }
 
 type journalWithEntries struct {
 	Path string
 
 	Journal JournalModel
-	Entries []EntryModel
-	Media   []MediaModel
+	Entries map[string]EntryModel
+	Media   map[string]MediaModel
 }
 
 func (j journalWithEntries) SyncUpdates() error {
@@ -132,14 +127,14 @@ func (fs *FlatStorage) slurpJournalContent(journalDir string) error {
 		return err
 	}
 
-	media := []MediaModel{}
+	media := map[string]MediaModel{}
 	if err := slurpJSON(journalDir, "media.json", &media); err != nil {
 		return err
 	}
 
-	entries := []EntryModel{}
 	entriesPath := filepath.Join(journalDir, "entries")
-	if err := fs.slurpJournalEntries(entriesPath, &entries); err != nil {
+	entries, err := fs.slurpJournalEntries(entriesPath)
+	if err != nil {
 		return err
 	}
 
@@ -147,17 +142,19 @@ func (fs *FlatStorage) slurpJournalContent(journalDir string) error {
 		Path:    journalDir,
 		Journal: journal,
 		Media:   media,
-		Entries: entries,
+		Entries: *entries,
 	}
 
 	return nil
 }
 
-func (fs *FlatStorage) slurpJournalEntries(entriesPath string, entries *[]EntryModel) error {
+func (fs *FlatStorage) slurpJournalEntries(entriesPath string) (*map[string]EntryModel, error) {
 	items, err := ioutil.ReadDir(entriesPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	entries := map[string]EntryModel{}
 
 	for _, entFile := range items {
 		if entFile.IsDir() || !strings.HasSuffix(entFile.Name(), ".json") {
@@ -167,15 +164,12 @@ func (fs *FlatStorage) slurpJournalEntries(entriesPath string, entries *[]EntryM
 
 		entry := EntryModel{}
 		if err = slurpJSON(entriesPath, entFile.Name(), &entry); err != nil {
-			return err
+			return nil, err
 		}
-
-		// TODO: i dont remember go, is this required? can i
-		//   just pass the slice instead of a ptr?
-		*entries = append(*entries, entry)
+		entries[entry.ID] = entry
 	}
 
-	return nil
+	return &entries, nil
 }
 
 func (fs *FlatStorage) journalPath(journal JournalModel) string {
@@ -214,8 +208,8 @@ func (fs *FlatStorage) JournalUpsert(update JournalModel) error {
 			Path: fs.journalPath(update),
 
 			Journal: update,
-			Entries: []EntryModel{},
-			Media:   []MediaModel{},
+			Entries: map[string]EntryModel{},
+			Media:   map[string]MediaModel{},
 		}
 	} else if existing, ok := fs.Journals[update.ID]; ok {
 		// updating existing record
@@ -230,17 +224,108 @@ func (fs *FlatStorage) JournalUpsert(update JournalModel) error {
 
 func (fs *FlatStorage) JournalDelete(*JournalModel) error { panic("not implemented") }
 
-func (fs *FlatStorage) EntryListByJournalID(string, Ordering) ([]EntryModel, error) {
-	panic("not implemented")
-}
-func (fs *FlatStorage) EntryGetByID(string) (*EntryModel, error) { panic("not implemented") }
-func (fs *FlatStorage) EntryUpsert(*EntryModel) error            { panic("not implemented") }
-func (fs *FlatStorage) EntryDelete(*EntryModel) error            { panic("not implemented") }
+func (fs *FlatStorage) EntryListByJournalID(journalID string) ([]EntryModel, error) {
+	journal, found := fs.Journals[journalID]
+	if !found {
+		return []EntryModel{}, errors.New("unknown journal ID")
+	}
 
-func (fs *FlatStorage) MediaListByJournalID(Ordering) ([]MediaModel, error) { panic("not implemented") }
-func (fs *FlatStorage) MediaGetByID(string) (*MediaModel, error)            { panic("not implemented") }
-func (fs *FlatStorage) MediaUpsert(*MediaModel) error                       { panic("not implemented") }
-func (fs *FlatStorage) MediaDelete(*MediaModel) error                       { panic("not implemented") }
+	// TODO: can we copy without a loop?
+	entries := make([]EntryModel, len(journal.Entries))
+	for _, ent := range journal.Entries {
+		entries = append(entries, ent)
+	}
+
+	return entries, nil
+}
+
+func (fs *FlatStorage) EntryGetByID(journalID, entryID string) (*EntryModel, error) {
+	journal, found := fs.Journals[journalID]
+	if !found {
+		return nil, errors.New("unknown journal ID")
+	}
+
+	for _, ent := range journal.Entries {
+		if ent.ID == entryID {
+			copy := ent
+			return &copy, nil
+		}
+	}
+
+	return nil, errors.New("unknown entry ID")
+}
+
+func (fs *FlatStorage) EntryUpsert(update EntryModel) error {
+	journalWithEntries, found := fs.Journals[update.JournalID]
+	if !found {
+		return errors.New("unknown journal ID")
+	}
+
+	// If we don't have an ID yet, this is an insert
+	if update.ID == "" {
+		update.ID = GenerateRandomString(32)
+	} else if _, found := journalWithEntries.Entries[update.ID]; !found {
+		return errors.New("trying to update a non-existent entry")
+	}
+
+	journalWithEntries.Entries[update.ID] = update
+	fs.Journals[update.JournalID] = journalWithEntries
+
+	return nil
+}
+
+func (fs *FlatStorage) EntryDelete(EntryModel) error { panic("not implemented") }
+
+func (fs *FlatStorage) MediaListByJournalID(journalID string) ([]MediaModel, error) {
+	journal, found := fs.Journals[journalID]
+	if !found {
+		return []MediaModel{}, errors.New("unknown journal ID")
+	}
+
+	// TODO: can we copy without a loop?
+	media := make([]MediaModel, len(journal.Media))
+	for _, m := range journal.Media {
+		media = append(media, m)
+	}
+
+	return media, nil
+}
+func (fs *FlatStorage) MediaGetByID(journalID, mediaID string) (*MediaModel, error) {
+	journal, found := fs.Journals[journalID]
+	if !found {
+		return nil, errors.New("unknown journal ID")
+	}
+
+	for _, m := range journal.Media {
+		if m.ID == mediaID {
+			copy := m
+			return &copy, nil
+		}
+	}
+
+	return nil, errors.New("unknown entry ID")
+}
+
+func (fs *FlatStorage) MediaUpsert(update MediaModel) error {
+	journalWithEntries, found := fs.Journals[update.JournalID]
+	if !found {
+		return errors.New("unknown journal ID")
+	}
+
+	// If we don't have an ID yet, this is an insert
+	if update.ID == "" {
+		update.ID = GenerateRandomString(32)
+	} else if _, found := journalWithEntries.Media[update.ID]; !found {
+		return errors.New("trying to update a non-existent media")
+	}
+
+	journalWithEntries.Media[update.ID] = update
+	fs.Journals[update.JournalID] = journalWithEntries
+
+	return nil
+}
+
+func (fs *FlatStorage) MediaDelete(MediaModel) error { panic("not implemented") }
 
 type JournalModel struct {
 	ID          string
@@ -256,10 +341,10 @@ type JournalModel struct {
 }
 
 type EntryModel struct {
-	ID           string
-	CollectionID string
-	URL          string
-	Parts        []EntryPartWrapper
+	ID        string
+	JournalID string
+	URL       string
+	Parts     []EntryPartWrapper
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -288,7 +373,6 @@ type EntryPartKind string
 const (
 	Markdown    EntryPartKind = "markdown"
 	InlineMedia               = "inline-media"
-	// Gallery                = "gallery"
 )
 
 type EntryPartWrapper struct {
@@ -312,13 +396,6 @@ type InlineMediaEntry struct {
 	FullWidth    bool   `json:"full_width"`
 	FullHeight   bool   `json:"full_height"`
 }
-
-// TODO
-// type GalleryEntry struct {
-// 	Title   string             `json:"title"`
-// 	Caption string             `json:"caption"`
-// 	Media   []InlineMediaEntry `json:"media"`
-// }
 
 func main() {
 	config := Config{
