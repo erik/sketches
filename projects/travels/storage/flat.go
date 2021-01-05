@@ -43,7 +43,9 @@ func NewFlatStorage(dir string) FlatStorage {
 	fs := FlatStorage{Dir: dir}
 
 	jd := filepath.Join(dir, "journals")
-	if err := os.MkdirAll(jd, os.ModeDir); err != nil {
+
+	// TODO: What's the appropriate mode for this?
+	if err := os.MkdirAll(jd, os.ModeDir|0700); err != nil {
 		panic(err)
 	}
 

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"net/http"
+	"path/filepath"
 
 	"github.com/gorilla/mux"
 
@@ -17,8 +20,8 @@ type Config struct {
 }
 
 type AppContext struct {
-	Config  Config
-	Storage storage.Storage
+	Config Config
+	Store  storage.Storage // TODO: rename this to storage.Store
 }
 
 func BuildAppContext(conf Config) AppContext {
@@ -28,8 +31,8 @@ func BuildAppContext(conf Config) AppContext {
 	)
 
 	return AppContext{
-		Config:  conf,
-		Storage: &store,
+		Config: conf,
+		Store:  &store,
 	}
 }
 
@@ -38,8 +41,8 @@ func main() {
 	config := Config{
 		ListenAddr:     "127.0.0.1:8080",
 		StaticDir:      "static/",
-		BuildDir:       "/tmp/output",
-		FlatStorageDir: "/tmp/input",
+		BuildDir:       "/tmp/journals/output",
+		FlatStorageDir: "/tmp/journals/input",
 	}
 
 	appCtx := BuildAppContext(config)
@@ -65,6 +68,7 @@ func serveAPI(router *mux.Router, appCtx *AppContext) {
 	sr := router.PathPrefix("/api/v1").Subrouter()
 
 	// TODO: authentication middleware here
+	// TODO: likely most of these routes will not be required
 
 	sr.HandleFunc("/media", handler.listMedia).Methods(http.MethodGet)
 	sr.HandleFunc("/media", handler.createMedia).Methods(http.MethodPost)
@@ -91,8 +95,8 @@ func serveUI(router *mux.Router, appCtx *AppContext) {
 		Handler(http.StripPrefix("/static/",
 			http.FileServer(http.Dir(appCtx.Config.StaticDir))))
 
-	sr.HandleFunc("/journals", handler.listJournals).Methods(http.MethodGet)
-	sr.HandleFunc("/journals/{ID}", handler.showJournal).Methods(http.MethodGet)
+	sr.HandleFunc("/journals", handler.showJournalList).Methods(http.MethodGet)
+	sr.HandleFunc("/journals/{ID}", handler.showJournalEntries).Methods(http.MethodGet)
 	sr.HandleFunc("/journals/{ID}/{ID}", handler.showEntry).Methods(http.MethodGet)
 
 	sr.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
@@ -100,11 +104,66 @@ func serveUI(router *mux.Router, appCtx *AppContext) {
 	})
 }
 
+func SimpleError(w http.ResponseWriter, req *http.Request, err error) {
+	// TODO: implement this
+	panic(err)
+}
+
 type UIHandler struct{ *AppContext }
 
-func (*UIHandler) listJournals(w http.ResponseWriter, req *http.Request) {}
-func (*UIHandler) showJournal(w http.ResponseWriter, req *http.Request)  {}
-func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request)    {}
+// TODO: Need a more serious wrapper around this eventually
+var templates = make(map[string]*template.Template)
+
+func init() {
+	names := []string{
+		"journal_list",
+	}
+
+	commonFiles, err := filepath.Glob("template/common/*")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, name := range names {
+		fileName := fmt.Sprintf("%s.html", name)
+		path := filepath.Join("template/", fileName)
+		templates[name] = template.Must(
+			template.New(fileName).ParseFiles(append(commonFiles, path)...),
+		)
+	}
+}
+
+func renderHTML(tplName string, tplData map[string]interface{}, w http.ResponseWriter, req *http.Request) {
+	tpl, ok := templates[tplName]
+	if !ok {
+		panic("unknown template")
+	}
+
+	var output bytes.Buffer
+	if err := tpl.ExecuteTemplate(&output, "base", tplData); err != nil {
+		SimpleError(w, req, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(output.Bytes())
+}
+
+func (h *UIHandler) showJournalList(w http.ResponseWriter, req *http.Request) {
+	journals, err := h.Store.JournalList()
+	if err != nil {
+		SimpleError(w, req, err)
+		return
+	}
+
+	vars := make(map[string]interface{})
+	vars["journals"] = journals
+
+	renderHTML("journal_list", vars, w, req)
+}
+
+func (*UIHandler) showJournalEntries(w http.ResponseWriter, req *http.Request) {}
+func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request)          {}
 
 type APIHandler struct{ *AppContext }
 
