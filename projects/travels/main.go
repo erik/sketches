@@ -24,15 +24,15 @@ type AppContext struct {
 	Store  storage.Storage // TODO: rename this to storage.Store
 }
 
-func BuildAppContext(conf Config) AppContext {
+func BuildAppContext(c Config) AppContext {
 	// TODO: this needs more configurability
-	store := storage.NewFlatStorage(
-		conf.FlatStorageDir,
+	s := storage.NewFlatStorage(
+		c.FlatStorageDir,
 	)
 
 	return AppContext{
-		Config: conf,
-		Store:  &store,
+		Config: c,
+		Store:  &s,
 	}
 }
 
@@ -55,12 +55,12 @@ func main() {
 }
 
 func NewRouter(appCtx *AppContext) *mux.Router {
-	router := mux.NewRouter()
+	r := mux.NewRouter()
 
-	serveAPI(router, appCtx)
-	serveUI(router, appCtx)
+	serveAPI(r, appCtx)
+	serveUI(r, appCtx)
 
-	return router
+	return r
 }
 
 func serveAPI(router *mux.Router, appCtx *AppContext) {
@@ -99,8 +99,8 @@ func serveUI(router *mux.Router, appCtx *AppContext) {
 	sr.HandleFunc("/journals/{ID}", handler.showJournalEntries).Methods(http.MethodGet)
 	sr.HandleFunc("/journals/{ID}/{ID}", handler.showEntry).Methods(http.MethodGet)
 
-	sr.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		http.ServeFile(w, req, "index.html")
+	sr.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/journals", http.StatusSeeOther)
 	})
 }
 
@@ -109,14 +109,47 @@ func SimpleError(w http.ResponseWriter, req *http.Request, err error) {
 	panic(err)
 }
 
+type TemplateContext struct {
+	tpl  *template.Template
+	data map[string]interface{}
+}
+
+func NewTemplateContext(tplName string) TemplateContext {
+	tpl, ok := templates[tplName]
+	if !ok {
+		panic("unknown template")
+	}
+
+	return TemplateContext{
+		tpl:  tpl,
+		data: map[string]interface{}{},
+	}
+}
+
+func (c *TemplateContext) Set(k string, v interface{}) {
+	c.data[k] = v
+}
+
+func (c TemplateContext) RenderHTML(w http.ResponseWriter, r *http.Request) error {
+	var output bytes.Buffer
+	if err := c.tpl.ExecuteTemplate(&output, "base", c.data); err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(output.Bytes())
+	return nil
+}
+
 type UIHandler struct{ *AppContext }
 
 // TODO: Need a more serious wrapper around this eventually
-var templates = make(map[string]*template.Template)
+var templates = map[string]*template.Template{}
 
 func init() {
 	names := []string{
 		"journal_list",
+		"entry_list",
 	}
 
 	commonFiles, err := filepath.Glob("template/common/*")
@@ -124,29 +157,12 @@ func init() {
 		panic(err)
 	}
 
-	for _, name := range names {
-		fileName := fmt.Sprintf("%s.html", name)
-		path := filepath.Join("template/", fileName)
-		templates[name] = template.Must(
-			template.New(fileName).ParseFiles(append(commonFiles, path)...),
+	for _, n := range names {
+		p := filepath.Join("template/", fmt.Sprintf("%s.html", n))
+		templates[n] = template.Must(
+			template.New("").ParseFiles(append(commonFiles, p)...),
 		)
 	}
-}
-
-func renderHTML(tplName string, tplData map[string]interface{}, w http.ResponseWriter, req *http.Request) {
-	tpl, ok := templates[tplName]
-	if !ok {
-		panic("unknown template")
-	}
-
-	var output bytes.Buffer
-	if err := tpl.ExecuteTemplate(&output, "base", tplData); err != nil {
-		SimpleError(w, req, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html")
-	w.Write(output.Bytes())
 }
 
 func (h *UIHandler) showJournalList(w http.ResponseWriter, req *http.Request) {
@@ -156,14 +172,41 @@ func (h *UIHandler) showJournalList(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	vars := make(map[string]interface{})
-	vars["journals"] = journals
-
-	renderHTML("journal_list", vars, w, req)
+	ctx := NewTemplateContext("journal_list")
+	ctx.Set("journals", journals)
+	ctx.RenderHTML(w, req)
 }
 
-func (*UIHandler) showJournalEntries(w http.ResponseWriter, req *http.Request) {}
-func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request)          {}
+func (h *UIHandler) showJournalEntries(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	journalID, ok := vars["ID"]
+	if !ok {
+		err := fmt.Errorf("missing journalID")
+		SimpleError(w, req, err)
+		return
+	}
+
+	journal, err := h.Store.JournalGetByID(journalID)
+	if err != nil {
+		SimpleError(w, req, err)
+		return
+	}
+
+	entries, err := h.Store.EntryListByJournalID(journal.ID)
+	if err != nil {
+		SimpleError(w, req, err)
+		return
+	}
+
+	ctx := NewTemplateContext("entry_list")
+	ctx.Set("journal", journal)
+	ctx.Set("entries", entries)
+	ctx.RenderHTML(w, req)
+}
+
+func (*UIHandler) showEntry(w http.ResponseWriter, req *http.Request) {
+
+}
 
 type APIHandler struct{ *AppContext }
 
