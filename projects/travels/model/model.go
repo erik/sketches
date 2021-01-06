@@ -5,23 +5,23 @@ import (
 )
 
 type Journal struct {
-	ID          string
-	Title       string
-	Description string
-	URL         string
-	StartedAt   time.Time
-	CompletedAt time.Time
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	URL         string    `json:"url"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	DeletedAt time.Time `json:"deleted_at"`
 }
 
 type Entry struct {
-	ID        string
-	JournalID string
-	URL       string
-	Parts     []EntryPartWrapper
+	ID        string             `json:"id"`
+	JournalID string             `json:"journal_id"`
+	URL       string             `json:"url"`
+	Parts     []EntryPartWrapper `json:"parts"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -29,16 +29,16 @@ type Entry struct {
 }
 
 type Media struct {
-	ID        string
-	JournalID string
-	EntryID   string
+	ID        string `json:"id"`
+	JournalID string `json:"journal_id"`
+	EntryID   string `json:"entry_id"`
 
-	Name        string
-	PublicURL   string
-	Size        int64
-	ContentType string
-	IsCover     bool
-	IsPublic    bool
+	Name        string `json:"name"`
+	PublicURL   string `json:"public_url"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"`
+	IsCover     bool   `json:"is_cover"`
+	IsPublic    bool   `json:"is_public"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

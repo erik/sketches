@@ -40,7 +40,10 @@ type FlatStorage struct {
 
 // TODO: remove the panics? are these recoverable?
 func NewFlatStorage(dir string) FlatStorage {
-	fs := FlatStorage{Dir: dir}
+	fs := FlatStorage{
+		Dir:      dir,
+		Journals: map[string]journalWithEntries{},
+	}
 
 	jd := filepath.Join(dir, "journals")
 
@@ -70,7 +73,7 @@ func (fs *FlatStorage) slurpJournals(journalsDir string) error {
 
 		jd := filepath.Join(journalsDir, item.Name())
 		if err = fs.slurpJournalContent(jd); err != nil {
-			return nil
+			return err
 		}
 	}
 

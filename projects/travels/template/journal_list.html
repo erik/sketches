@@ -1,5 +1,19 @@
 {{ define "title" }} Journals {{ end }}
 
 {{ define "content" }}
-Hello I will list journals here!
+
+{{ if not .journals }}
+  <h1>nothing yet!</h1>
+{{ else }}
+  <section class="journal-list">
+    {{ range .journals }}
+    <article>
+      <h1>{{ .Title }}</h1>
+      <p>{{ .Description }}</p>
+    </article>
+    {{ end }}
+  </section>
+{{ end}}
+
+
 {{ end }}
