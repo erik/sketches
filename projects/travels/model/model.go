@@ -1,31 +1,65 @@
 package model
 
 import (
+	"regexp"
 	"time"
 )
 
 type Journal struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	URL         string    `json:"url"`
-	StartedAt   time.Time `json:"started_at"`
-	CompletedAt time.Time `json:"completed_at"`
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Slug        string     `json:"slug"`
+	StartedAt   time.Time  `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	DeletedAt time.Time `json:"deleted_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt *time.Time `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+func NewJournal(title string, description string) Journal {
+	now := time.Now()
+
+	return Journal{
+		ID:          "",
+		Title:       title,
+		Description: description,
+		Slug:        SlugifyTitle(title),
+
+		StartedAt:   now,
+		CompletedAt: nil,
+
+		CreatedAt: now,
+		UpdatedAt: nil,
+		DeletedAt: nil,
+	}
 }
 
 type Entry struct {
 	ID        string             `json:"id"`
 	JournalID string             `json:"journal_id"`
-	URL       string             `json:"url"`
+	Title     string             `json:"title"`
 	Parts     []EntryPartWrapper `json:"parts"`
+	Slug      string             `json:"slug"`
 
 	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt time.Time
+	UpdatedAt *time.Time
+	DeletedAt *time.Time
+}
+
+func NewEntry(journalID string, title string, parts []EntryPartWrapper) Entry {
+	return Entry{
+		ID:        "",
+		JournalID: journalID,
+		Title:     title,
+		Parts:     parts,
+		Slug:      SlugifyTitle(title),
+
+		CreatedAt: time.Now(),
+		UpdatedAt: nil,
+		DeletedAt: nil,
+	}
 }
 
 type Media struct {
@@ -34,8 +68,8 @@ type Media struct {
 	EntryID   string `json:"entry_id"`
 
 	Name        string `json:"name"`
-	PublicURL   string `json:"public_url"`
 	Size        int64  `json:"size"`
+	Slug        string `json:"slug"`
 	ContentType string `json:"content_type"`
 	IsCover     bool   `json:"is_cover"`
 	IsPublic    bool   `json:"is_public"`
@@ -72,4 +106,14 @@ type InlineMediaEntry struct {
 	Caption      string `json:"caption"`
 	FullWidth    bool   `json:"full_width"`
 	FullHeight   bool   `json:"full_height"`
+}
+
+var (
+	nonAlnum     = regexp.MustCompile("[[:^alnum:]]")
+	repeatedDash = regexp.MustCompile("-+")
+)
+
+func SlugifyTitle(t string) string {
+	t = nonAlnum.ReplaceAllString(t, "-")
+	return repeatedDash.ReplaceAllString(t, "-")
 }

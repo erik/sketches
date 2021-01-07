@@ -8,7 +8,7 @@
   <section class="journal-list">
     {{ range .journals }}
     <article>
-      <h1>{{ .Title }}</h1>
+      <h1><a href="/journals/{{.ID}}">{{ .Title }}</a></h1>
       <p>{{ .Description }}</p>
     </article>
     {{ end }}

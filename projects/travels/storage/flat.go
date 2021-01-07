@@ -149,15 +149,15 @@ func (fs *FlatStorage) journalPath(journal model.Journal) string {
 	// TODO: For now, keep it simple, but eventually it would be
 	// nice to have these more appropriately ordered.
 	//
-	// e.g. journals/2020_12_31_[id hash]_this_is_my_post_title_slug
+	// e.g. journals/2020-12-31_[id hash]_this-is-my-post-title-slug
 	return filepath.Join(fs.Dir, "journals", journal.ID)
 }
 
 func (fs *FlatStorage) JournalList() ([]model.Journal, error) {
-	journals := make([]model.Journal, len(fs.Journals))
+	journals := []model.Journal{}
 
-	for _, j := range fs.Journals {
-		journals = append(journals, j.Journal)
+	for _, jrnl := range fs.Journals {
+		journals = append(journals, jrnl.Journal)
 	}
 
 	return journals, nil
@@ -172,21 +172,21 @@ func (fs *FlatStorage) JournalGetByID(ID string) (*model.Journal, error) {
 	return nil, errors.New("unknown journal ID")
 }
 
-func (fs *FlatStorage) JournalUpsert(update model.Journal) error {
+func (fs *FlatStorage) JournalUpsert(update *model.Journal) error {
 	// If we don't have an ID yet, this is an insert
 	if update.ID == "" {
-		update.ID = genRandomID(32)
+		update.ID = genRandomID()
 
 		fs.Journals[update.ID] = journalWithEntries{
-			Path: fs.journalPath(update),
+			Path: fs.journalPath(*update),
 
-			Journal: update,
+			Journal: *update,
 			Entries: map[string]model.Entry{},
 			Media:   map[string]model.Media{},
 		}
 	} else if existing, ok := fs.Journals[update.ID]; ok {
 		// updating existing record
-		existing.Journal = update
+		existing.Journal = *update
 		fs.Journals[update.ID] = existing
 	} else {
 		return errors.New("trying to update a non-existent journal")
@@ -195,7 +195,7 @@ func (fs *FlatStorage) JournalUpsert(update model.Journal) error {
 	return nil
 }
 
-func (fs *FlatStorage) JournalDelete(model.Journal) error { panic("not implemented") }
+func (fs *FlatStorage) JournalDelete(*model.Journal) error { panic("not implemented") }
 
 func (fs *FlatStorage) EntryListByJournalID(journalID string) ([]model.Entry, error) {
 	journal, found := fs.Journals[journalID]
@@ -228,7 +228,7 @@ func (fs *FlatStorage) EntryGetByID(journalID, entryID string) (*model.Entry, er
 	return nil, errors.New("unknown entry ID")
 }
 
-func (fs *FlatStorage) EntryUpsert(update model.Entry) error {
+func (fs *FlatStorage) EntryUpsert(update *model.Entry) error {
 	journalWithEntries, found := fs.Journals[update.JournalID]
 	if !found {
 		return errors.New("unknown journal ID")
@@ -236,18 +236,18 @@ func (fs *FlatStorage) EntryUpsert(update model.Entry) error {
 
 	// If we don't have an ID yet, this is an insert
 	if update.ID == "" {
-		update.ID = genRandomID(32)
+		update.ID = genRandomID()
 	} else if _, found := journalWithEntries.Entries[update.ID]; !found {
 		return errors.New("trying to update a non-existent entry")
 	}
 
-	journalWithEntries.Entries[update.ID] = update
+	journalWithEntries.Entries[update.ID] = *update
 	fs.Journals[update.JournalID] = journalWithEntries
 
 	return nil
 }
 
-func (fs *FlatStorage) EntryDelete(model.Entry) error { panic("not implemented") }
+func (fs *FlatStorage) EntryDelete(*model.Entry) error { panic("not implemented") }
 
 func (fs *FlatStorage) MediaListByJournalID(journalID string) ([]model.Media, error) {
 	journal, found := fs.Journals[journalID]
@@ -279,7 +279,7 @@ func (fs *FlatStorage) MediaGetByID(journalID, mediaID string) (*model.Media, er
 	return nil, errors.New("unknown entry ID")
 }
 
-func (fs *FlatStorage) MediaUpsert(update model.Media) error {
+func (fs *FlatStorage) MediaUpsert(update *model.Media) error {
 	journalWithEntries, found := fs.Journals[update.JournalID]
 	if !found {
 		return errors.New("unknown journal ID")
@@ -287,23 +287,24 @@ func (fs *FlatStorage) MediaUpsert(update model.Media) error {
 
 	// If we don't have an ID yet, this is an insert
 	if update.ID == "" {
-		update.ID = genRandomID(32)
+		update.ID = genRandomID()
 	} else if _, found := journalWithEntries.Media[update.ID]; !found {
 		return errors.New("trying to update a non-existent media")
 	}
 
-	journalWithEntries.Media[update.ID] = update
+	journalWithEntries.Media[update.ID] = *update
 	fs.Journals[update.JournalID] = journalWithEntries
 
 	return nil
 }
 
-func (fs *FlatStorage) MediaDelete(model.Media) error { panic("not implemented") }
+func (fs *FlatStorage) MediaDelete(*model.Media) error { panic("not implemented") }
 
-func genRandomID(length int) string {
-	bytes := make([]byte, length)
+func genRandomID() string {
+	bytes := make([]byte, 4)
 	if _, err := rand.Read(bytes); err != nil {
 		panic(err)
 	}
-	return base32.StdEncoding.EncodeToString(bytes)
+	encoded := base32.StdEncoding.EncodeToString(bytes)
+	return strings.ReplaceAll(encoded, "=", "")
 }
