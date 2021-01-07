@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/erik/travels/model"
 	"github.com/erik/travels/storage"
 )
 
@@ -36,6 +37,33 @@ func BuildAppContext(c Config) AppContext {
 	}
 }
 
+// TODO: remove this - for testing
+func seedStorage(s storage.Storage) {
+	for i := 0; i < 5; i++ {
+		jrnl := model.NewJournal(
+			fmt.Sprintf("Journal #%d", i),
+			fmt.Sprintf("A description #%s", i),
+		)
+		if err := s.JournalUpsert(&jrnl); err != nil {
+			panic(err)
+		}
+		fmt.Printf("- %+v\n", jrnl)
+
+		for j := 0; j < 5; j++ {
+			e := model.NewEntry(
+				jrnl.ID,
+				fmt.Sprintf("Entry %d", j),
+				[]model.EntryPartWrapper{},
+			)
+			if err := s.EntryUpsert(&e); err != nil {
+				panic(err)
+			}
+
+			fmt.Printf("  - %+v\n", e)
+		}
+	}
+}
+
 func main() {
 	// TODO: Read this from environment
 	config := Config{
@@ -46,6 +74,8 @@ func main() {
 	}
 
 	appCtx := BuildAppContext(config)
+
+	seedStorage(appCtx.Store)
 
 	router := NewRouter(&appCtx)
 	http.Handle("/", router)
