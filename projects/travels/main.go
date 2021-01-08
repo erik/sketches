@@ -42,7 +42,7 @@ func seedStorage(s storage.Storage) {
 	for i := 0; i < 5; i++ {
 		jrnl := model.NewJournal(
 			fmt.Sprintf("Journal #%d", i),
-			fmt.Sprintf("A description #%s", i),
+			fmt.Sprintf("A description #%d", i),
 		)
 		if err := s.JournalUpsert(&jrnl); err != nil {
 			panic(err)
@@ -119,7 +119,9 @@ func serveAPI(router *mux.Router, appCtx *AppContext) {
 
 func serveUI(router *mux.Router, appCtx *AppContext) {
 	handler := UIHandler{appCtx}
-	sr := router.NewRoute().Subrouter()
+	sr := router.NewRoute().
+		Subrouter().
+		StrictSlash(true)
 
 	sr.PathPrefix("/static/").
 		Handler(http.StripPrefix("/static/",

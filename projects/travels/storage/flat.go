@@ -203,8 +203,7 @@ func (fs *FlatStorage) EntryListByJournalID(journalID string) ([]model.Entry, er
 		return []model.Entry{}, errors.New("unknown journal ID")
 	}
 
-	// TODO: can we copy without a loop?
-	entries := make([]model.Entry, len(journal.Entries))
+	entries := []model.Entry{}
 	for _, ent := range journal.Entries {
 		entries = append(entries, ent)
 	}
@@ -255,8 +254,7 @@ func (fs *FlatStorage) MediaListByJournalID(journalID string) ([]model.Media, er
 		return []model.Media{}, errors.New("unknown journal ID")
 	}
 
-	// TODO: can we copy without a loop?
-	media := make([]model.Media, len(journal.Media))
+	media := []model.Media{}
 	for _, m := range journal.Media {
 		media = append(media, m)
 	}

@@ -1,5 +1,21 @@
-{{ define "title" }} {{ .Journal.Title }} | travels {{ end }}
+{{ define "title" }} {{ .journal.Title }} | travels {{ end }}
 
 {{ define "content"}}
-Hi, here's where the entries will go.
+<h1>{{ .journal.Title }}</h1>
+
+<section>
+  <p>{{ .journal.Description }}</p>
+</section>
+
+<section class="entry-list">
+  {{ range .entries }}
+  <article>
+    <h2>
+      <a href="/journals/{{$.journal.ID}}/{{.ID}}">
+        {{.Title}}
+      </a>
+    </h2>
+  </article>
+  {{ end }}
+</section>
 {{ end }}
