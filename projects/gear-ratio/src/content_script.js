@@ -3,10 +3,10 @@ const AppState = {
   rootNode: null,
   gear: {},
   components: {},
-  unit: null,
+  unit: null
 }
 
-function queryAthleteId(document) {
+function queryAthleteId (document) {
   // Convert "/atheletes/id" href to "id"
   return document.querySelector(
     '#athlete-profile a[href^="/athletes/"]'
@@ -16,14 +16,13 @@ function queryAthleteId(document) {
     .pop()
 }
 
-
-function queryContainerNode(document) {
+function queryContainerNode (document) {
   return document.querySelector(
     '#dashboard-athlete-sidebar .fixed-sidebar-container div'
   )
 }
 
-function queryDisplayUnit(document) {
+function queryDisplayUnit (document) {
   // FIXME: this is iffy. Some activities (rowing) are hardcoded to
   //   meters even if display preferences are for miles.
   const distanceUnit = (
@@ -36,21 +35,19 @@ function queryDisplayUnit(document) {
   return ''
 }
 
-
-function queryOrCreateRootNode(containerNode) {
+function queryOrCreateRootNode (containerNode) {
   let n = containerNode.querySelector('#gear-ratio-app')
   if (n !== null) {
     return n
   }
 
-  n = createNode('div', {id: 'gear-ratio-app'})
+  n = createNode('div', { id: 'gear-ratio-app' })
   console.log(containerNode, n)
   containerNode.appendChild(n)
   return n
 }
 
-
-async function initializeState(document) {
+async function initializeState (document) {
   console.log('begin!')
   AppState.athleteId = queryAthleteId(document)
   AppState.unit = queryDisplayUnit(document)
@@ -70,7 +67,7 @@ async function initializeState(document) {
   console.info('initialized app state:', AppState)
 }
 
-function parseTable(table) {
+function parseTable (table) {
   const data = []
 
   // TODO(erik): hardcoding is bad
@@ -81,7 +78,7 @@ function parseTable(table) {
     'added',
     'removed',
     'distance',
-    'action',
+    'action'
   ]
 
   // TODO: this provides localized names, should use this
@@ -99,7 +96,7 @@ function parseTable(table) {
 
       // TODO: actually parse this (localized, of course)
       if (name === 'distance') {
-        val = val.replace(/[^0-9,\. ]/g, '')
+        val = val.replace(/[^0-9,. ]/g, '')
       }
 
       rowData[columnNames[j]] = val
@@ -111,19 +108,19 @@ function parseTable(table) {
   return data
 }
 
-async function fetchJSON(url) {
+async function fetchJSON (url) {
   const res = await fetch(url)
   return await res.json()
 }
 
-async function fetchHTML(url) {
+async function fetchHTML (url) {
   const res = await fetch(url)
   const text = await res.text()
 
   return new DOMParser().parseFromString(text, 'text/html')
 }
 
-async function fetchGear(athleteId) {
+async function fetchGear (athleteId) {
   const baseURL = `https://www.strava.com/athletes/${athleteId}/gear/`
 
   const bikes = await fetchJSON(baseURL + 'bikes')
@@ -131,14 +128,13 @@ async function fetchGear(athleteId) {
 
   const res = {
     bikes: bikes.filter(it => it.active),
-    shoes: shoes.filter(it => it.active),
+    shoes: shoes.filter(it => it.active)
   }
 
   return res
 }
 
-
-async function fetchBikeComponents(gearId) {
+async function fetchBikeComponents (gearId) {
   const url = `https://www.strava.com/bikes/${gearId}`
   const doc = await fetchHTML(url)
 
@@ -146,7 +142,7 @@ async function fetchBikeComponents(gearId) {
 
   const [
     _, // Bike details, not interested.
-    componentTable,
+    componentTable
   ] = doc.querySelectorAll('table')
 
   console.log('parse', componentTable)
@@ -154,7 +150,7 @@ async function fetchBikeComponents(gearId) {
   return parseTable(componentTable)
 }
 
-function render(state) {
+function render (state) {
   const distance = (d) => `${d} ${state.unit}`
 
   const bikes = state.gear.bikes.map(bike => {
@@ -174,98 +170,96 @@ function render(state) {
         }, [
           c.type
         ]),
-        h('span', {style: 'grid-column: 8/12;text-align:right;', title: c.added}, [
-          h('span', {style: 'border-bottom: 1px dotted #777;'}, distance(c.distance)),
-        ]),
+        h('span', { style: 'grid-column: 8/12;text-align:right;', title: c.added }, [
+          h('span', { style: 'border-bottom: 1px dotted #777;' }, distance(c.distance))
+        ])
       ])
     })
 
-    return h('p', {className: 'text-small'}, [
-      h('div', {className: 'text-label'}, [
-        h('strong', {}, h('a', {href}, bike.display_name)),
+    return h('p', { className: 'text-small' }, [
+      h('div', { className: 'text-label' }, [
+        h('strong', {}, h('a', { href }, bike.display_name)),
         ' • ',
         h('span', {}, distance(bike.total_distance))
       ]),
-      h('ul', {}, components),
+      h('ul', {}, components)
     ])
   })
   const shoes = state.gear.shoes.map(shoe => {
     const href = `https://strava.com/shoes/${shoe.id}`
-    return h('div', {className: 'text-small'}, [
-      h('div', {className: 'text-label'}, [
-        h('a', {href}, [
-          h('strong', {}, shoe.display_name),
+    return h('div', { className: 'text-small' }, [
+      h('div', { className: 'text-label' }, [
+        h('a', { href }, [
+          h('strong', {}, shoe.display_name)
         ]),
         h('span', {}, [
           ' • ',
-          distance(shoe.total_distance),
-        ]),
-      ]),
+          distance(shoe.total_distance)
+        ])
+      ])
     ])
   })
 
-  return h('div', {className: 'card'}, [
-    h('div', {className: 'card-body'}, [
-      h('div', {className: 'card-section'}, 'Bikes'),
-      h('div', {className: 'card-section'}, [
-        h('div', {}, bikes),
-      ]),
+  return h('div', { className: 'card' }, [
+    h('div', { className: 'card-body' }, [
+      h('div', { className: 'card-section' }, 'Bikes'),
+      h('div', { className: 'card-section' }, [
+        h('div', {}, bikes)
+      ])
     ]),
-    h('div', {className: 'card-body'}, [
-      h('div', {className: 'card-section'}, 'Shoes'),
-      h('div', {className: 'card-section'}, [
-        h('div', {}, shoes),
-      ]),
+    h('div', { className: 'card-body' }, [
+      h('div', { className: 'card-section' }, 'Shoes'),
+      h('div', { className: 'card-section' }, [
+        h('div', {}, shoes)
+      ])
     ]),
-    h('div', {className: 'card-footer'}, [
-      h('div', {className: 'card-section'}, [
+    h('div', { className: 'card-footer' }, [
+      h('div', { className: 'card-section' }, [
         h('a', {
           className: 'btn-card-link media media-middle',
-          href: '/settings/gear',
+          href: '/settings/gear'
         }, [
-          h('div', {className: 'media-body'}, 'Manage Your Gear'),
-          h('div', {className: 'media-right'}, [
-            h('span', {className: 'app-icon-wrapper'}, [
-              h('span', {className: 'app-icon icon-caret-right icon-dark icon-lg'})
+          h('div', { className: 'media-body' }, 'Manage Your Gear'),
+          h('div', { className: 'media-right' }, [
+            h('span', { className: 'app-icon-wrapper' }, [
+              h('span', { className: 'app-icon icon-caret-right icon-dark icon-lg' })
             ])
-          ]),
+          ])
         ])
       ])
     ])
   ])
 }
 
-
-function createNode(tag, props, children) {
-  const ns = props.xmlns || 'http://www.w3.org/1999/xhtml';
-  const node = document.createElementNS(ns, tag);
+function createNode (tag, props, children) {
+  const ns = props.xmlns || 'http://www.w3.org/1999/xhtml'
+  const node = document.createElementNS(ns, tag)
 
   for (const key in props) {
-    const val = props[key];
+    const val = props[key]
 
     switch (key) {
-    case 'className':
-      node.classList.add(...val.split(' '));
-      break;
-    case 'onClick':
-      node.addEventListener('click', val);
-      break;
-    default:
-      node.setAttribute(key, val);
+      case 'className':
+        node.classList.add(...val.split(' '))
+        break
+      case 'onClick':
+        node.addEventListener('click', val)
+        break
+      default:
+        node.setAttribute(key, val)
     }
   }
 
   children = children || [];
   (Array.isArray(children) ? children : [children])
     .map(ch => (typeof ch === 'string') ? document.createTextNode(ch) : ch)
-    .forEach(n => n && node.appendChild(n));
+    .forEach(n => n && node.appendChild(n))
 
-  return node;
+  return node
 }
 
 // shortcuts
 const h = createNode;
-
 
 (async () => {
   console.log('start')

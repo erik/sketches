@@ -1,9 +1,7 @@
-const path = require('path');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
+const path = require('path')
+const CopyWebpackPlugin = require('copy-webpack-plugin')
 
-
-const BUILD_DIR = path.resolve(__dirname, 'build');
-
+const BUILD_DIR = path.resolve(__dirname, 'build')
 
 module.exports = {
   entry: {
@@ -12,7 +10,7 @@ module.exports = {
 
   output: {
     path: BUILD_DIR,
-    filename: '[name].js',
+    filename: '[name].js'
   },
 
   module: {
@@ -21,7 +19,7 @@ module.exports = {
   plugins: [
     new CopyWebpackPlugin({
       patterns: [
-        {from: './addon/', to: BUILD_DIR},
+        { from: './addon/', to: BUILD_DIR }
       ]
     })
   ]
