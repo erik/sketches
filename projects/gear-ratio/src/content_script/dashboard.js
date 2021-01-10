@@ -1,6 +1,7 @@
+import { h } from '../render'
+
 const AppState = {
   athleteId: null,
-  rootNode: null,
   gear: {},
   components: {},
   unit: null
@@ -41,21 +42,14 @@ function queryOrCreateRootNode (containerNode) {
     return n
   }
 
-  n = createNode('div', { id: 'gear-ratio-app' })
-  console.log(containerNode, n)
+  n = h('div', { id: 'gear-ratio-app' })
   containerNode.appendChild(n)
   return n
 }
 
 async function initializeState (document) {
-  console.log('begin!')
   AppState.athleteId = queryAthleteId(document)
   AppState.unit = queryDisplayUnit(document)
-
-  const containerNode = queryContainerNode(document)
-  AppState.rootNode = queryOrCreateRootNode(containerNode)
-
-  console.log(AppState)
 
   AppState.gear = await fetchGear(AppState.athleteId)
 
@@ -138,16 +132,11 @@ async function fetchBikeComponents (gearId) {
   const url = `https://www.strava.com/bikes/${gearId}`
   const doc = await fetchHTML(url)
 
-  console.log('receiv', doc)
-
-  const [
-    _, // Bike details, not interested.
-    componentTable
-  ] = doc.querySelectorAll('table')
-
-  console.log('parse', componentTable)
-
-  return parseTable(componentTable)
+  // Should have two elements:
+  //   1. Bike details, not of interest
+  //   2. Components
+  const tables = doc.querySelectorAll('table')
+  return parseTable(tables[1])
 }
 
 function render (state) {
@@ -213,17 +202,21 @@ function render (state) {
         h('div', {}, shoes)
       ])
     ]),
-    h('div', { className: 'card-footer' }, [
-      h('div', { className: 'card-section' }, [
-        h('a', {
-          className: 'btn-card-link media media-middle',
-          href: '/settings/gear'
-        }, [
-          h('div', { className: 'media-body' }, 'Manage Your Gear'),
-          h('div', { className: 'media-right' }, [
-            h('span', { className: 'app-icon-wrapper' }, [
-              h('span', { className: 'app-icon icon-caret-right icon-dark icon-lg' })
-            ])
+    renderCardFooter()
+  ])
+}
+
+function renderCardFooter () {
+  return h('div', { className: 'card-footer' }, [
+    h('div', { className: 'card-section' }, [
+      h('a', {
+        className: 'btn-card-link media media-middle',
+        href: '/settings/gear'
+      }, [
+        h('div', { className: 'media-body' }, 'Manage Your Gear'),
+        h('div', { className: 'media-right' }, [
+          h('span', { className: 'app-icon-wrapper' }, [
+            h('span', { className: 'app-icon icon-caret-right icon-dark icon-lg' })
           ])
         ])
       ])
@@ -231,43 +224,46 @@ function render (state) {
   ])
 }
 
-function createNode (tag, props, children) {
-  const ns = props.xmlns || 'http://www.w3.org/1999/xhtml'
-  const node = document.createElementNS(ns, tag)
-
-  for (const key in props) {
-    const val = props[key]
-
-    switch (key) {
-      case 'className':
-        node.classList.add(...val.split(' '))
-        break
-      case 'onClick':
-        node.addEventListener('click', val)
-        break
-      default:
-        node.setAttribute(key, val)
-    }
-  }
-
-  children = children || [];
-  (Array.isArray(children) ? children : [children])
-    .map(ch => (typeof ch === 'string') ? document.createTextNode(ch) : ch)
-    .forEach(n => n && node.appendChild(n))
-
-  return node
+function renderError (error) {
+  return h('div', { className: 'card' }, [
+    h('div', { className: 'card-body' }, [
+      h('div', { className: 'card-section' }, 'Sorry :('),
+      h('div', { className: 'card-section' }, [
+        h('p', {}, 'Something went wrong'),
+        h('p', {}, 'Details:'),
+        h('pre', {}, error.toString())
+      ])
+    ]),
+    renderCardFooter()
+  ])
 }
 
-// shortcuts
-const h = createNode;
+function renderInitial () {
+  return h('div', { className: 'card' }, [
+    h('div', { className: 'card-body' }, [
+      h('div', { className: 'card-section' }, [
+        h('div', { className: 'loading-container' }, [
+          h('div', { className: 'spinner sm' }, [
+            h('div', { className: 'graphic' }),
+            h('span', { className: 'status' }, 'Loading ...')
+          ])
+        ])
+      ])
+    ]),
+    renderCardFooter()
+  ])
+}
 
 (async () => {
-  console.log('start')
+  const containerNode = queryContainerNode(document)
+  const rootNode = queryOrCreateRootNode(containerNode)
+
   try {
+    rootNode.replaceChildren(renderInitial())
     await initializeState(document)
-    console.log('did it do')
-    AppState.rootNode.replaceChildren(render(AppState))
+    rootNode.replaceChildren(render(AppState))
   } catch (err) {
     console.exception('failed with', err)
+    rootNode.replaceChildren(renderError(err))
   }
 })()

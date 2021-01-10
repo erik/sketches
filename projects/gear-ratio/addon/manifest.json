@@ -3,10 +3,16 @@
   "name": "GearRatio for Strava",
   "description": "Shows detailed information about your Strava Gear",
   "version": "0.1.0",
-  "content_scripts": [{
-    "matches": ["https://www.strava.com/dashboard"],
-    "js": ["content_script.js"]
-  }],
+  "content_scripts": [
+    {
+      "matches": ["https://www.strava.com/dashboard"],
+      "js": ["content_script/dashboard.js"]
+    },
+    {
+      "matches": ["https://www.strava.com/settings/gear"],
+      "js": ["content_script/gear.js"]
+    }
+  ],
   "permissions": [
     "https://www.strava.com/*",
     "storage"

@@ -5,7 +5,8 @@ const BUILD_DIR = path.resolve(__dirname, 'build')
 
 module.exports = {
   entry: {
-    content_script: './src/content_script.js'
+    'content_script/dashboard': './src/content_script/dashboard.js',
+    'content_script/gear': './src/content_script/gear.js'
   },
 
   output: {
