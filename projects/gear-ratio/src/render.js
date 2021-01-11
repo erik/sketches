@@ -6,7 +6,7 @@ function createNode (tag, props, children) {
     const val = props[key]
 
     switch (key) {
-      case 'className':
+      case 'class':
         node.classList.add(...val.split(' '))
         break
       case 'onClick':
