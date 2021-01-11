@@ -14,6 +14,11 @@ module.exports = {
     filename: '[name].js'
   },
 
+  mode: 'development',
+  optimization: {
+    minimize: false
+  },
+
   module: {
   },
 
