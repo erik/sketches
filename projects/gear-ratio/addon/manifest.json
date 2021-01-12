@@ -5,7 +5,10 @@
   "version": "0.1.0",
   "content_scripts": [
     {
-      "matches": ["https://www.strava.com/dashboard"],
+      "matches": [
+        "https://www.strava.com/dashboard",
+        "https://www.strava.com/dashboard/*"
+      ],
       "js": ["content_script/dashboard.js"]
     },
     {
@@ -16,5 +19,10 @@
   "permissions": [
     "https://www.strava.com/*",
     "storage"
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gear-ratio@erik.github.io"
+    }
+  }
 }

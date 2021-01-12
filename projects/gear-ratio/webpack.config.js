@@ -14,14 +14,14 @@ module.exports = {
     filename: '[name].js'
   },
 
+  // TODO: parameterize
   mode: 'development',
-  optimization: {
-    minimize: false
-  },
+  optimization: { minimize: false },
 
   module: {
   },
 
+  // TODO: Copy from web-extension-polyfill
   plugins: [
     new CopyWebpackPlugin({
       patterns: [
