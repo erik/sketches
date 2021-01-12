@@ -1,5 +1,5 @@
-import { h } from '../render'
-import { storage } from '../storage'
+import { h } from '../../render'
+import { storage } from '../../storage'
 
 const AppState = {
   storage: null,
@@ -335,19 +335,122 @@ function renderInitial () {
   ])
 }
 
+class App {
+  constructor ({
+    render,
+    node,
+    initialState,
+    onEvent
+  }) {
+    this.isQueued = false
+    this.isMounted = false
+
+    this.render = render
+    this.node = node
+    this.state = initialState
+
+    this.eventHandlers = onEvent || {}
+    this.queueRender()
+  }
+
+  setState (data) {
+    this.queueRender()
+    const oldState = this.state
+    this.state = { ...oldState, ...data }
+
+    this.onEvent('setState', { oldState, newState: this.state })
+  }
+
+  onEvent (event, args) {
+    const handler = this.eventHandlers[event]
+    if (!handler) return
+
+    Promise.resolve()
+      .then(() => handler.call(this, args))
+      .catch(err => {
+        console.exception('UNCAUGHT exception in event handler!', err)
+      })
+  }
+
+  queueRender () {
+    if (this.isQueued) return
+    this.isQueued = true
+
+    // Performing this action inside a immediately resolved promise
+    // schedules the `.then` to be executed after all non-async work.
+    //
+    // Called a micro-task.
+    Promise.resolve().then(async () => {
+      const rendered = await this.render(
+        this.state,
+        this.setState
+      )
+      this.node.replaceChildren(rendered)
+
+      this.isQueued = false
+      if (!this.isMounted) {
+        this.isMounted = true
+        this.onEvent('mounted')
+      }
+
+      this.onEvent('render')
+    }).catch(error => {
+      this.onEvent('error', { error })
+    })
+  }
+}
+
 (async () => {
   const containerNode = queryContainerNode(document)
   const rootNode = queryOrCreateRootNode(containerNode)
 
-  try {
-    await storage.applyMigrations()
+  const app = new App({
+    render: async (state, setState) => {
+      if (state.isError) {
+        return renderError(state.error)
+      }
 
-    rootNode.replaceChildren(renderInitial())
-    await initializeState(document, storage)
-    const rendered = await render(AppState)
-    rootNode.replaceChildren(rendered)
-  } catch (err) {
-    console.exception('failed with', err)
-    rootNode.replaceChildren(renderError(err))
-  }
+      if (state.isLoading) {
+        return renderInitial()
+      }
+
+      // TODO: remove this hack
+      return await render(state.hack)
+    },
+    node: rootNode,
+    initialState: {
+      isLoading: true,
+      isError: false,
+      error: null
+    },
+
+    onEvent: {
+      async mounted () {
+        console.info('restoring state')
+
+        // TODO: clean way of wrapping errors here? (and in event
+        //   handlers in general)
+        try {
+          await storage.applyMigrations()
+          await initializeState(document, storage)
+
+          this.setState({
+            isLoading: false,
+            hack: AppState
+          })
+        } catch (error) {
+          this.onEvent('error', { error })
+        }
+      },
+
+      setState ({ newState }) {
+        console.info('persisting new state:', newState)
+      },
+
+      error ({ error }) {
+        console.exception('CAUGHT Exception in app', error)
+        this.setState({ isError: true, error })
+      }
+    }
+  })
 })()

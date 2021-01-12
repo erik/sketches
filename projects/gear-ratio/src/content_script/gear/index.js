@@ -1,4 +1,4 @@
-import { h } from '../render'
+import { h } from '../../render'
 
 function queryContainerNode (document) {
   return document.querySelector('#bikes .right')
