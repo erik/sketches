@@ -1,12 +1,16 @@
 import { h } from '../../render'
 import { storage } from '../../storage'
 
-const AppState = {
-  storage: null,
+const GlobalState = {
   athleteId: null,
-  gear: {},
-  components: {},
-  unit: null
+  distance_unit: null,
+  locale: null,
+
+  async initialize (doc) {
+    this.athleteId = queryAthleteId(doc)
+    this.distanceUnit = queryDisplayUnit(doc)
+    this.locale = 'TODO'
+  }
 }
 
 function queryAthleteId (document) {
@@ -47,21 +51,6 @@ function queryOrCreateRootNode (containerNode) {
   n = h('div', { id: 'gear-ratio-app' })
   containerNode.appendChild(n)
   return n
-}
-
-async function initializeState (document, storage) {
-  AppState.athleteId = queryAthleteId(document)
-  AppState.unit = queryDisplayUnit(document)
-  AppState.storage = storage
-
-  AppState.gear = await fetchGear(AppState.athleteId)
-
-  for (const bike of AppState.gear.bikes) {
-    const components = await fetchBikeComponents(bike.id)
-    AppState.components[bike.id] = components
-  }
-
-  console.info('initialized app state:', AppState)
 }
 
 function parseTable (table) {
@@ -142,152 +131,87 @@ async function fetchBikeComponents (gearId) {
   return parseTable(tables[1])
 }
 
-// TODO: This is BAD.
-//  1. render should not be async, state should already be set up
-//  2. TOO BIG, split it up.
-//  3. linked / unlinked bikes is far too messy, clean it up and dedupe
-async function render (state) {
-  const distance = (d) => `${d} ${state.unit}`
+const formatDistance = (val) => `${val} ${GlobalState.distanceUnit}`
 
-  const links = await storage.bikeLinks()
-  const bikesInLink = new Set()
-  Object.values(links).forEach(link => link.bike_ids.forEach(id => bikesInLink.add(id)))
+const BikeComponent = ({ type, added, distance }) => {
+  // This implies s is the string "This bike has no active components" (localized)
+  if (!added) {
+    return h('li', {}, type)
+  }
 
-  const unlinkedBikes = state.gear.bikes
-  // .filter(bike => !bikesInLink.has(bike.id))
-    .map(bike => {
-      const href = `https://strava.com/bikes/${bike.id}`
-      const isLinked = bikesInLink.has(bike.id)
-
-      const components = state.components[bike.id].map(c => {
-        // This implies s is the string "This bike has no active components" (localized)
-        if (!c.added) {
-          return h('li', {}, c.type)
-        }
-
-        return h('li', {
-          style: 'display: grid; grid-template-columns: repeat(12, 1fr);'
-        }, [
-          h('span', {
-            style: 'grid-column: 1/8;'
-          }, [
-            c.type
-          ]),
-          h('span', { style: 'grid-column: 8/12;text-align:right;', title: c.added }, [
-            h('span', { style: 'border-bottom: 1px dotted #777;' }, distance(c.distance))
-          ])
-        ])
-      })
-
-      return h('p', { class: 'text-small' }, [
-        h('div', { class: 'text-label' }, [
-          h('strong', {}, h('a', { href }, bike.display_name)),
-          ' • ',
-          h('span', {}, distance(bike.total_distance)),
-          isLinked
-            ? h('span', { title: 'Linked to xyz' }, (' • 🔗'))
-            : null
-        ]),
-        h('ul', {}, components)
-      ])
-    })
-
-  const linkedBikes = Object.values(links).map(link => {
-    const href = '/settings/gear'
-
-    const sharedComponents = {}
-    for (const id of link.bike_ids) {
-      const components = state.components[id].filter(c => {
-        return link.shared_components.some(shared => shared === c.type)
-      })
-
-      components.forEach(c => {
-        sharedComponents[c.type] = sharedComponents[c.type] || {}
-        sharedComponents[c.type][id] = c
-      })
-    }
-
-    const components = Object.entries(sharedComponents).map(([type, values]) => {
-      // TODO: This isn't a reasonable approach given i18n, see here:
-      //  https://observablehq.com/@mbostock/localized-number-parsing
-      const combinedDist = Object.values(values)
-        .map(v => +v.distance.replace(',', ''))
-        .reduce((x, y) => x + y)
-
-      const sourceBikes = link.bike_ids
-        .filter(id => typeof sharedComponents[type][id] !== 'undefined')
-        .map(id => {
-          const bike = state.gear.bikes.find(b => b.id === id)
-          const dist = sharedComponents[type][id].distance
-
-          return `${bike.display_name}: ${dist}`
-        })
-        .join('\n')
-
-      return h('li', {
-        style: 'display: grid; grid-template-columns: repeat(12, 1fr);'
-      }, [
-        h('span', { style: 'grid-column: 1/8;' }, type),
-        h('span', { style: 'grid-column: 8/12;text-align:right;' }, [
-          h('span', {
-            style: 'border-bottom: 1px dotted #777;',
-            title: sourceBikes
-          }, distance(combinedDist.toLocaleString()))
-        ])
-      ])
-    })
-
-    // XXX: hack
-    const totalDistance = link.bike_ids
-      .map(id => state.gear.bikes.find(b => b.id === id))
-      .map(v => +v.total_distance.replace(',', ''))
-      .reduce((x, y) => x + y)
-
-    return h('p', { class: 'text-small' }, [
-      h('div', { class: 'text-label' }, [
-        h('strong', {}, h('a', { href }, link.name)),
-        ' • ',
-        h('span', {}, distance(totalDistance.toLocaleString()))
-      ]),
-      h('ul', {}, components)
+  return h('li', {
+    style: 'display: grid; grid-template-columns: repeat(12, 1fr);'
+  }, [
+    h('span', { style: 'grid-column: 1/8;' }, type),
+    h('span', { style: 'grid-column: 8/12;text-align:right;', title: added }, [
+      h('span', { style: 'border-bottom: 1px dotted #777;' }, formatDistance(distance))
     ])
-  })
-
-  const shoes = state.gear.shoes.map(shoe => {
-    const href = `https://strava.com/shoes/${shoe.id}`
-    return h('div', { class: 'text-small' }, [
-      h('div', { class: 'text-label' }, [
-        h('a', { href }, [
-          h('strong', {}, shoe.display_name)
-        ]),
-        h('span', {}, [
-          ' • ',
-          distance(shoe.total_distance)
-        ])
-      ])
-    ])
-  })
-
-  return h('div', { class: 'card' }, [
-    h('div', { class: 'card-body' }, [
-      h('div', { class: 'card-section' }, 'Bikes'),
-      h('div', { class: 'card-section' }, [
-        h('div', {}, unlinkedBikes),
-        'Linked', // TODO: better name? Linked is confusing
-        h('div', {}, linkedBikes)
-      ])
-    ]),
-    h('div', { class: 'card-body' }, [
-      h('div', { class: 'card-section' }, 'Shoes'),
-      h('div', { class: 'card-section' }, [
-        h('div', {}, shoes)
-      ])
-    ]),
-    renderCardFooter()
   ])
 }
 
-function renderCardFooter () {
+const Bike = ({ bike, components }) => {
+  const href = `https://strava.com/bikes/${bike.id}`
+
+  const componentList = components.map(c => h(BikeComponent, { ...c }))
+
+  return h('p', { class: 'text-small' }, [
+    h('div', { class: 'text-label' }, [
+      h('strong', {}, h('a', { href }, bike.display_name)),
+      ' • ',
+      h('span', {}, formatDistance(bike.total_distance))
+    ]),
+    h('ul', {}, componentList)
+  ])
+}
+
+const Shoe = ({ shoe }) => {
+  const href = `https://strava.com/shoes/${shoe.id}`
+
+  return h('div', { class: 'text-small' }, [
+    h('div', { class: 'text-label' }, [
+      h('a', { href }, h('strong', {}, shoe.display_name)),
+      h('span', {}, [' • ', formatDistance(shoe.total_distance)])
+    ])
+  ])
+}
+
+const GearCard = {
+  props: [
+    'shoes',
+    'bikes',
+    'bikeLinks',
+    'bikeComponents'
+  ],
+
+  render () {
+    const bikes = this.bikes.map(bike => {
+      const components = this.bikeComponents[bike.id] || []
+      return h(Bike, { bike, components })
+    })
+
+    const shoes = this.shoes.map(shoe => h(Shoe, { shoe }))
+
+    return h('div', { class: 'card' }, [
+      h('div', { class: 'card-body' }, [
+        h('div', { class: 'card-section' }, 'Bikes'),
+        h('div', { class: 'card-section' }, [
+          h('div', {}, bikes),
+          'Linked' // TODO: better name? Linked is confusing
+          // h('div', {}, linkedBikes)
+        ])
+      ]),
+      h('div', { class: 'card-body' }, [
+        h('div', { class: 'card-section' }, 'Shoes'),
+        h('div', { class: 'card-section' }, [
+          h('div', {}, shoes)
+        ])
+      ]),
+      h(CardFooter)
+    ])
+  }
+}
+
+const CardFooter = () => {
   return h('div', { class: 'card-footer' }, [
     h('div', { class: 'card-section' }, [
       h('a', {
@@ -305,7 +229,7 @@ function renderCardFooter () {
   ])
 }
 
-function renderError (error) {
+const ErrorCard = ({ error }) => {
   return h('div', { class: 'card' }, [
     h('div', { class: 'card-body' }, [
       h('div', { class: 'card-section' }, 'Sorry :('),
@@ -315,11 +239,11 @@ function renderError (error) {
         h('pre', {}, error.toString())
       ])
     ]),
-    renderCardFooter()
+    h(CardFooter)
   ])
 }
 
-function renderInitial () {
+const LoadingCard = () => {
   return h('div', { class: 'card' }, [
     h('div', { class: 'card-body' }, [
       h('div', { class: 'card-section' }, [
@@ -331,7 +255,7 @@ function renderInitial () {
         ])
       ])
     ]),
-    renderCardFooter()
+    h(CardFooter)
   ])
 }
 
@@ -346,10 +270,14 @@ class App {
     this.isMounted = false
 
     this.render = render
-    this.node = node
     this.state = initialState
 
     this.eventHandlers = onEvent || {}
+    node && this.mount(node)
+  }
+
+  mount (node) {
+    this.node = node
     this.queueRender()
   }
 
@@ -392,32 +320,49 @@ class App {
         this.isMounted = true
         this.onEvent('mounted')
       }
-
-      this.onEvent('render')
     }).catch(error => {
       this.onEvent('error', { error })
     })
   }
 }
 
+async function refreshGear () {
+  console.info('Refreshing gear data.')
+  const { bikes, shoes } = await fetchGear(GlobalState.athleteId)
+  const bikeComponents = {}
+
+  for (const bike of bikes) {
+    console.info('Refreshing components for bike', bike)
+    bikeComponents[bike.id] = await fetchBikeComponents(bike.id)
+  }
+
+  return {
+    bikes,
+    bikeComponents,
+    shoes,
+
+    lastFetchedAt: new Date()
+  }
+}
+
 (async () => {
-  const containerNode = queryContainerNode(document)
-  const rootNode = queryOrCreateRootNode(containerNode)
-
   const app = new App({
-    render: async (state, setState) => {
-      if (state.isError) {
-        return renderError(state.error)
+    render () {
+      if (this.state.isError) {
+        return h(ErrorCard, { error: this.state.error })
       }
 
-      if (state.isLoading) {
-        return renderInitial()
+      if (this.state.isLoading) {
+        return h(LoadingCard, {})
       }
 
-      // TODO: remove this hack
-      return await render(state.hack)
+      return h(GearCard, {
+        shoes: this.state.shoes,
+        bikes: this.state.bikes,
+        bikeComponents: this.state.bikeComponents
+      })
     },
-    node: rootNode,
+
     initialState: {
       isLoading: true,
       isError: false,
@@ -431,20 +376,38 @@ class App {
         // TODO: clean way of wrapping errors here? (and in event
         //   handlers in general)
         try {
-          await storage.applyMigrations()
-          await initializeState(document, storage)
+          await GlobalState.initialize(document)
+          let appState = await storage.restoreState()
 
-          this.setState({
-            isLoading: false,
-            hack: AppState
-          })
+          // Since refreshing gear involves a bit of fanout (one call per component per bike),
+          // let's limit it to once / 15 min. Should speed up repeat renders.
+          //
+          // TODO: Might be nice to have initial render with cached
+          //   values and then load in refreshed ones in the background
+          //   since these do not change often.
+          const FETCH_INTERVAL_MS = 15 * 60 * 1000
+          if (!appState.lastFetchedAt || Math.abs(new Date() - appState.lastFetchedAt) > FETCH_INTERVAL_MS) {
+            appState = {
+              ...appState,
+              ...await refreshGear()
+            }
+          }
+
+          this.setState({ isLoading: false, ...appState })
         } catch (error) {
           this.onEvent('error', { error })
         }
       },
 
-      setState ({ newState }) {
+      async setState ({ newState }) {
         console.info('persisting new state:', newState)
+
+        await storage.persistState({
+          bikes: newState.bikes,
+          shoes: newState.shoes,
+          bikeComponents: newState.bikeComponents,
+          lastFetchedAt: newState.lastFetchedAt
+        })
       },
 
       error ({ error }) {
@@ -453,4 +416,8 @@ class App {
       }
     }
   })
+
+  const containerNode = queryContainerNode(document)
+  const rootNode = queryOrCreateRootNode(containerNode)
+  app.mount(rootNode)
 })()

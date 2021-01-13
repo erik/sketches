@@ -1,64 +1,29 @@
-const Key = {
-  MIGRATION_VERSION: 'migration_version',
-  BIKE_LINKS: 'v1.bike_links'
-}
+const KEY = 'state'
+const VERSION = 'v0'
 
-const MIGRATIONS = [
-  async (s) => {
-    await s.set('v1.bike_links', {})
-  }
-]
-
+// TODO: rename: PersistentState?
 export class Storage {
-  constructor () {
-    this.testStorage = new Map()
+  async persistState (state) {
+    const persisted = await this.restoreState()
+    await this.set(KEY, {
+      [VERSION]: { ...persisted, ...state }
+    })
   }
 
-  async applyMigrations () {
-    let currentVersion = await this.get(Key.MIGRATION_VERSION, 0)
-
-    // Up to date, nothing to do
-    if (MIGRATIONS.length === currentVersion) {
-      return
-    }
-
-    if (MIGRATIONS.length < currentVersion) {
-      console.error('Unexpected migration version, starting over!')
-      currentVersion = 0
-    }
-
-    for (let i = currentVersion; i < MIGRATIONS.length; ++i) {
-      console.info('Apply storage schema migration', i)
-      await MIGRATIONS[i](this)
-    }
-
-    await this.set(Key.MIGRATION_VERSION, MIGRATIONS.length)
+  async restoreState () {
+    // NOTE: at some point it'd likely make sense to migrate between
+    //   versions here
+    const state = await this.get(KEY, {})
+    return state[VERSION] || {}
   }
 
   async get (k, d) {
-    return k in this.testStorage ? this.testStorage[k] : d
-    // TODO: json parse
-    // const v = await browser.storage.sync.get(k)
-    // return typeof v === 'undefined' ? d : v
+    const v = await browser.storage.local.get(k)
+    return (typeof v === 'undefined') ? d : v[k]
   }
 
   async set (k, v) {
-    // TODO: json stringify
-    this.testStorage[k] = v
-    // await browser.storage.sync.set(k, v)
-  }
-
-  async bikeLinks () {
-    return await this.get(Key.BIKE_LINKS, {})
-  }
-
-  async setBikeLink (id, link) {
-    const links = {
-      [id]: link,
-      ...await this.bikeLinks()
-    }
-
-    await this.set(Key.BIKE_LINKS, links)
+    await browser.storage.local.set({ [k]: v })
   }
 }
 
