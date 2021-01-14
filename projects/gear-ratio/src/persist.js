@@ -1,16 +1,15 @@
 const KEY = 'state'
 const VERSION = 'v0'
 
-// TODO: rename: PersistentState?
-export class Storage {
-  async persistState (state) {
-    const persisted = await this.restoreState()
+export class PersistentState {
+  async persist (state) {
+    const persisted = await this.restore()
     await this.set(KEY, {
       [VERSION]: { ...persisted, ...state }
     })
   }
 
-  async restoreState () {
+  async restore () {
     // NOTE: at some point it'd likely make sense to migrate between
     //   versions here
     const state = await this.get(KEY, {})
@@ -27,4 +26,4 @@ export class Storage {
   }
 }
 
-export const storage = new Storage()
+export const persistentState = new PersistentState()

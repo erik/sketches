@@ -1,9 +1,9 @@
-import { h } from '../../render'
-import { storage } from '../../storage'
+import { h } from '../../render.js'
+import { persistentState } from '../../persist.js'
 
 const GlobalState = {
   athleteId: null,
-  distance_unit: null,
+  distanceUnit: null,
   locale: null,
 
   async initialize (doc) {
@@ -377,7 +377,7 @@ async function refreshGear () {
         //   handlers in general)
         try {
           await GlobalState.initialize(document)
-          let appState = await storage.restoreState()
+          let appState = await persistentState.restore()
 
           // Since refreshing gear involves a bit of fanout (one call per component per bike),
           // let's limit it to once / 15 min. Should speed up repeat renders.
@@ -402,7 +402,7 @@ async function refreshGear () {
       async setState ({ newState }) {
         console.info('persisting new state:', newState)
 
-        await storage.persistState({
+        await persistentState.persist({
           bikes: newState.bikes,
           shoes: newState.shoes,
           bikeComponents: newState.bikeComponents,
