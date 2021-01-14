@@ -1,15 +1,26 @@
-function createNode (tag, attrs, children) {
-  let node
+function toDOMNode (thing) {
+  if (thing instanceof Node) {
+    return thing
+  }
+
+  if (typeof thing === 'function') {
+    return toDOMNode(thing.call(this))
+  }
+
+  return document.createTextNode(thing.toString())
+}
+
+function createElement (tag, attrs, children) {
+  let node = null
 
   if (typeof tag === 'string') {
     const ns = attrs.xmlns || 'http://www.w3.org/1999/xhtml'
     node = document.createElementNS(ns, tag)
   } else if (typeof tag === 'function') {
-    node = tag.call(h, attrs, children)
+    node = toDOMNode(tag.call(h, attrs, children))
   } else if (typeof tag.render === 'function') {
     const props = {}
-    // collect everything left in attrs that isn't consumed by props
-    const nonprops = {}
+    const remainingAttrs = {}
 
     for (const k of (tag.props || [])) {
       if (!(k in attrs)) {
@@ -22,14 +33,15 @@ function createNode (tag, attrs, children) {
 
     for (const k in attrs) {
       if (!(k in props)) {
-        nonprops[k] = attrs[k]
+        remainingAttrs[k] = attrs[k]
       }
     }
 
-    attrs = nonprops
+    attrs = remainingAttrs
     node = tag.render.call(props)
   } else {
     console.error('Unknown tag type', tag)
+    node = toDOMNode(tag)
   }
 
   for (const key in attrs) {
@@ -49,11 +61,11 @@ function createNode (tag, attrs, children) {
 
   children = children || [];
   (Array.isArray(children) ? children : [children])
-    .map(ch => (typeof ch === 'string') ? document.createTextNode(ch) : ch)
+    .map(ch => toDOMNode(ch))
     .forEach(n => n && node.appendChild(n))
 
   return node
 }
 
 // shortcuts
-export const h = createNode
+export const h = createElement

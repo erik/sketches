@@ -1,5 +1,8 @@
+import { App } from '../../app.js'
 import { h } from '../../render.js'
 import { persistentState } from '../../persist.js'
+
+import scrape from './scrape.js'
 
 const GlobalState = {
   athleteId: null,
@@ -7,128 +10,10 @@ const GlobalState = {
   locale: null,
 
   async initialize (doc) {
-    this.athleteId = queryAthleteId(doc)
-    this.distanceUnit = queryDisplayUnit(doc)
+    this.athleteId = scrape.dashboard.athleteId(doc)
+    this.distanceUnit = scrape.dashboard.displayUnit(doc)
     this.locale = 'TODO'
   }
-}
-
-function queryAthleteId (document) {
-  // Convert "/atheletes/id" href to "id"
-  return document.querySelector(
-    '#athlete-profile a[href^="/athletes/"]'
-  )
-    .href
-    .split('/')
-    .pop()
-}
-
-function queryContainerNode (document) {
-  return document.querySelector(
-    '#dashboard-athlete-sidebar .fixed-sidebar-container div'
-  )
-}
-
-function queryDisplayUnit (document) {
-  // FIXME: this is iffy. Some activities (rowing) are hardcoded to
-  //   meters even if display preferences are for miles.
-  const distanceUnit = (
-    document.querySelector('div.activity .stat abbr.unit')
-  )
-  if (distanceUnit !== null) {
-    return distanceUnit.innerText
-  }
-
-  return ''
-}
-
-function queryOrCreateRootNode (containerNode) {
-  let n = containerNode.querySelector('#gear-ratio-app')
-  if (n !== null) {
-    return n
-  }
-
-  n = h('div', { id: 'gear-ratio-app' })
-  containerNode.appendChild(n)
-  return n
-}
-
-function parseTable (table) {
-  const data = []
-
-  // TODO(erik): hardcoding is bad
-  const columnNames = [
-    'type',
-    'make',
-    'model',
-    'added',
-    'removed',
-    'distance',
-    'action'
-  ]
-
-  // TODO: this provides localized names, should use this
-  // const columnNames = Array.from(
-  //   table.rows[0].cells
-  // ).map(it => it.innerText.trim())
-
-  for (let i = 1; i < table.rows.length; ++i) {
-    const row = table.rows[i]
-    const rowData = {}
-
-    for (let j = 0; j < row.cells.length; ++j) {
-      const name = columnNames[j]
-      let val = row.cells[j].innerText.trim()
-
-      // TODO: actually parse this (localized, of course)
-      if (name === 'distance') {
-        val = val.replace(/[^0-9,. ]/g, '')
-      }
-
-      rowData[columnNames[j]] = val
-    }
-
-    data.push(rowData)
-  }
-
-  return data
-}
-
-async function fetchJSON (url) {
-  const res = await fetch(url)
-  return await res.json()
-}
-
-async function fetchHTML (url) {
-  const res = await fetch(url)
-  const text = await res.text()
-
-  return new DOMParser().parseFromString(text, 'text/html')
-}
-
-async function fetchGear (athleteId) {
-  const baseURL = `https://www.strava.com/athletes/${athleteId}/gear/`
-
-  const bikes = await fetchJSON(baseURL + 'bikes')
-  const shoes = await fetchJSON(baseURL + 'shoes')
-
-  const res = {
-    bikes: bikes.filter(it => it.active),
-    shoes: shoes.filter(it => it.active)
-  }
-
-  return res
-}
-
-async function fetchBikeComponents (gearId) {
-  const url = `https://www.strava.com/bikes/${gearId}`
-  const doc = await fetchHTML(url)
-
-  // Should have two elements:
-  //   1. Bike details, not of interest
-  //   2. Components
-  const tables = doc.querySelectorAll('table')
-  return parseTable(tables[1])
 }
 
 const formatDistance = (val) => `${val} ${GlobalState.distanceUnit}`
@@ -259,81 +144,14 @@ const LoadingCard = () => {
   ])
 }
 
-class App {
-  constructor ({
-    render,
-    node,
-    initialState,
-    onEvent
-  }) {
-    this.isQueued = false
-    this.isMounted = false
-
-    this.render = render
-    this.state = initialState
-
-    this.eventHandlers = onEvent || {}
-    node && this.mount(node)
-  }
-
-  mount (node) {
-    this.node = node
-    this.queueRender()
-  }
-
-  setState (data) {
-    this.queueRender()
-    const oldState = this.state
-    this.state = { ...oldState, ...data }
-
-    this.onEvent('setState', { oldState, newState: this.state })
-  }
-
-  onEvent (event, args) {
-    const handler = this.eventHandlers[event]
-    if (!handler) return
-
-    Promise.resolve()
-      .then(() => handler.call(this, args))
-      .catch(err => {
-        console.exception('UNCAUGHT exception in event handler!', err)
-      })
-  }
-
-  queueRender () {
-    if (this.isQueued) return
-    this.isQueued = true
-
-    // Performing this action inside a immediately resolved promise
-    // schedules the `.then` to be executed after all non-async work.
-    //
-    // Called a micro-task.
-    Promise.resolve().then(async () => {
-      const rendered = await this.render(
-        this.state,
-        this.setState
-      )
-      this.node.replaceChildren(rendered)
-
-      this.isQueued = false
-      if (!this.isMounted) {
-        this.isMounted = true
-        this.onEvent('mounted')
-      }
-    }).catch(error => {
-      this.onEvent('error', { error })
-    })
-  }
-}
-
 async function refreshGear () {
   console.info('Refreshing gear data.')
-  const { bikes, shoes } = await fetchGear(GlobalState.athleteId)
+  const { bikes, shoes } = await scrape.gear.fetchGear(GlobalState.athleteId)
   const bikeComponents = {}
 
   for (const bike of bikes) {
     console.info('Refreshing components for bike', bike)
-    bikeComponents[bike.id] = await fetchBikeComponents(bike.id)
+    bikeComponents[bike.id] = await scrape.gear.fetchBikeComponents(bike.id)
   }
 
   return {
@@ -417,7 +235,6 @@ async function refreshGear () {
     }
   })
 
-  const containerNode = queryContainerNode(document)
-  const rootNode = queryOrCreateRootNode(containerNode)
+  const rootNode = scrape.dashboard.appRootNode(document)
   app.mount(rootNode)
 })()
