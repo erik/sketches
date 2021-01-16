@@ -44,24 +44,23 @@ function createElement (tag, attrs, children) {
     node = toDOMNode(tag)
   }
 
+  const callbackRe = /^on([A-Z])/
   for (const key in attrs) {
     const val = attrs[key]
 
-    switch (key) {
-      case 'class':
-        node.classList.add(...val.split(' '))
-        break
-      case 'onClick':
-        node.addEventListener('click', val)
-        break
-      default:
-        node.setAttribute(key, val)
+    if (key === 'class') {
+      node.classList.add(...val.split(' '))
+    } else if (callbackRe.test(key) && typeof val === 'function') {
+      const event = key.replace(callbackRe, key[2].toLowerCase())
+      node.addEventListener(event, val)
+    } else {
+      node.setAttribute(key, val)
     }
   }
 
   children = children || [];
   (Array.isArray(children) ? children : [children])
-    .map(ch => toDOMNode(ch))
+    .map(ch => ch && toDOMNode(ch))
     .forEach(n => n && node.appendChild(n))
 
   return node

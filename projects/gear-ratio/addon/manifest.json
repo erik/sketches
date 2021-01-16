@@ -12,7 +12,10 @@
       "js": ["content_script/dashboard.js"]
     },
     {
-      "matches": ["https://www.strava.com/settings/gear"],
+      "matches": [
+        "https://www.strava.com/settings/gear",
+        "https://www.strava.com/settings/gear*"
+      ],
       "js": ["content_script/gear.js"]
     }
   ],
