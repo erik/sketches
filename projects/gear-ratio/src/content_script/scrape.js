@@ -1,4 +1,4 @@
-import { h } from '../../render.js'
+import { h } from '../render.js'
 
 // Everything here munges HTML on www.strava.com/dashboard
 export const DashboardScraper = {
@@ -46,32 +46,51 @@ export const DashboardScraper = {
 }
 
 const GearScraper = {
-  async fetchGear (athleteId) {
-    const baseURL = `https://www.strava.com/athletes/${athleteId}/gear/`
+  async refreshGear (athleteId) {
+    console.info('Refreshing gear data.')
+    const { bikes, shoes } = await fetchGear(athleteId)
+    const bikeComponents = {}
 
-    const bikes = await fetchJSON(baseURL + 'bikes')
-    const shoes = await fetchJSON(baseURL + 'shoes')
-
-    const res = {
-      bikes: bikes.filter(it => it.active),
-      shoes: shoes.filter(it => it.active)
+    for (const bike of bikes) {
+      console.info('Refreshing components for bike', bike)
+      bikeComponents[bike.id] = await fetchBikeComponents(bike.id)
     }
 
-    return res
-  },
+    return {
+      bikes,
+      bikeComponents,
+      shoes,
 
-  async fetchBikeComponents (gearId) {
-    const url = `https://www.strava.com/bikes/${gearId}`
-    const doc = await fetchHTML(url)
-
-    // Should have two elements:
-    //   1. Bike details, not of interest
-    //   2. Components
-    const tables = doc.querySelectorAll('table')
-    return parseBikeTable(tables[1])
+      lastFetchedAt: new Date()
+    }
   }
+
 }
 
+async function fetchGear (athleteId) {
+  const baseURL = `https://www.strava.com/athletes/${athleteId}/gear/`
+
+  const bikes = await fetchJSON(baseURL + 'bikes')
+  const shoes = await fetchJSON(baseURL + 'shoes')
+
+  const res = {
+    bikes: bikes.filter(it => it.active),
+    shoes: shoes.filter(it => it.active)
+  }
+
+  return res
+}
+
+async function fetchBikeComponents (gearId) {
+  const url = `https://www.strava.com/bikes/${gearId}`
+  const doc = await fetchHTML(url)
+
+  // Should have two elements:
+  //   1. Bike details, not of interest
+  //   2. Components
+  const tables = doc.querySelectorAll('table')
+  return parseBikeTable(tables[1])
+}
 // TODO: this could be easily generalized.
 function parseBikeTable (table) {
   const data = []

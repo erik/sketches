@@ -48,19 +48,21 @@ export class App {
     //
     // Called a micro-task.
     Promise.resolve().then(async () => {
-      const rendered = await this.render(
-        this.state,
-        this.setState
-      )
-      this.node.replaceChildren(rendered)
-
-      this.isQueued = false
-      if (!this.isMounted) {
-        this.isMounted = true
-        this.onEvent('mounted')
+      try {
+        const rendered = await this.render(
+          this.state,
+          this.setState
+        )
+        this.node.replaceChildren(rendered)
+        if (!this.isMounted) {
+          this.isMounted = true
+          this.onEvent('mounted')
+        }
+      } catch (error) {
+        console.exception('FAILED TO RENDER', error)
+        this.onEvent('error', { error })
       }
-    }).catch(error => {
-      this.onEvent('error', { error })
+      this.isQueued = false
     })
   }
 }

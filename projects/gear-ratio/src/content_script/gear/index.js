@@ -1,6 +1,8 @@
 import { h } from '../../render'
 import { App } from '../../app'
 
+import scrape from '../scrape.js'
+
 function queryAppRootNode (document) {
   const container = document.querySelector('#bikes .right')
   const existingNode = container.querySelector('#app-gear-index')
@@ -13,7 +15,18 @@ function queryAppRootNode (document) {
   return node
 }
 
-const ModalFormInput = ({ onSaveLink }) => {
+function queryAthleteId (document) {
+  const node = document.querySelector('a.nav-link[href^="/athletes/"]')
+  return node.href
+    .split('/')
+    .pop()
+}
+
+const LoadingSpinner = () => {
+  return h('div', { class: 'spinner tiny' }, h('div', { class: 'graphic' }))
+}
+
+const ModalFormInput = ({ gear, onSaveLink }) => {
   const onSubmit = (el) => {
     el.stopPropagation()
     el.preventDefault()
@@ -27,12 +40,22 @@ const ModalFormInput = ({ onSaveLink }) => {
 
   const textLabel = (label, name) => h('span', {}, [
     h('label', { for: name }, label),
-    h('input', { id: name, class: 'medium', type: 'text' })
+    h('input', { id: name, name, required: true, class: 'large', type: 'text' })
   ])
 
+  const inline = { style: 'display: inline-block;' }
+
   return h('div', {}, [
-    textLabel('Name', 'link_name'),
-    textLabel('Linked Bikes', 'bikes'),
+    textLabel('Name', 'linkName'),
+    h('p', {}, 'Included Bikes'),
+    h('ul', {}, gear.bikes.map(b => {
+      const id = `bike_${b.id}`
+      return h('li', {}, [
+        h('input', { id, class: 'medium', name: id, type: 'checkbox', ...inline }),
+        ' ',
+        h('label', { for: id, ...inline }, h('b', {}, b.display_name))
+      ])
+    })),
     textLabel('Shared Components', 'components'),
     h('br', {}),
 
@@ -45,7 +68,7 @@ const ModalFormInput = ({ onSaveLink }) => {
   ])
 }
 
-const LinkBikesModal = ({ onCloseModal, onSaveLink }) => {
+const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
   const background = h('div', {
     class: 'ui-widget-overlay ui-front',
     onClick: onCloseModal
@@ -61,11 +84,9 @@ const LinkBikesModal = ({ onCloseModal, onSaveLink }) => {
     h('div', {
       class: 'ui-dialog-content ui-widget-content',
       style: 'display: block; width: auto; height: auto;'
-    }, [
-      h('form', { novalidate: 'novalidate' }, [
-        h(ModalFormInput, { onSaveLink })
-      ])
-    ])
+    }, h('form', { novalidate: 'novalidate' }, [
+      h(ModalFormInput, { gear, onSaveLink })
+    ]))
   ])
 
   return h('div', {}, [
@@ -78,7 +99,14 @@ const LinkBikesModal = ({ onCloseModal, onSaveLink }) => {
   try {
     const app = new App({
       initialState: {
-        isModalVisible: false
+        isLoadingGear: true,
+        isModalVisible: false,
+
+        gear: {
+          bikes: [],
+          shoes: [],
+          bikeComponnents: []
+        }
       },
 
       render () {
@@ -86,24 +114,47 @@ const LinkBikesModal = ({ onCloseModal, onSaveLink }) => {
         const onCloseModal = () => this.setState({ isModalVisible: false })
         const onOpenModal = () => this.setState({ isModalVisible: true })
         const onSaveLink = (link) => {
+          // TODO: impl
           console.log('READY TO SAVE', link)
           onCloseModal()
         }
 
+        const buttonEnabled = !this.state.isLoadingGear
+        const buttonClassList = buttonEnabled
+          ? 'button'
+          : 'button disabled'
+
         return h('div', {}, [
-          this.state.isModalVisible && h(LinkBikesModal, { onCloseModal, onSaveLink }),
-          h('a', { class: 'button', onClick: onOpenModal }, 'Link Bikes')
+          this.state.isModalVisible && h(LinkBikesModal, {
+            onCloseModal,
+            onSaveLink,
+            gear: this.state.gear
+          }),
+          h('a', {
+            class: buttonClassList,
+            title: buttonEnabled ? '' : 'Loading',
+            onClick: buttonEnabled && onOpenModal
+          }, [
+            'Link Bikes'
+          ])
         ])
       },
 
       onEvent: {
         async mounted () {
           console.log('app mount')
+          const athleteId = queryAthleteId(document)
+          const gear = await scrape.gear.refreshGear(athleteId)
+
+          this.setState({ isLoadingGear: false, gear })
         },
 
         error ({ error }) {
           console.exception('CAUGHT Exception in app', error)
-          this.setState({ isError: true, error })
+          // TODO: not using this right now, and this can cause
+          // recursive rendering errors (lol)
+
+          // this.setState({ isError: true, error })
         }
       }
     })

@@ -2,7 +2,7 @@ import { App } from '../../app.js'
 import { h } from '../../render.js'
 import { persistentState } from '../../persist.js'
 
-import scrape from './scrape.js'
+import scrape from '../scrape.js'
 
 const GlobalState = {
   athleteId: null,
@@ -144,25 +144,6 @@ const LoadingCard = () => {
   ])
 }
 
-async function refreshGear () {
-  console.info('Refreshing gear data.')
-  const { bikes, shoes } = await scrape.gear.fetchGear(GlobalState.athleteId)
-  const bikeComponents = {}
-
-  for (const bike of bikes) {
-    console.info('Refreshing components for bike', bike)
-    bikeComponents[bike.id] = await scrape.gear.fetchBikeComponents(bike.id)
-  }
-
-  return {
-    bikes,
-    bikeComponents,
-    shoes,
-
-    lastFetchedAt: new Date()
-  }
-}
-
 (async () => {
   const app = new App({
     render () {
@@ -207,7 +188,7 @@ async function refreshGear () {
           if (!appState.lastFetchedAt || Math.abs(new Date() - appState.lastFetchedAt) > FETCH_INTERVAL_MS) {
             appState = {
               ...appState,
-              ...await refreshGear()
+              ...await scrape.gear.refreshGear(GlobalState.athleteId)
             }
           }
 
