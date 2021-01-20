@@ -91,6 +91,7 @@ async function fetchBikeComponents (gearId) {
   const tables = doc.querySelectorAll('table')
   return parseBikeTable(tables[1])
 }
+
 // TODO: this could be easily generalized.
 function parseBikeTable (table) {
   const data = []
@@ -117,14 +118,20 @@ function parseBikeTable (table) {
 
     for (let j = 0; j < row.cells.length; ++j) {
       const name = columnNames[j]
-      let val = row.cells[j].innerText.trim()
+      const node = row.cells[j]
+      let textVal = node.innerText.trim()
 
-      // TODO: actually parse this (localized, of course)
-      if (name === 'distance') {
-        val = val.replace(/[^0-9,. ]/g, '')
+      if (name === 'type') {
+        const editLink = node.querySelector('a[href^="/components/"]')
+        if (editLink !== null) {
+          rowData['href'] = editLink.href
+        }
+      } else if (name === 'distance') {
+        // TODO: actually parse this (localized, of course)
+        textVal = textVal.replace(/[^0-9,. ]/g, '')
       }
 
-      rowData[columnNames[j]] = val
+      rowData[columnNames[j]] = textVal
     }
 
     data.push(rowData)

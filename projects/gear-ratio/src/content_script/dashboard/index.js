@@ -18,7 +18,7 @@ const GlobalState = {
 
 const formatDistance = (val) => `${val} ${GlobalState.distanceUnit}`
 
-const BikeComponent = ({ type, added, distance }) => {
+const BikeComponent = ({ href, type, added, distance }) => {
   // This implies s is the string "This bike has no active components" (localized)
   if (!added) {
     return h('li', {}, type)
@@ -27,8 +27,8 @@ const BikeComponent = ({ type, added, distance }) => {
   return h('li', {
     style: 'display: grid; grid-template-columns: repeat(12, 1fr);'
   }, [
-    h('span', { style: 'grid-column: 1/8;' }, type),
-    h('span', { style: 'grid-column: 8/12;text-align:right;', title: added }, [
+    h('span', { style: 'grid-column: 1/8;' }, h('a', { href }, type)),
+    h('span', { style: 'grid-column: 8/12; text-align:right;', title: added }, [
       h('span', { style: 'border-bottom: 1px dotted #777;' }, formatDistance(distance))
     ])
   ])
@@ -36,7 +36,6 @@ const BikeComponent = ({ type, added, distance }) => {
 
 const Bike = ({ bike, components }) => {
   const href = `https://strava.com/bikes/${bike.id}`
-
   const componentList = components.map(c => h(BikeComponent, { ...c }))
 
   return h('p', { class: 'text-small' }, [
@@ -184,6 +183,10 @@ const LoadingCard = () => {
           // TODO: Might be nice to have initial render with cached
           //   values and then load in refreshed ones in the background
           //   since these do not change often.
+          //
+          // TODO: Add cache buster for debugging / development
+          //
+          // TODO: Turn app state into real class
           const FETCH_INTERVAL_MS = 15 * 60 * 1000
           if (!appState.lastFetchedAt || Math.abs(new Date() - appState.lastFetchedAt) > FETCH_INTERVAL_MS) {
             appState = {
