@@ -27,36 +27,71 @@ const LoadingSpinner = () => {
 }
 
 const ModalFormInput = ({ gear, onSaveLink }) => {
+  // Component-local state that DOES NOT trigger a re-render.
+  //
+  // This is getting hacky...
+  const state = {
+    linkName: null,
+    includedBikeIds: new Set()
+  }
+
   const onSubmit = (el) => {
     el.stopPropagation()
     el.preventDefault()
 
-    const formData = new FormData(el.target.form)
-    const linkData = {}
+    const linkData = {
+      linkName: state.linkName,
+      includedBikeIds: state.includedBikeIds
+    }
 
-    formData.forEach((val, key) => { linkData[key] = val })
     onSaveLink(linkData)
   }
 
-  const textLabel = (label, name) => h('span', {}, [
+  const textLabel = ({ label, name, onInput }) => h('span', {}, [
     h('label', { for: name }, label),
-    h('input', { id: name, name, required: true, class: 'large', type: 'text' })
+    h('input', {
+      name,
+      onInput,
+      id: name,
+      required: true,
+      autocomplete: 'off',
+      class: 'large',
+      type: 'text'
+    })
   ])
 
-  const inline = { style: 'display: inline-block;' }
+  const displayInline = { style: 'display: inline-block;' }
+
+  const includedBikeList = gear.bikes.map(b => {
+    const id = `bike_${b.id}`
+    return h('li', {}, [
+      h('input', {
+        id,
+        class: 'medium',
+        name: id,
+        type: 'checkbox',
+        onClick: (ch) => {
+          if (ch.target.checked) {
+            state.includedBikeIds.add(b.id)
+          } else {
+            state.includedBikeIds.delete(b.id)
+          }
+        },
+        ...displayInline
+      }),
+      ' ',
+      h('label', { for: id, ...displayInline }, h('b', {}, b.display_name))
+    ])
+  })
 
   return h('div', {}, [
-    textLabel('Name', 'linkName'),
+    textLabel({
+      label: 'Name',
+      name: 'linkName',
+      onInput: (i) => { state.linkName = i.target.value }
+    }),
     h('p', {}, 'Included Bikes'),
-    h('ul', {}, gear.bikes.map(b => {
-      const id = `bike_${b.id}`
-      return h('li', {}, [
-        h('input', { id, class: 'medium', name: id, type: 'checkbox', ...inline }),
-        ' ',
-        h('label', { for: id, ...inline }, h('b', {}, b.display_name))
-      ])
-    })),
-    textLabel('Shared Components', 'components'),
+    h('ul', {}, includedBikeList),
     h('br', {}),
 
     // HACK: Strava's got some jQuery thing going on which overrides
@@ -151,9 +186,6 @@ const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
 
         error ({ error }) {
           console.exception('CAUGHT Exception in app', error)
-          // TODO: not using this right now, and this can cause
-          // recursive rendering errors (lol)
-
           // this.setState({ isError: true, error })
         }
       }

@@ -17,7 +17,7 @@ function createElement (tag, attrs, children) {
     const ns = attrs.xmlns || 'http://www.w3.org/1999/xhtml'
     node = document.createElementNS(ns, tag)
   } else if (typeof tag === 'function') {
-    node = toDOMNode(tag.call(h, attrs, children))
+    node = toDOMNode(tag(attrs, children))
   } else if (typeof tag.render === 'function') {
     const props = {}
     const remainingAttrs = {}
@@ -38,7 +38,7 @@ function createElement (tag, attrs, children) {
     }
 
     attrs = remainingAttrs
-    node = tag.render.call(props)
+    node = tag.render.call(props, remainingAttrs)
   } else {
     console.error('Unknown tag type', tag)
     node = toDOMNode(tag)

@@ -7,6 +7,7 @@ export class App {
   }) {
     this.isQueued = false
     this.isMounted = false
+    this.renderError = false
 
     this.render = render
     this.state = initialState
@@ -58,9 +59,16 @@ export class App {
           this.isMounted = true
           this.onEvent('mounted')
         }
+        this.renderError = false
       } catch (error) {
         console.exception('FAILED TO RENDER', error)
-        this.onEvent('error', { error })
+
+        if (!this.renderError) {
+          this.renderError = true
+          this.onEvent('error', { error })
+        } else {
+          console.error('WARNING: error in error handler! Dropping event')
+        }
       }
       this.isQueued = false
     })
