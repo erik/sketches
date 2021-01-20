@@ -31,7 +31,7 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
   //
   // This is getting hacky...
   const state = {
-    linkName: null,
+    linkName: '',
     includedBikeIds: new Set()
   }
 
@@ -39,8 +39,19 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
     el.stopPropagation()
     el.preventDefault()
 
+    const linkName = state.linkName.trim()
+    if (linkName === '') {
+      window.alert('Please give this configuration a name')
+      return
+    }
+
+    if (state.includedBikeIds.size === 0) {
+      window.alert('Please select at least 1 existing bike to proceed')
+      return
+    }
+
     const linkData = {
-      linkName: state.linkName,
+      linkName,
       includedBikeIds: state.includedBikeIds
     }
 
@@ -67,7 +78,7 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
     return h('li', {}, [
       h('input', {
         id,
-        class: 'medium',
+        class: 'small',
         name: id,
         type: 'checkbox',
         onClick: (ch) => {
@@ -167,7 +178,7 @@ const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
           }),
           h('a', {
             class: buttonClassList,
-            title: buttonEnabled ? '' : 'Loading',
+            title: buttonEnabled ? '' : 'Please wait, refreshing data',
             onClick: buttonEnabled && onOpenModal
           }, [
             'Link Bikes'

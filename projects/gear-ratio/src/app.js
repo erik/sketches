@@ -40,6 +40,19 @@ export class App {
       })
   }
 
+  renderInternal () {
+    const rendered = this.render(
+      this.state,
+      this.setState
+    )
+
+    this.node.replaceChildren(rendered)
+    if (!this.isMounted) {
+      this.isMounted = true
+      this.onEvent('mounted')
+    }
+  }
+
   queueRender () {
     if (this.isQueued) return
     this.isQueued = true
@@ -50,15 +63,7 @@ export class App {
     // Called a micro-task.
     Promise.resolve().then(async () => {
       try {
-        const rendered = await this.render(
-          this.state,
-          this.setState
-        )
-        this.node.replaceChildren(rendered)
-        if (!this.isMounted) {
-          this.isMounted = true
-          this.onEvent('mounted')
-        }
+        this.renderInternal()
         this.renderError = false
       } catch (error) {
         console.exception('FAILED TO RENDER', error)
@@ -71,6 +76,8 @@ export class App {
         }
       }
       this.isQueued = false
+    }).catch(err => {
+      console.error('Something has gone very wrong...', err)
     })
   }
 }
