@@ -13,7 +13,7 @@ export const DashboardScraper = {
   },
 
   locale (document) {
-    // TODO!
+    return document.documentElement.lang || 'en'
   },
 
   displayUnit (document) {

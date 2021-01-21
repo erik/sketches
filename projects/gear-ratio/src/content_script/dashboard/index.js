@@ -12,11 +12,21 @@ const GlobalState = {
   async initialize (doc) {
     this.athleteId = scrape.dashboard.athleteId(doc)
     this.distanceUnit = scrape.dashboard.displayUnit(doc)
-    this.locale = 'TODO'
+    this.locale = scrape.dashboard.locale(doc)
   }
 }
 
-const formatDistance = (val) => `${val} ${GlobalState.distanceUnit}`
+const parseNumberInLocale = (numberStr, locale) => {
+  const dotDecimalLocales = new Set(['en', 'es-419', 'ko', 'ja', 'zh'])
+  const lang = locale.replace(/-.*$/, '')
+
+  if (dotDecimalLocales.has(locale) || dotDecimalLocales.has(lang)) {
+    return +numberStr.replaceAll(',', '')
+  }
+
+  return +numberStr.replaceAll('.', '').replaceAll(',', '.')
+}
+const formatDistance = (val) => `${parseNumberInLocale(val, GlobalState.locale).toLocaleString()} ${GlobalState.distanceUnit}`
 
 const BikeComponent = ({ href, type, added, distance }) => {
   // This implies s is the string "This bike has no active components" (localized)
