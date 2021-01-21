@@ -1,5 +1,6 @@
 import { h } from '../../render'
 import { App } from '../../app'
+import { persistentState } from '../../persist.js'
 
 import scrape from '../scrape.js'
 
@@ -22,11 +23,21 @@ function queryAthleteId (document) {
     .pop()
 }
 
-const LoadingSpinner = () => {
-  return h('div', { class: 'spinner tiny' }, h('div', { class: 'graphic' }))
-}
+const formTextInput = ({ labelText, id, onInput }) => h('span', {}, [
+  h('label', { for: id }, labelText),
+  h('input', {
+    id,
+    onInput,
 
-const ModalFormInput = ({ gear, onSaveLink }) => {
+    name: id,
+    required: true,
+    autocomplete: 'off',
+    class: 'large',
+    type: 'text'
+  })
+])
+
+const ModalBikesFormInput = ({ gear, onClickNext }) => {
   // Component-local state that DOES NOT trigger a re-render.
   //
   // This is getting hacky...
@@ -39,8 +50,8 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
     el.stopPropagation()
     el.preventDefault()
 
-    const linkName = state.linkName.trim()
-    if (linkName === '') {
+    const name = state.linkName.trim()
+    if (name === '') {
       window.alert('Please give this configuration a name')
       return
     }
@@ -51,25 +62,12 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
     }
 
     const linkData = {
-      linkName,
-      includedBikeIds: state.includedBikeIds
+      name,
+      bikeIds: state.includedBikeIds
     }
 
-    onSaveLink(linkData)
+    onClickNext(linkData)
   }
-
-  const textLabel = ({ label, name, onInput }) => h('span', {}, [
-    h('label', { for: name }, label),
-    h('input', {
-      name,
-      onInput,
-      id: name,
-      required: true,
-      autocomplete: 'off',
-      class: 'large',
-      type: 'text'
-    })
-  ])
 
   const displayInline = { style: 'display: inline-block;' }
 
@@ -96,49 +94,123 @@ const ModalFormInput = ({ gear, onSaveLink }) => {
   })
 
   return h('div', {}, [
-    textLabel({
-      label: 'Name',
-      name: 'linkName',
+    formTextInput({
+      id: 'linkName',
+      labelText: 'Name',
       onInput: (i) => { state.linkName = i.target.value }
     }),
     h('p', {}, 'Included Bikes'),
     h('ul', {}, includedBikeList),
-    h('br', {}),
 
     // HACK: Strava's got some jQuery thing going on which overrides
     //   any click handlers we set on submit buttons. So create a parent
     //   node and stop propagation.
     h('div', { onClick: onSubmit },
-      h('input', { type: 'submit', value: 'Save Link' })
+      h('input', { type: 'submit', value: 'Choose Components' })
     )
   ])
 }
 
-const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
+const ModalComponentsFormInput = ({ linkBikeIds, linkName, gear, onClickNext }) => {
+  const state = {
+    componentTypes: new Set()
+  }
+
+  const onSubmit = (el) => {
+    el.stopPropagation()
+    el.preventDefault()
+
+    if (state.componentTypes.size === 0) {
+      window.alert('Please select at least 1 component type to share')
+      return
+    }
+
+    onClickNext(state.componentTypes)
+  }
+
+  const displayInline = { style: 'display: inline-block;' }
+  console.log('my gear is', gear, linkBikeIds)
+
+  const componentsByType = {}
+  for (const bikeId of linkBikeIds) {
+    for (const component of gear.bikeComponents[bikeId]) {
+      const type = component.type
+      componentsByType[type] = componentsByType[type] || []
+      componentsByType[type].push(bikeId)
+    }
+  }
+
+  const checkbox = (type, bikeIds) => {
+    return h('li', {}, [
+      h('input', {
+        class: 'small',
+        name: type,
+        type: 'checkbox',
+        onClick: (ch) => {
+          if (ch.target.checked) {
+            state.componentTypes.add(type)
+          } else {
+            state.componentTypes.delete(type)
+          }
+        },
+        ...displayInline
+      }),
+      ' ',
+      h('label', { for: type, ...displayInline }, [
+        h('b', {}, type),
+        h('small', {}, [
+          '(', bikeIds.length, ' configurations)'
+        ])
+      ])
+    ])
+  }
+
+  const includedComponentsList = Object.entries(componentsByType)
+    .sort()
+    .map(([type, bikeIds]) => checkbox(type, bikeIds))
+
+  return h('div', {}, [
+    h('p', {}, [
+      'Which components are shared across all configurations of ',
+      h('b', {}, linkName),
+      '?'
+    ]),
+    h('ul', {}, includedComponentsList),
+    h('div', { onClick: onSubmit },
+      h('input', { type: 'submit', value: 'Create' })
+    )
+  ])
+}
+
+const Modal = ({ onClose, children }) => {
   const background = h('div', {
     class: 'ui-widget-overlay ui-front',
-    onClick: onCloseModal
+    onClick: onClose
   })
 
   const modal = h('div', { class: 'ui-dialog ui-widget ui-widget-content ui-corner-all ui-front' }, [
     h('div', { class: 'ui-dialog-titlebar ui-widget-header ui-corner-all ui-helper-clearfix' }, [
-      h('span', { class: 'ui-dialog-title' }, 'Link Bikes'),
-      h('p', {}, [
-        'Select two or more existing bikes to treat as a single unit.'
-      ])
+      h('span', { class: 'ui-dialog-title' }, 'Link Bikes')
     ]),
     h('div', {
       class: 'ui-dialog-content ui-widget-content',
       style: 'display: block; width: auto; height: auto;'
-    }, h('form', { novalidate: 'novalidate' }, [
-      h(ModalFormInput, { gear, onSaveLink })
-    ]))
+    }, h('form', { novalidate: 'novalidate' }, children))
   ])
 
   return h('div', {}, [
     background,
     modal
   ])
+}
+
+async function persistLink (link) {
+  const state = await persistentState.restore()
+
+  const bikeLinks = state.bikeLinks || []
+  bikeLinks.push(link)
+
+  await persistentState.persist({ bikeLinks })
 }
 
 (async () => {
@@ -148,21 +220,69 @@ const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
         isLoadingGear: true,
         isModalVisible: false,
 
+        // bikes | components
+        modalStep: 'bikes',
+
+        link: {
+          name: null,
+          bikeIds: [],
+          componentTypes: []
+        },
+
         gear: {
           bikes: [],
           shoes: [],
-          bikeComponnents: []
+          bikeComponents: []
         }
       },
 
       render () {
         // FIXME: big ol' hack that this is inside App.render.
-        const onCloseModal = () => this.setState({ isModalVisible: false })
-        const onOpenModal = () => this.setState({ isModalVisible: true })
-        const onSaveLink = (link) => {
-          // TODO: impl
-          console.log('READY TO SAVE', link)
-          onCloseModal()
+        const onCloseModal = () => {
+          this.setState({
+            isModalVisible: false
+          })
+        }
+
+        const onOpenModal = () => {
+          this.setState({
+            modalStep: 'bikes',
+            isModalVisible: true
+          })
+        }
+
+        let modalContents
+        switch (this.state.modalStep) {
+          case 'bikes':
+            modalContents = h(ModalBikesFormInput, {
+              gear: this.state.gear,
+              onClickNext: (link) => {
+                this.setState({
+                  modalStep: 'components',
+                  link: { componentTypes: [], ...link }
+                })
+              }
+            })
+            break
+
+          case 'components':
+            modalContents = h(ModalComponentsFormInput, {
+              linkName: this.state.link.name,
+              linkBikeIds: this.state.link.bikeIds,
+              gear: this.state.gear,
+              onClickNext: async (componentTypes) => {
+                const link = { ...this.state.link, componentTypes }
+
+                this.setState({ link })
+                await persistLink(link)
+
+                onCloseModal()
+              }
+            })
+            break
+
+          default:
+            console.warn('Unknown modal step??', this.state.modalStep)
         }
 
         const buttonEnabled = !this.state.isLoadingGear
@@ -171,10 +291,9 @@ const LinkBikesModal = ({ gear, onCloseModal, onSaveLink }) => {
           : 'button disabled'
 
         return h('div', {}, [
-          this.state.isModalVisible && h(LinkBikesModal, {
-            onCloseModal,
-            onSaveLink,
-            gear: this.state.gear
+          this.state.isModalVisible && h(Modal, {
+            onClose: onCloseModal,
+            children: modalContents
           }),
           h('a', {
             class: buttonClassList,

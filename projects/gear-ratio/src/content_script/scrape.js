@@ -124,7 +124,7 @@ function parseBikeTable (table) {
       if (name === 'type') {
         const editLink = node.querySelector('a[href^="/components/"]')
         if (editLink !== null) {
-          rowData['href'] = editLink.href
+          rowData.href = editLink.href
         }
       } else if (name === 'distance') {
         // TODO: actually parse this (localized, of course)

@@ -48,6 +48,19 @@ const Bike = ({ bike, components }) => {
   ])
 }
 
+const BikeLink = ({ link }) => {
+  const href = 'https://strava.com/todo'
+
+  return h('p', { class: 'text-small' }, [
+    h('div', { class: 'text-label' }, [
+      h('strong', {}, h('a', { href }, ['🔗', link.name])),
+      ' • ',
+      h('span', {}, 'todo: total distance')
+    ]),
+    h('ul', {}, 'todo: components')
+  ])
+}
+
 const Shoe = ({ shoe }) => {
   const href = `https://strava.com/shoes/${shoe.id}`
 
@@ -73,6 +86,9 @@ const GearCard = {
       return h(Bike, { bike, components })
     })
 
+    // TODO: better rendering
+    const bikeLinks = (this.bikeLinks || []).map(link => h(BikeLink, { link }))
+
     const shoes = this.shoes.map(shoe => h(Shoe, { shoe }))
 
     return h('div', { class: 'card' }, [
@@ -80,8 +96,7 @@ const GearCard = {
         h('div', { class: 'card-section' }, 'Bikes'),
         h('div', { class: 'card-section' }, [
           h('div', {}, bikes),
-          'Linked' // TODO: better name? Linked is confusing
-          // h('div', {}, linkedBikes)
+          h('div', {}, bikeLinks)
         ])
       ]),
       h('div', { class: 'card-body' }, [
@@ -157,7 +172,8 @@ const LoadingCard = () => {
       return h(GearCard, {
         shoes: this.state.shoes,
         bikes: this.state.bikes,
-        bikeComponents: this.state.bikeComponents
+        bikeComponents: this.state.bikeComponents,
+        bikeLinks: this.state.bikeLinks
       })
     },
 
