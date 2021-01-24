@@ -1,3 +1,4 @@
+import * as model from '../../model.js'
 import { App } from '../../app.js'
 import { h } from '../../render.js'
 import { persistentState } from '../../persist.js'
