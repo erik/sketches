@@ -1,5 +1,24 @@
 import { h } from '../render.js'
 
+export function findLocale (document) {
+  return document.documentElement.lang || 'en'
+}
+
+// Incomplete set obviously, but this is what Strava supports at time
+// of writing.
+const DOT_DECIMAL_LOCALES = new Set(['en', 'es-419', 'ko', 'ja', 'zh'])
+
+export function parseLocalizedNumber (numberStr, locale) {
+  const lang = locale.replace(/-.*$/, '')
+  numberStr = numberStr.replaceAll(/[^0-9,.]/g, '')
+
+  if (DOT_DECIMAL_LOCALES.has(locale) || DOT_DECIMAL_LOCALES.has(lang)) {
+    return +numberStr.replaceAll(',', '')
+  }
+
+  return +numberStr.replaceAll('.', '').replaceAll(',', '.')
+}
+
 // Everything here munges HTML on www.strava.com/dashboard
 export const DashboardScraper = {
   athleteId (document) {
@@ -10,10 +29,6 @@ export const DashboardScraper = {
       .href
       .split('/')
       .pop()
-  },
-
-  locale (document) {
-    return document.documentElement.lang || 'en'
   },
 
   displayUnit (document) {
@@ -46,14 +61,14 @@ export const DashboardScraper = {
 }
 
 const GearScraper = {
-  async refreshGear (athleteId) {
+  async refreshGear (athleteId, locale) {
     console.info('Refreshing gear data.')
-    const { bikes, shoes } = await fetchGear(athleteId)
+    const { bikes, shoes } = await fetchGear(athleteId, locale)
     const bikeComponents = {}
 
     for (const bike of bikes) {
       console.info('Refreshing components for bike', bike)
-      bikeComponents[bike.id] = await fetchBikeComponents(bike.id)
+      bikeComponents[bike.id] = await fetchBikeComponents(bike.id, locale)
     }
 
     return {
@@ -67,21 +82,28 @@ const GearScraper = {
 
 }
 
-async function fetchGear (athleteId) {
+async function fetchGear (athleteId, locale) {
   const baseURL = `https://www.strava.com/athletes/${athleteId}/gear/`
 
   const bikes = await fetchJSON(baseURL + 'bikes')
   const shoes = await fetchJSON(baseURL + 'shoes')
 
-  const res = {
-    bikes: bikes.filter(it => it.active),
-    shoes: shoes.filter(it => it.active)
+  const normalize = (list) => {
+    return list
+      .filter(it => it.active)
+      .map(it => ({
+        ...it,
+        total_distance: parseLocalizedNumber(it.total_distance, locale)
+      }))
   }
 
-  return res
+  return {
+    bikes: normalize(bikes),
+    shoes: normalize(shoes)
+  }
 }
 
-async function fetchBikeComponents (gearId) {
+async function fetchBikeComponents (gearId, locale) {
   const url = `https://www.strava.com/bikes/${gearId}`
   const doc = await fetchHTML(url)
 
@@ -89,11 +111,11 @@ async function fetchBikeComponents (gearId) {
   //   1. Bike details, not of interest
   //   2. Components
   const tables = doc.querySelectorAll('table')
-  return parseBikeTable(tables[1])
+  return parseBikeTable(tables[1], locale)
 }
 
 // TODO: this could be easily generalized.
-function parseBikeTable (table) {
+function parseBikeTable (table, locale) {
   const data = []
 
   // TODO(erik): hardcoding is bad
@@ -119,7 +141,7 @@ function parseBikeTable (table) {
     for (let j = 0; j < row.cells.length; ++j) {
       const name = columnNames[j]
       const node = row.cells[j]
-      let textVal = node.innerText.trim()
+      let val = node.innerText.trim()
 
       if (name === 'type') {
         const editLink = node.querySelector('a[href^="/components/"]')
@@ -127,11 +149,10 @@ function parseBikeTable (table) {
           rowData.href = editLink.href
         }
       } else if (name === 'distance') {
-        // TODO: actually parse this (localized, of course)
-        textVal = textVal.replace(/[^0-9,. ]/g, '')
+        val = parseLocalizedNumber(val, locale)
       }
 
-      rowData[columnNames[j]] = textVal
+      rowData[columnNames[j]] = val
     }
 
     data.push(rowData)
@@ -153,6 +174,9 @@ async function fetchHTML (url) {
 }
 
 export default {
+  parseLocalizedNumber,
+  locale: findLocale,
+
   dashboard: DashboardScraper,
   gear: GearScraper
 }

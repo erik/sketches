@@ -309,7 +309,9 @@ async function persistLink (link) {
         async mounted () {
           console.log('app mount')
           const athleteId = queryAthleteId(document)
-          const gear = await scrape.gear.refreshGear(athleteId)
+          const locale = scrape.locale(document)
+
+          const gear = await scrape.gear.refreshGear(athleteId, locale)
 
           this.setState({ isLoadingGear: false, gear })
         },

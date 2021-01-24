@@ -12,21 +12,11 @@ const GlobalState = {
   async initialize (doc) {
     this.athleteId = scrape.dashboard.athleteId(doc)
     this.distanceUnit = scrape.dashboard.displayUnit(doc)
-    this.locale = scrape.dashboard.locale(doc)
+    this.locale = scrape.locale(doc)
   }
 }
 
-const parseNumberInLocale = (numberStr, locale) => {
-  const dotDecimalLocales = new Set(['en', 'es-419', 'ko', 'ja', 'zh'])
-  const lang = locale.replace(/-.*$/, '')
-
-  if (dotDecimalLocales.has(locale) || dotDecimalLocales.has(lang)) {
-    return +numberStr.replaceAll(',', '')
-  }
-
-  return +numberStr.replaceAll('.', '').replaceAll(',', '.')
-}
-const formatDistance = (val) => `${parseNumberInLocale(val, GlobalState.locale).toLocaleString()} ${GlobalState.distanceUnit}`
+const formatDistance = (val) => `${val.toLocaleString()} ${GlobalState.distanceUnit}`
 
 const BikeComponent = ({ href, type, added, distance }) => {
   // This implies s is the string "This bike has no active components" (localized)
@@ -213,11 +203,16 @@ const LoadingCard = () => {
           // TODO: Add cache buster for debugging / development
           //
           // TODO: Turn app state into real class
+          const forceRefresh = window.location.search.includes('forceRefresh')
           const FETCH_INTERVAL_MS = 15 * 60 * 1000
-          if (!appState.lastFetchedAt || Math.abs(new Date() - appState.lastFetchedAt) > FETCH_INTERVAL_MS) {
+          if (
+            forceRefresh ||
+              !appState.lastFetchedAt ||
+              Math.abs(new Date() - appState.lastFetchedAt) > FETCH_INTERVAL_MS
+          ) {
             appState = {
               ...appState,
-              ...await scrape.gear.refreshGear(GlobalState.athleteId)
+              ...await scrape.gear.refreshGear(GlobalState.athleteId, GlobalState.locale)
             }
           }
 
