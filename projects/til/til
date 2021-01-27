@@ -78,13 +78,21 @@ parse_args () {
     shift $((OPTIND - 1))
 
     if [ -z "$*" ]; then
-        die "$(usage)"
+        read_from_prompt
+    else
+        readonly ARG_CATEGORY="$1"; shift
+
+        # Grab remaining positional as the title or fallback
+        readonly ARG_TITLE="${*:-"$(default_note_title)"}"
     fi
+}
 
-    readonly ARG_CATEGORY="$1"; shift
+read_from_prompt () {
+    echo "What did you learn today?"
 
-    # Grab remaining positional as the title or fallback
-    readonly ARG_TITLE="${*:-"$(default_note_title)"}"
+    # TODO: Would be nice to have these also be readonly
+    read -r -p "note category: " ARG_CATEGORY
+    read -r -p "note title: " ARG_TITLE
 }
 
 default_note_title () {
@@ -121,7 +129,7 @@ note_destination_path () {
     local file_name
     file_name="$(sanitize_note_file_name "$ARG_TITLE").md"
 
-    echo -n "${TIL_NOTE_PATH}/${file_name}"
+    echo -n "${TIL_NOTE_PATH}/${ARG_CATEGORY}/${file_name}"
 }
 
 run_save_hook () {
@@ -153,9 +161,12 @@ create_new_note () {
     ( $EDITOR "$temp" ) || die "discarding note"
 
     # Move temp file to its real location
-    local dest_path
+    local dest_path dest_dir
     dest_path="$(note_destination_path)"
+    dest_dir="$(dirname "$dest_path")"
 
+    # TODO: Clean this up eventually
+    mkdir -p "$dest_dir"
     mv "$temp" "$dest_path"
 
     run_save_hook "$dest_path"
