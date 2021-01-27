@@ -125,11 +125,23 @@ populate_template () {
         sh -c 'envsubst'
 }
 
-note_destination_path () {
-    local file_name
-    file_name="$(sanitize_note_file_name "$ARG_TITLE").md"
+get_file_extension () {
+    local path="$1"; shift
+    local ext
+    ext="$(basename "$path" | cut -s -d. -f 2-)"
+    if [ -z "$ext" ]; then
+        ext="md"
+    fi
 
-    echo -n "${TIL_NOTE_PATH}/${ARG_CATEGORY}/${file_name}"
+    echo "$ext"
+}
+
+note_destination_path () {
+    local name ext
+    name="$(sanitize_note_file_name "$ARG_TITLE")"
+    ext="$(get_file_extension "$TIL_TEMPLATE_PATH")"
+
+    echo -n "${TIL_NOTE_PATH}/${ARG_CATEGORY}/${name}.${ext}"
 }
 
 run_save_hook () {
