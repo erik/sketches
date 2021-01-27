@@ -22,16 +22,23 @@ check_environment () {
 }
 
 usage () {
+    local mode="$1"; shift
+
     cat <<- EOF
 usage: $PROGRAM [options] CATEGORY [NOTE TITLE]
 
 Keep track of what you learn.
 
 OPTIONS
-  There are no options.
+  -h  Display usage information
+  -x  Enable debugging output
+  -s  Skip save hook
+EOF
+
+    if [ "$mode" = "full" ]; then
+        cat <<- EOF
 
 EXAMPLES
-
   # Create note with category "nginx" and title of
   # "setting up multiple hosts"
   #
@@ -42,13 +49,11 @@ EXAMPLES
   $PROGRAM emacs
 
 ENVIRONMENT
-
   TIL_NOTE_PATH      Path of directory to store new notes in.
   TIL_SAVE_HOOK      Shell command to run on save.
   TIL_TEMPLATE_PATH  Path to template file to use for new notes.
 
 TEMPLATE VARIABLES
-
   The file indicated by TIL_TEMPLATE_PATH is run through 'envsubst'
   with the following variables available.
 
@@ -57,12 +62,13 @@ TEMPLATE VARIABLES
   NOTE_FILE_NAME
   TITLE
 EOF
+        fi
 }
 
 parse_args () {
     local OPTIND opt
 
-    while getopts ":h:x:s" opt; do
+    while getopts "hxs" opt; do
         case "$opt" in
             x)
                 echo 'Enabling Bash Debugging'
@@ -71,13 +77,13 @@ parse_args () {
             s)
                 readonly ARG_SKIP_HOOK=1
                 ;;
+            h)
+                usage 'full'
+                exit 0
+                ;;
             *)
-                usage
-                if [ "$opt" = "h" ]; then
-                    exit 0
-                else
-                    exit 1
-                fi
+                usage 'short'
+                exit 1
                 ;;
         esac
     done
