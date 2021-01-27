@@ -53,11 +53,14 @@ EOF
 parse_args () {
     local OPTIND opt
 
-    while getopts ":h:x" opt; do
+    while getopts ":h:x:s" opt; do
         case "$opt" in
             x)
                 echo 'Enabling Bash Debugging'
                 set -x
+                ;;
+            s)
+                readonly ARG_SKIP_HOOK=1
                 ;;
             *)
                 usage
@@ -146,6 +149,8 @@ run_save_hook () {
     echo "Saved note: ${dest_path}"
 
     if [ -z "${TIL_SAVE_HOOK}" ]; then
+        return 0
+    elif [ "${ARG_SKIP_HOOK:-0}" -eq 1 ]; then
         return 0
     fi
 
