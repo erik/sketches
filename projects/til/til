@@ -43,10 +43,19 @@ EXAMPLES
 
 ENVIRONMENT
 
-  TIL_BASE_PATH      TIL content root             [$TIL_BASE_PATH]
-  TIL_NOTE_PATH      Where to write notes         [$TIL_NOTE_PATH]
-  TIL_TEMPLATE_PATH  Path to note template        [$TIL_TEMPLATE_PATH]
-  TIL_SAVE_HOOK      Shell command to run on save [${TIL_SAVE_HOOK:-unset}]
+  TIL_NOTE_PATH      Path of directory to store new notes in.
+  TIL_SAVE_HOOK      Shell command to run on save.
+  TIL_TEMPLATE_PATH  Path to template file to use for new notes.
+
+TEMPLATE VARIABLES
+
+  The file indicated by TIL_TEMPLATE_PATH is run through 'envsubst'
+  with the following variables available.
+
+  CATEGORY
+  DATE
+  NOTE_FILE_NAME
+  TITLE
 EOF
 }
 
@@ -90,8 +99,8 @@ read_from_prompt () {
     echo "What did you learn today?"
 
     # TODO: Would be nice to have these also be readonly
-    read -r -p "note category: " ARG_CATEGORY
-    read -r -p "note title: " ARG_TITLE
+    read -r -p "[category] " ARG_CATEGORY
+    read -r -p "[title] " ARG_TITLE
 }
 
 default_note_title () {
