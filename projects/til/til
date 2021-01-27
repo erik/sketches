@@ -7,9 +7,8 @@ readonly PROGRAM="$(basename "$0")"
 readonly ARGS="$*"
 
 # Environment configurable variables
-: "${TIL_BASE_PATH:="$HOME/til/"}"
-: "${TIL_NOTE_PATH:="$TIL_BASE_PATH/notes/"}"
-: "${TIL_TEMPLATE_PATH:="$TIL_BASE_PATH/template.md"}"
+: "${TIL_NOTE_PATH:="$HOME/til/notes/"}"
+: "${TIL_TEMPLATE_PATH:=/dev/null}"
 : "${TIL_SAVE_HOOK:=""}"
 
 die () {
@@ -18,12 +17,8 @@ die () {
 }
 
 check_environment () {
-    for dir in TIL_BASE_PATH TIL_NOTE_PATH; do
-        local val="${!dir}"
-        [ -d "$val" ] || die "$dir: not a directory: $val"
-    done
-
-    [ -f "$TIL_TEMPLATE_PATH" ] || die "TIL_TEMPLATE_PATH: does not exist: $TIL_TEMPLATE_PATH"
+    [ -d "$TIL_NOTE_PATH" ] || die "TIL_NOTE_PATH: does not exist: $TIL_NOTE_PATH"
+    [ -e "$TIL_TEMPLATE_PATH" ] || die "TIL_TEMPLATE_PATH: does not exist: $TIL_TEMPLATE_PATH"
 }
 
 usage () {
@@ -36,6 +31,7 @@ OPTIONS
   There are no options.
 
 EXAMPLES
+
   # Create note with category "nginx" and title of
   # "setting up multiple hosts"
   #
