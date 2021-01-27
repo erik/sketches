@@ -1,0 +1,175 @@
+#!/bin/bash
+
+set -o nounset
+set -o errexit
+
+readonly PROGRAM="$(basename "$0")"
+readonly ARGS="$*"
+
+# Environment configurable variables
+: "${TIL_BASE_PATH:="$HOME/til/"}"
+: "${TIL_NOTE_PATH:="$TIL_BASE_PATH/notes/"}"
+: "${TIL_TEMPLATE_PATH:="$TIL_BASE_PATH/template.md"}"
+: "${TIL_SAVE_HOOK:=""}"
+
+die () {
+    echo "$@"
+    exit 1
+}
+
+check_environment () {
+    for dir in TIL_BASE_PATH TIL_NOTE_PATH; do
+        local val="${!dir}"
+        [ -d "$val" ] || die "$dir: not a directory: $val"
+    done
+
+    [ -f "$TIL_TEMPLATE_PATH" ] || die "TIL_TEMPLATE_PATH: does not exist: $TIL_TEMPLATE_PATH"
+}
+
+usage () {
+    cat <<- EOF
+usage: $PROGRAM [options] CATEGORY [NOTE TITLE]
+
+Keep track of what you learn.
+
+OPTIONS
+  There are no options.
+
+EXAMPLES
+  # Create note with category "nginx" and title of
+  # "setting up multiple hosts"
+  #
+  $PROGRAM nginx setting up multiple hosts
+
+  # Create untitled note in category "emacs"
+  #
+  $PROGRAM emacs
+
+ENVIRONMENT
+
+  TIL_BASE_PATH      TIL content root             [$TIL_BASE_PATH]
+  TIL_NOTE_PATH      Where to write notes         [$TIL_NOTE_PATH]
+  TIL_TEMPLATE_PATH  Path to note template        [$TIL_TEMPLATE_PATH]
+  TIL_SAVE_HOOK      Shell command to run on save [${TIL_SAVE_HOOK:-unset}]
+EOF
+}
+
+parse_args () {
+    local OPTIND opt
+
+    while getopts ":h:x" opt; do
+        case "$opt" in
+            x)
+                echo 'Enabling Bash Debugging'
+                set -x
+                ;;
+            *)
+                usage
+                if [ "$opt" = "h" ]; then
+                    exit 0
+                else
+                    exit 1
+                fi
+                ;;
+        esac
+    done
+
+    # Skip past flags
+    shift $((OPTIND - 1))
+
+    if [ -z "$*" ]; then
+        die "$(usage)"
+    fi
+
+    readonly ARG_CATEGORY="$1"; shift
+
+    # Grab remaining positional as the title or fallback
+    readonly ARG_TITLE="${*:-"$(default_note_title)"}"
+}
+
+default_note_title () {
+    echo -n 'untitled'
+}
+
+get_date () {
+    date +'%Y-%m-%d'
+}
+
+
+sanitize_note_file_name () {
+    local title=$1; shift
+    echo -n "$(get_date)-${title}" | perl -pe 's/[\W.]+/-/g'
+}
+
+populate_template () {
+    local out_file=$1; shift
+
+    # Pipe the through `envsubst` to populate template values. Note
+    # that we need to use `sh -c envsubst` because `env` doesn't want
+    # to call a bash builtin.
+    env -i \
+        CATEGORY="$ARG_CATEGORY" \
+        TITLE="$ARG_TITLE" \
+        NOTE_FILE_NAME="$(sanitize_note_file_name "$ARG_TITLE")" \
+        DATE="$(get_date)" \
+        < "$TIL_TEMPLATE_PATH" \
+        > "$out_file" \
+        sh -c 'envsubst'
+}
+
+note_destination_path () {
+    local file_name
+    file_name="$(sanitize_note_file_name "$ARG_TITLE").md"
+
+    echo -n "${TIL_NOTE_PATH}/${file_name}"
+}
+
+run_save_hook () {
+    local note_path="$1"; shift
+
+    echo "Saved note: ${dest_path}"
+
+    if [ -z "${TIL_SAVE_HOOK}" ]; then
+        return 0
+    fi
+
+    pushd "$(dirname "$note_path")" >/dev/null
+
+    env -i \
+        CATEGORY="$ARG_CATEGORY" \
+        TITLE="$ARG_TITLE" \
+        NOTE_PATH="$note_path" \
+        bash -c "${TIL_SAVE_HOOK}" || die "on save hook failed"
+
+    popd >/dev/null
+}
+
+create_new_note () {
+    local temp
+    temp=$(mktemp -t "${PROGRAM}")
+
+    populate_template "$temp"
+
+    ( $EDITOR "$temp" ) || die "discarding note"
+
+    # Move temp file to its real location
+    local dest_path
+    dest_path="$(note_destination_path)"
+
+    mv "$temp" "$dest_path"
+
+    run_save_hook "$dest_path"
+}
+
+main () {
+    # shellcheck disable=SC2086
+    parse_args $ARGS
+
+    # Ensure environment variables point to reasonable things.
+    check_environment
+
+    # Let's go
+    create_new_note
+}
+
+main
