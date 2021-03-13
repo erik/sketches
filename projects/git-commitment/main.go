@@ -1,6 +1,11 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"strings"
+	"sync"
+
 	"tinygo.org/x/bluetooth"
 )
 
@@ -32,81 +37,214 @@ var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
 		bluetooth.CharacteristicUUIDHeartRateMeasurement,
 	},
 }
-
-func scanDevices() error {
-	return nil
+var KnownServiceNames = map[bluetooth.UUID]string{
+	bluetooth.ServiceUUIDCyclingSpeedAndCadence: "Cycling Speed and Cadence",
+	bluetooth.ServiceUUIDCyclingPower:           "Cycling Power",
+	bluetooth.ServiceUUIDHeartRate:              "Heart Rate",
 }
 
-func main() {
-	addrCh := make(chan bluetooth.Addresser)
+type MetricKind int
 
+const (
+	MetricHeartRate = iota
+	MetricCyclingPower
+	MetricCyclingSpeed
+	MetricCyclingCadence
+)
+
+type DeviceMetric struct {
+	kind MetricKind
+}
+
+type MetricSink struct {
+}
+
+type MetricSource struct {
+	sinks []chan DeviceMetric
+
+	svc *bluetooth.DeviceService
+	ch  *bluetooth.DeviceCharacteristic
+}
+
+func NewMetricSource(
+	svc *bluetooth.DeviceService,
+	ch *bluetooth.DeviceCharacteristic,
+) MetricSource {
+	return MetricSource{
+		sinks: []chan DeviceMetric{},
+		svc:   svc,
+		ch:    ch,
+	}
+}
+
+func (src *MetricSource) Name() string {
+	switch src.ch.UUID() {
+	case bluetooth.CharacteristicUUIDCyclingPowerMeasurement:
+		return "Cycling Power Measure"
+	case bluetooth.CharacteristicUUIDCyclingPowerFeature:
+		return "Cycling Power Feature"
+	case bluetooth.CharacteristicUUIDHeartRateMeasurement:
+		return "Heart Rate"
+	}
+	return fmt.Sprintf("<unknown: %s>", src.ch.UUID().String())
+
+}
+
+func (src *MetricSource) AddSink(sink chan DeviceMetric) {
+	src.sinks = append(src.sinks, sink)
+
+	// Start listenening first time we add a sink
+	if len(src.sinks) == 1 {
+		src.ch.EnableNotifications(src.handleNotification)
+	}
+}
+
+func (src *MetricSource) handleNotification(buf []byte) {
+	fmt.Printf("%s: got %+v\n", src.Name(), buf)
+
+	// TODO
+	switch src.ch.UUID() {
+	case bluetooth.CharacteristicUUIDCyclingPowerMeasurement:
+	case bluetooth.CharacteristicUUIDCyclingPowerFeature:
+	case bluetooth.CharacteristicUUIDHeartRateMeasurement:
+	}
+}
+
+func scanDevices() {
 	adapter := bluetooth.DefaultAdapter
+	fmt.Println("Starting device scan...")
 
-	println("\n\nstarting up")
-	adapter.Enable()
+	if err := adapter.Enable(); err != nil {
+		fmt.Println("FATAL: Failed to enable BLE")
+		panic(err)
+	}
 
-	if err := adapter.Scan(func(bt *bluetooth.Adapter, scan bluetooth.ScanResult) {
-		services := []bluetooth.UUID{}
+	// Keep track of addresses we've already looked ad
+	addrsChecked := map[string]bool{}
+
+	onScanResult := func(bt *bluetooth.Adapter, result bluetooth.ScanResult) {
+		if _, seen := addrsChecked[result.Address.String()]; seen {
+			return
+		}
+		addrsChecked[result.Address.String()] = true
+
+		serviceNames := []string{}
 		for _, s := range KnownServiceUUIDs {
-			if scan.HasServiceUUID(s) {
-				services = append(services, s)
+			if !result.HasServiceUUID(s) {
+				continue
 			}
+
+			serviceNames = append(serviceNames, KnownServiceNames[s])
 		}
 
 		// No matching services, skip this device.
-		if len(services) == 0 {
+		if len(serviceNames) == 0 {
 			return
 		}
 
-		// NOTE: need to stop scan before we can attempt connection
-		if err := bt.StopScan(); err != nil {
-			panic(err)
-		}
-
-		println("found",
-			scan.Address.String(),
-			scan.RSSI,
-			scan.LocalName(),
+		fmt.Printf("%s %-20s %-20s [RSSI:%d]\n",
+			result.Address.String(),
+			result.LocalName(),
+			strings.Join(serviceNames, ","),
+			result.RSSI,
 		)
+	}
 
-		addrCh <- scan.Address
-	}); err != nil {
+	if err := adapter.Scan(onScanResult); err != nil {
+		fmt.Println("FATAL: Failed to scan for devices")
 		panic(err)
 	}
 
-	println("scan complete")
+	fmt.Println("Scan complete.")
+}
 
-	var device *bluetooth.Device
-	select {
-	case addr := <-addrCh:
-		println("attempting connection")
-		if d, err := adapter.Connect(addr, bluetooth.ConnectionParams{}); err != nil {
+var (
+	flagScan                    = flag.Bool("scan", false, "scan for nearby devices")
+	flagHeartRateAddr           = flag.String("hr", "", "address for heart rate device")
+	flagCyclingPowerAddr        = flag.String("power", "", "address for cycling power device")
+	flagCyclingSpeedCadenceAddr = flag.String("speed", "", "address for cycling speed/cadence device")
+)
+
+func init() {
+	flag.Parse()
+}
+
+func main() {
+	if *flagScan {
+		scanDevices()
+		return
+	}
+
+	adapter := bluetooth.DefaultAdapter
+	if err := adapter.Enable(); err != nil {
+		fmt.Println("FATAL: Failed to enable BLE")
+		panic(err)
+	}
+
+	deviceChan := make(chan *bluetooth.Device)
+
+	wg := sync.WaitGroup{}
+
+	connectRetry := func(addr string) {
+		uuid, err := bluetooth.ParseUUID(addr)
+		if err != nil {
+			fmt.Printf("FATAL: bad UUID given: <%s>\n", addr)
 			panic(err)
-		} else {
-			device = d
 		}
-		println("connection success!")
+
+		cp := bluetooth.ConnectionParams{}
+		for {
+			// TODO: bluetooth.Address bit is not cross-platform.
+			device, err := adapter.Connect(bluetooth.Address{uuid}, cp)
+			if err != nil {
+				fmt.Printf("WARN: connect to <%s> failed: %+v\n", addr, err)
+				continue
+			}
+			deviceChan <- device
+			wg.Done()
+			break
+		}
 	}
 
-	println("discovering device services")
-	services, err := device.DiscoverServices(KnownServiceUUIDs)
-	if err != nil {
-		panic(err)
+	if *flagHeartRateAddr != "" {
+		wg.Add(1)
+		go connectRetry(*flagHeartRateAddr)
+	}
+	if *flagCyclingPowerAddr != "" {
+		wg.Add(1)
+		go connectRetry(*flagCyclingPowerAddr)
+	}
+	if *flagCyclingSpeedCadenceAddr != "" {
+		wg.Add(1)
+		go connectRetry(*flagCyclingPowerAddr)
 	}
 
-	for _, service := range services {
-		println("found service", service.UUID().String())
-		chars, err := service.DiscoverCharacteristics([]bluetooth.UUID{})
+	go func() {
+		wg.Wait()
+		close(deviceChan)
+	}()
+
+	for device := range deviceChan {
+		println("discovering device services")
+		services, err := device.DiscoverServices(KnownServiceUUIDs)
 		if err != nil {
 			panic(err)
 		}
 
-		for _, char := range chars {
-			println("found characteristic", char.UUID().String())
+		for _, service := range services {
+			println("found service", service.UUID().String())
+			chars, err := service.DiscoverCharacteristics([]bluetooth.UUID{})
+			if err != nil {
+				panic(err)
+			}
 
-			char.EnableNotifications(func(buf []byte) {
-				println(char.UUID().String(), "data:", uint8(buf[0]))
-			})
+			for _, char := range chars {
+				println("found characteristic", char.UUID().String())
+
+				char.EnableNotifications(func(buf []byte) {
+					println(char.UUID().String(), "data:", uint8(buf[0]))
+				})
+			}
 		}
 	}
 
