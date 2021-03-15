@@ -214,8 +214,17 @@ func (src *MetricSource) handleCyclingPowerMeasurement(buf []byte) {
 
 	flags := uint16(buf[0]) | uint16(buf[1]<<8)
 
-	watts := int16(buf[2]<<8) | int16(buf[3])
-	fmt.Printf("power measure: %d watts, flags=%b\n", watts, flags)
+	powerWatts := int16(buf[2]<<8) | int16(buf[3])
+
+	// Power meters will send packets even if nothing's happening.
+	if powerWatts == 0 {
+		return
+	}
+
+	src.emit(DeviceMetric{
+		kind:  MetricCyclingPower,
+		value: int(powerWatts),
+	})
 
 	if flags&CyclingPowerFlagHasAccumulatedEnergy != 0 {
 		fmt.Println("also have energy")
