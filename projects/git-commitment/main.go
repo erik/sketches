@@ -19,6 +19,7 @@ var KnownServiceUUIDs = []bluetooth.UUID{
 }
 
 var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
+	// https://www.bluetooth.com/specifications/specs/cycling-power-service-1-1/
 	bluetooth.ServiceUUIDCyclingPower: {
 		bluetooth.CharacteristicUUIDCyclingPowerMeasurement,
 		bluetooth.CharacteristicUUIDCyclingPowerFeature,
@@ -37,11 +38,18 @@ var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
 		bluetooth.CharacteristicUUIDHeartRateMeasurement,
 	},
 }
-var KnownServiceNames = map[bluetooth.UUID]string{
-	bluetooth.ServiceUUIDCyclingSpeedAndCadence: "Cycling Speed and Cadence",
-	bluetooth.ServiceUUIDCyclingPower:           "Cycling Power",
-	bluetooth.ServiceUUIDHeartRate:              "Heart Rate",
-}
+var (
+	KnownServiceNames = map[bluetooth.UUID]string{
+		bluetooth.ServiceUUIDCyclingSpeedAndCadence: "Cycling Speed and Cadence",
+		bluetooth.ServiceUUIDCyclingPower:           "Cycling Power",
+		bluetooth.ServiceUUIDHeartRate:              "Heart Rate",
+	}
+	KnownCharacteristicNames = map[bluetooth.UUID]string{
+		bluetooth.CharacteristicUUIDCyclingPowerMeasurement: "Cycling Power Measure",
+		bluetooth.CharacteristicUUIDCyclingPowerFeature:     "Cycling Power Feature",
+		bluetooth.CharacteristicUUIDHeartRateMeasurement:    "Heart Rate Measurement",
+	}
+)
 
 type MetricKind int
 
@@ -53,7 +61,8 @@ const (
 )
 
 type DeviceMetric struct {
-	kind MetricKind
+	kind  MetricKind
+	value int
 }
 
 type MetricSink struct {
@@ -78,16 +87,10 @@ func NewMetricSource(
 }
 
 func (src *MetricSource) Name() string {
-	switch src.ch.UUID() {
-	case bluetooth.CharacteristicUUIDCyclingPowerMeasurement:
-		return "Cycling Power Measure"
-	case bluetooth.CharacteristicUUIDCyclingPowerFeature:
-		return "Cycling Power Feature"
-	case bluetooth.CharacteristicUUIDHeartRateMeasurement:
-		return "Heart Rate"
+	if name, ok := KnownCharacteristicNames[src.ch.UUID()]; ok {
+		return name
 	}
 	return fmt.Sprintf("<unknown: %s>", src.ch.UUID().String())
-
 }
 
 func (src *MetricSource) AddSink(sink chan DeviceMetric) {
@@ -95,19 +98,91 @@ func (src *MetricSource) AddSink(sink chan DeviceMetric) {
 
 	// Start listenening first time we add a sink
 	if len(src.sinks) == 1 {
-		src.ch.EnableNotifications(src.handleNotification)
+		handler := src.notificationHandler()
+		src.ch.EnableNotifications(handler)
 	}
 }
 
-func (src *MetricSource) handleNotification(buf []byte) {
-	fmt.Printf("%s: got %+v\n", src.Name(), buf)
-
-	// TODO
+func (src *MetricSource) notificationHandler() func([]byte) {
 	switch src.ch.UUID() {
 	case bluetooth.CharacteristicUUIDCyclingPowerMeasurement:
+		return src.handleCyclingPowerMeasurement
+
+	// TODO
 	case bluetooth.CharacteristicUUIDCyclingPowerFeature:
 	case bluetooth.CharacteristicUUIDHeartRateMeasurement:
+		return src.handleHeartRateMeasurement
 	}
+
+	return nil
+}
+
+func (src *MetricSource) emit(m DeviceMetric) {
+	for _, sink := range src.sinks {
+		sink <- m
+	}
+}
+
+const (
+	// BPM size, 0 if u8, 1 if u16
+	HeartRateFlagSize = 1 << 0
+
+	// 00 unsupported
+	// 01 unsupported
+	// 10 supported, not detected
+	// 11 supported, detected
+	HeartRateFlagContactStatus = (1 << 1) | (1 << 2)
+
+	HeartRateFlagHasEnergyExpended = 1 << 3
+	HeartRateFlagHasRRInterval     = 1 << 4
+
+	// bits 5-8 reserved
+)
+
+func (src *MetricSource) handleHeartRateMeasurement(buf []byte) {
+	// malformed
+	if len(buf) < 2 {
+		return
+	}
+
+	flag := buf[0]
+
+	is16Bit := (flag & HeartRateFlagSize) != 0
+	contactStatus := (flag & HeartRateFlagContactStatus) >> 1
+
+	contactSupported := contactStatus&(0b10) != 0
+	contactFound := contactStatus&(0b01) != 0
+
+	// No use sending this metric if the sensor isn't reading.
+	if contactSupported && !contactFound {
+		return
+	}
+
+	var hr int = int(buf[1])
+	if is16Bit {
+		hr = (hr << 8) | int(buf[2])
+	}
+
+	src.emit(DeviceMetric{
+		kind:  MetricHeartRate,
+		value: hr,
+	})
+}
+
+const (
+	CyclingPowerFlagHasPedalPowerBalance       = 1 << 0
+	CyclingPowerFlagPedalPowerBalanceReference = 1 << 1
+	CyclingPowerFlagHasAccumulatedTorque       = 1 << 2
+	CyclingPowerFlagAccumulatedTorqueSource    = 1 << 3
+	CyclingPowerFlagHasWheelRevolution         = 1 << 4
+	CyclingPowerFlagHasCrankRevolution         = 1 << 5
+	CyclingPowerFlagHasExtremeForceMagnitudes  = 1 << 6
+	CyclingPowerFlagHasExtremeTorqueMagnitudes = 1 << 7
+)
+
+// Packet is [FLAG BYTE] [POWER WATTS]
+func (src *MetricSource) handleCyclingPowerMeasurement(buf []byte) {
+	// fmt.Printf("%s: got %+v\n", src.Name(), buf)
 }
 
 func scanDevices() {
@@ -200,10 +275,12 @@ func main() {
 				fmt.Printf("WARN: connect to <%s> failed: %+v\n", addr, err)
 				continue
 			}
+
 			deviceChan <- device
-			wg.Done()
 			break
 		}
+
+		wg.Done()
 	}
 
 	if *flagHeartRateAddr != "" {
@@ -216,7 +293,7 @@ func main() {
 	}
 	if *flagCyclingSpeedCadenceAddr != "" {
 		wg.Add(1)
-		go connectRetry(*flagCyclingPowerAddr)
+		go connectRetry(*flagCyclingSpeedCadenceAddr)
 	}
 
 	go func() {
@@ -224,26 +301,39 @@ func main() {
 		close(deviceChan)
 	}()
 
+	metricsChan := make(chan DeviceMetric)
+	go func() {
+		for m := range metricsChan {
+			fmt.Printf("Metric: %+v\n", m)
+		}
+	}()
+
 	for device := range deviceChan {
-		println("discovering device services")
+		fmt.Println("Initializing device...")
 		services, err := device.DiscoverServices(KnownServiceUUIDs)
 		if err != nil {
 			panic(err)
 		}
 
 		for _, service := range services {
-			println("found service", service.UUID().String())
-			chars, err := service.DiscoverCharacteristics([]bluetooth.UUID{})
+			if name, ok := KnownServiceNames[service.UUID()]; ok {
+				fmt.Printf("\tservice: %s\n", name)
+			} else {
+				fmt.Printf("\tservice: unknown <%+v>\n", service.UUID().String())
+			}
+
+			knownChars := KnownServiceCharacteristicUUIDs[service.UUID()]
+			chars, err := service.DiscoverCharacteristics(knownChars)
 			if err != nil {
 				panic(err)
 			}
 
 			for _, char := range chars {
-				println("found characteristic", char.UUID().String())
+				name := KnownCharacteristicNames[char.UUID()]
+				fmt.Printf("\t\tcharacteristic: %s\n", name)
 
-				char.EnableNotifications(func(buf []byte) {
-					println(char.UUID().String(), "data:", uint8(buf[0]))
-				})
+				src := NewMetricSource(&service, &char)
+				src.AddSink(metricsChan)
 			}
 		}
 	}
