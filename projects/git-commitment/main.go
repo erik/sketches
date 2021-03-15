@@ -170,19 +170,57 @@ func (src *MetricSource) handleHeartRateMeasurement(buf []byte) {
 }
 
 const (
-	CyclingPowerFlagHasPedalPowerBalance       = 1 << 0
-	CyclingPowerFlagPedalPowerBalanceReference = 1 << 1
-	CyclingPowerFlagHasAccumulatedTorque       = 1 << 2
-	CyclingPowerFlagAccumulatedTorqueSource    = 1 << 3
-	CyclingPowerFlagHasWheelRevolution         = 1 << 4
-	CyclingPowerFlagHasCrankRevolution         = 1 << 5
-	CyclingPowerFlagHasExtremeForceMagnitudes  = 1 << 6
-	CyclingPowerFlagHasExtremeTorqueMagnitudes = 1 << 7
+	CyclingPowerFlagHasPedalPowerBalance           = 1 << 0
+	CyclingPowerFlagPedalPowerBalanceReference     = 1 << 1
+	CyclingPowerFlagHasAccumulatedTorque           = 1 << 2
+	CyclingPowerFlagAccumulatedTorqueSource        = 1 << 3
+	CyclingPowerFlagHasWheelRevolution             = 1 << 4
+	CyclingPowerFlagHasCrankRevolution             = 1 << 5
+	CyclingPowerFlagHasExtremeForceMagnitudes      = 1 << 6
+	CyclingPowerFlagHasExtremeTorqueMagnitudes     = 1 << 7
+	CyclingPowerFlagHasExtremeAngles               = 1 << 8
+	CyclingPowerFlagHasTopDeadSpotAngle            = 1 << 9
+	CyclingPowerFlagHasBottomDeadSpotAngle         = 1 << 10
+	CyclingPowerFlagHasAccumulatedEnergy           = 1 << 11
+	CyclingPowerFlagHasOffsetCompensationIndicator = 1 << 12
+
+	// Bits 13-16 reserved
 )
 
-// Packet is [FLAG BYTE] [POWER WATTS]
+// Two flag bytes, followed by a 16 bit power reading. All subsequent
+// fields are optional, based on the flag bits set.
+//
+// sint16  instantaneous_power      watts with resolution 1
+// uint8   pedal_power_balance      percentage with resolution 1/2
+// uint16  accumulated_torque       newton meters with resolution 1/32
+// uint32  wheel_rev_cumulative     unitless
+// uint16  wheel_rev_last_time      seconds with resolution 1/2048
+// uint16  crank_rev_cumulative     unitless
+// uint16  crank_rev_last_time      seconds with resolution 1/1024
+// sint16  extreme_force_max_magn   newtons with resolution 1
+// sint16  extreme_force_min_magn   newtons with resolution 1
+// sint16  extreme_torque_max_magn  newton meters with resolution 1/32
+// sint16  extreme_torque_min_magn  newton meters with resolution 1/32
+// uint12  extreme_angles_max       degrees with resolution 1
+// uint12  extreme_angles_min       degrees with resolution 1
+// uint16  top_dead_spot_angle      degrees with resolution 1
+// uint16  bottom_dead_spot_angle   degrees with resolution 1
+// uint16  accumulated_energy       kilojoules with resolution 1
 func (src *MetricSource) handleCyclingPowerMeasurement(buf []byte) {
-	// fmt.Printf("%s: got %+v\n", src.Name(), buf)
+	// malformed
+	if len(buf) < 2 {
+		return
+	}
+
+	flags := uint16(buf[0]) | uint16(buf[1]<<8)
+
+	watts := int16(buf[2]<<8) | int16(buf[3])
+	fmt.Printf("power measure: %d watts, flags=%b\n", watts, flags)
+
+	if flags&CyclingPowerFlagHasAccumulatedEnergy != 0 {
+		fmt.Println("also have energy")
+	}
+
 }
 
 func scanDevices() {
