@@ -297,6 +297,7 @@ func main() {
 	deviceChan := make(chan *bluetooth.Device)
 
 	wg := sync.WaitGroup{}
+	connectLock := sync.Mutex{}
 
 	connectRetry := func(addr string) {
 		uuid, err := bluetooth.ParseUUID(addr)
@@ -305,12 +306,21 @@ func main() {
 			panic(err)
 		}
 
-		cp := bluetooth.ConnectionParams{}
+		params := bluetooth.ConnectionParams{
+			ConnectionTimeout: bluetooth.Duration(100),
+		}
+
+		// TODO: We should add a time bound for this
 		for {
+			// TODO: tiny-go/bluetooth's Connect is not
+			// thread-safe. Multiple concurrent calls will race and
+			// return the wrong data to the wrong caller.
+			connectLock.Lock()
+			defer connectLock.Unlock()
+
 			// TODO: bluetooth.Address bit is not cross-platform.
-			device, err := adapter.Connect(bluetooth.Address{uuid}, cp)
+			device, err := adapter.Connect(bluetooth.Address{uuid}, params)
 			if err != nil {
-				fmt.Printf("WARN: connect to <%s> failed: %+v\n", addr, err)
 				continue
 			}
 
