@@ -280,19 +280,31 @@ func scanDevices() {
 	fmt.Println("Scan complete.")
 }
 
+type repeatableFlag []string
+
+func (i *repeatableFlag) String() string {
+	return strings.Join(*i, ",")
+}
+
+func (i *repeatableFlag) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
 var (
-	flagScan                    = flag.Bool("scan", false, "scan for nearby devices")
-	flagHeartRateAddr           = flag.String("hr", "", "address for heart rate device")
-	flagCyclingPowerAddr        = flag.String("power", "", "address for cycling power device")
-	flagCyclingSpeedCadenceAddr = flag.String("speed", "", "address for cycling speed/cadence device")
+	flagScanMode    bool
+	flagDeviceAddrs repeatableFlag
 )
 
 func init() {
+	flag.BoolVar(&flagScanMode, "scan", false, "scan for nearby devices")
+	flag.Var(&flagDeviceAddrs, "device", "BLE device address")
+
 	flag.Parse()
 }
 
 func main() {
-	if *flagScan {
+	if flagScanMode {
 		scanDevices()
 		return
 	}
@@ -306,33 +318,28 @@ func main() {
 	deviceChan := make(chan *bluetooth.Device)
 
 	wg := sync.WaitGroup{}
-	connectLock := sync.Mutex{}
 
 	connectRetry := func(addr string) {
+		println("starting connection attempt for", addr)
 		uuid, err := bluetooth.ParseUUID(addr)
 		if err != nil {
 			fmt.Printf("FATAL: bad UUID given: <%s>\n", addr)
 			panic(err)
 		}
 
-		params := bluetooth.ConnectionParams{
-			ConnectionTimeout: bluetooth.Duration(100),
-		}
+		// NOTE: ConnectionTimeout is ignored on Mac OS
+		params := bluetooth.ConnectionParams{}
 
 		// TODO: We should add a time bound for this
 		for {
-			// TODO: tiny-go/bluetooth's Connect is not
-			// thread-safe. Multiple concurrent calls will race and
-			// return the wrong data to the wrong caller.
-			connectLock.Lock()
-			defer connectLock.Unlock()
-
 			// TODO: bluetooth.Address bit is not cross-platform.
 			device, err := adapter.Connect(bluetooth.Address{uuid}, params)
 			if err != nil {
+				println("device timed out:", uuid.String())
 				continue
 			}
 
+			println("device found:", uuid.String())
 			deviceChan <- device
 			break
 		}
@@ -340,17 +347,9 @@ func main() {
 		wg.Done()
 	}
 
-	if *flagHeartRateAddr != "" {
+	for _, addr := range flagDeviceAddrs {
 		wg.Add(1)
-		go connectRetry(*flagHeartRateAddr)
-	}
-	if *flagCyclingPowerAddr != "" {
-		wg.Add(1)
-		go connectRetry(*flagCyclingPowerAddr)
-	}
-	if *flagCyclingSpeedCadenceAddr != "" {
-		wg.Add(1)
-		go connectRetry(*flagCyclingSpeedCadenceAddr)
+		go connectRetry(addr)
 	}
 
 	go func() {
