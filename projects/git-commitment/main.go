@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"strings"
@@ -22,7 +23,6 @@ var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
 	// https://www.bluetooth.com/specifications/specs/cycling-power-service-1-1/
 	bluetooth.ServiceUUIDCyclingPower: {
 		bluetooth.CharacteristicUUIDCyclingPowerMeasurement,
-		bluetooth.CharacteristicUUIDCyclingPowerFeature,
 		// TODO:
 		// Not a standardized characteristic, but this is offered by KICKR.
 		// See GoldenCheetah source for some use examples:
@@ -31,8 +31,6 @@ var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
 		// var WahooKickrControlCharacteristic = bluetooth.ParseUUID(
 		// 	"a026e005-0a7d-4ab3-97fa-f1500f9feb8b"
 		// )
-		// TODO: Also, how does this one work?
-		// bluetooth.CharacteristicUUIDCyclingPowerControlPoint,
 	},
 	bluetooth.ServiceUUIDHeartRate: {
 		bluetooth.CharacteristicUUIDHeartRateMeasurement,
@@ -40,21 +38,21 @@ var KnownServiceCharacteristicUUIDs = map[bluetooth.UUID][]bluetooth.UUID{
 }
 var (
 	KnownServiceNames = map[bluetooth.UUID]string{
-		bluetooth.ServiceUUIDCyclingSpeedAndCadence: "Cycling Speed and Cadence",
-		bluetooth.ServiceUUIDCyclingPower:           "Cycling Power",
-		bluetooth.ServiceUUIDHeartRate:              "Heart Rate",
+		bluetooth.ServiceUUIDCyclingPower: "Cycling Power",
+		bluetooth.ServiceUUIDHeartRate:    "Heart Rate",
+		// TODO: bluetooth.ServiceUUIDCyclingSpeedAndCadence: "Cycling Speed and Cadence",
 	}
 	KnownCharacteristicNames = map[bluetooth.UUID]string{
 		bluetooth.CharacteristicUUIDCyclingPowerMeasurement: "Cycling Power Measure",
-		bluetooth.CharacteristicUUIDCyclingPowerFeature:     "Cycling Power Feature",
 		bluetooth.CharacteristicUUIDHeartRateMeasurement:    "Heart Rate Measurement",
+		// TODO: bluetooth.CharacteristicUUIDCSCMeasurement:          "Cycling Speed and Cadence Measurement",
 	}
 )
 
 type MetricKind int
 
 const (
-	MetricHeartRate = iota
+	MetricHeartRate MetricKind = iota
 	MetricCyclingPower
 	MetricCyclingSpeed
 	MetricCyclingCadence
@@ -63,9 +61,6 @@ const (
 type DeviceMetric struct {
 	kind  MetricKind
 	value int
-}
-
-type MetricSink struct {
 }
 
 type MetricSource struct {
@@ -108,10 +103,15 @@ func (src *MetricSource) notificationHandler() func([]byte) {
 	case bluetooth.CharacteristicUUIDCyclingPowerMeasurement:
 		return src.handleCyclingPowerMeasurement
 
-	// TODO
-	case bluetooth.CharacteristicUUIDCyclingPowerFeature:
 	case bluetooth.CharacteristicUUIDHeartRateMeasurement:
 		return src.handleHeartRateMeasurement
+
+	// TODO: Add these
+	// case bluetooth.CharacteristicUUIDCSCMeasurement:
+	// 	return src.handleSpeedCadenceMeasurement
+
+	default:
+		println("BUG: missing notification handler:", src.ch.UUID().String())
 	}
 
 	return nil
@@ -160,7 +160,7 @@ func (src *MetricSource) handleHeartRateMeasurement(buf []byte) {
 
 	var hr int = int(buf[1])
 	if is16Bit {
-		hr = (hr << 8) | int(buf[2])
+		hr = int(int16(binary.LittleEndian.Uint16(buf[1:])))
 	}
 
 	src.emit(DeviceMetric{
@@ -212,22 +212,41 @@ func (src *MetricSource) handleCyclingPowerMeasurement(buf []byte) {
 		return
 	}
 
-	flags := uint16(buf[0]) | uint16(buf[1]<<8)
-
-	powerWatts := int16(buf[2]<<8) | int16(buf[3])
+	flags := binary.LittleEndian.Uint16(buf[0:])
+	powerWatts := int16(binary.LittleEndian.Uint16(buf[2:]))
 
 	// Power meters will send packets even if nothing's happening.
 	if powerWatts == 0 {
 		return
 	}
-
 	src.emit(DeviceMetric{
 		kind:  MetricCyclingPower,
 		value: int(powerWatts),
 	})
 
-	if flags&CyclingPowerFlagHasAccumulatedEnergy != 0 {
-		fmt.Println("also have energy")
+	// These fields are optional, so we need to index over them, can't skip directly.
+	offset := 4
+	if flags&CyclingPowerFlagHasPedalPowerBalance != 0 {
+		offset += 1
+	}
+	if flags&CyclingPowerFlagHasAccumulatedTorque != 0 {
+		offset += 2
+	}
+
+	// TODO: Calculate speed from this
+	if flags&CyclingPowerFlagHasWheelRevolution != 0 {
+		// rev := binary.LittleEndian.Uint32(buf[offset:])
+		// time := binary.LittleEndian.Uint16(buf[offset+4:])
+
+		offset += 4 + 2
+	}
+
+	// TODO: Calculate cadence from this
+	if flags&CyclingPowerFlagHasCrankRevolution != 0 {
+		// rev := binary.LittleEndian.Uint16(buf[offset:])
+		// time := binary.LittleEndian.Uint16(buf[offset+2:])
+
+		offset += 2 + 2
 	}
 
 }
