@@ -7,12 +7,21 @@
     "scripts": ["background.js"]
   },
   "page_action": {
+    "default_title": "Translation Helper",
     "default_popup": "popup.html"
   },
+  "browser_action": {},
   "permissions": [
     "https://www.linguee.com/*",
     "menus",
     "activeTab"
-  ]
-
+  ],
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Command+Shift+U"
+      },
+      "description": "Translate the currently selected text."
+    }
+  }
 }

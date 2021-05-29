@@ -1,21 +1,44 @@
 'use strict';
 
-const LINGUEE_URL = 'https://www.linguee.com/english-german/search?source=auto&query=';
+async function fetchLinguee(langPair, query, sourceLang = 'auto') {
+  const encoded = window.encodeURIComponent(query);
+
+  const res = await fetch(
+    `https://www.linguee.com/${langPair}/search?source=${sourceLang}&query=${encoded}`
+  );
+
+  // Can't use res.text() directly, since that always assumes UTF-8,
+  // which isn't true here.
+  const bytes = await res.arrayBuffer();
+  const html = new TextDecoder('iso-8859-15').decode(bytes);
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  const style = doc.querySelector('style');
+  const dictEntry = doc.querySelector('.isForeignTerm');
+
+  const node = document.createElement('div');
+  node.id = 'dictionary';
+
+  node.appendChild(style);
+  node.appendChild(dictEntry);
+
+  return node;
+}
+
+async function fetchDeepl(langPair, query, sourceLang = 'auto') {
+  // TODO: add this for translating full sentences.
+}
+
+function pushHistory(query, type) {
+  // TODO: write me
+}
 
 (async () => {
   const params = await browser.runtime.sendMessage('getPopupParams');
   const { selection } = params;
 
-  const res = await fetch(LINGUEE_URL + window.encodeURIComponent(selection));
-  const html = await res.text();
+  const output = document.getElementById('lingueecontent');
 
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-
-  const style = doc.querySelector('style');
-  const node = doc.querySelector('#dictionary');
-
-  const output = document.getElementById('popup-output');
-  output.appendChild(style);
-  output.appendChild(node);
+  output.appendChild(await fetchLinguee('english-german', selection));
 })();
