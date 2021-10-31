@@ -1,0 +1,26 @@
+{
+  "name": "DWDS Helper",
+  "description": "Translate selected text.",
+  "version": "1",
+  "manifest_version": 2,
+  "background": {
+    "scripts": ["./src/background.js"]
+  },
+  "page_action": {
+    "default_title": "DWDS",
+    "default_popup": "popup.html"
+  },
+  "browser_action": {},
+  "permissions": [
+    "menus",
+    "activeTab"
+  ],
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Command+Shift+U"
+      },
+      "description": "Look up the currently selected word."
+    }
+  }
+}

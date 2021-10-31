@@ -1,0 +1,24 @@
+{
+  "name": "dwds-ext",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "license": "GPL-3.0+",
+  "scripts": {
+    "start": "parcel manifest.json --host localhost --target webext-dev --config @parcel/config-webextension",
+    "build": "parcel build manifest.json --target webext-prod --config @parcel/config-webextension"
+  },
+  "targets": {
+    "webext-dev": {
+      "sourceMap": {
+        "inline": true,
+        "inlineSources": true
+      }
+    },
+    "webext-prod": {}
+  },
+  "devDependencies": {
+    "@parcel/config-webextension": "^2.0.0",
+    "parcel": "^2.0.0"
+  }
+}
