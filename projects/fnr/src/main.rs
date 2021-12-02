@@ -1,16 +1,10 @@
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 
-use grep::matcher::Matcher;
-use grep::regex::RegexMatcherBuilder;
-use grep::searcher::sinks::UTF8;
+use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch};
 
 use ignore::Walk;
 
-use structopt::clap::arg_enum;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -37,75 +31,74 @@ struct Opts {
     paths: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+struct Line(u64, String);
+
 #[derive(Debug)]
 struct SearchMatch {
-    line_number: u64,
-    line: String,
-
-    pre_context: Vec<String>,
-    post_context: Vec<String>,
-}
-
-impl SearchMatch {
-    fn empty() -> SearchMatch {
-        return SearchMatch {
-            line_number: 0,
-            line: "".to_string(),
-            pre_context: Vec::new(),
-            post_context: Vec::new(),
-        };
-    }
-}
-
-struct SearchResults {
-    // TODO: Group by file
-    matches: Vec<SearchMatch>,
-}
-
-impl SearchResults {
-    fn new() -> SearchResults {
-        return SearchResults {
-            matches: Vec::new(),
-        };
-    }
+    line: Line,
+    context_pre: Vec<Line>,
+    context_post: Vec<Line>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum MatchState {
+    Init,
     Before,
     Match,
     After,
 }
 
-struct SearchMatchSink {
+struct SearchMatchCollector {
     state: MatchState,
-    current_match: SearchMatch,
+
+    cur_context_pre: Vec<Line>,
+    cur_context_post: Vec<Line>,
+    cur_match_line: Option<Line>,
 }
 
-impl SearchMatchSink {
-    fn new() -> SearchMatchSink {
-        return SearchMatchSink {
-            state: MatchState::Before,
-            current_match: SearchMatch::empty(),
+impl SearchMatchCollector {
+    fn new() -> SearchMatchCollector {
+        return SearchMatchCollector {
+            state: MatchState::Init,
+            cur_match_line: None,
+            cur_context_pre: Vec::new(),
+            cur_context_post: Vec::new(),
         };
     }
 
+    fn maybe_emit(&mut self) {
+        if let Some(line) = &self.cur_match_line {
+            for ctx in &self.cur_context_pre {
+                println!("-- {:?}", ctx);
+            }
+            println!("-- {:?}", line);
+            for ctx in &self.cur_context_post {
+                println!("-- {:?}", ctx);
+            }
+            println!("---");
+
+            self.reset();
+        }
+    }
+
     fn reset(&mut self) {
-        self.state = MatchState::Before;
-        self.current_match = SearchMatch::empty();
+        self.state = MatchState::Init;
+
+        self.cur_match_line = None;
+        self.cur_context_pre.clear();
+        self.cur_context_post.clear();
     }
 
     #[inline]
     fn transition(&mut self, next: MatchState) {
         match (self.state, next) {
-            (x, y) if x == y => {
-                // No transition, nothing to do
-            }
+            // No transition, nothing to do
+            (cur, next) if cur == next => {}
 
-            (MatchState::After, _any) => {
-                // Finished, emit record
-                println!("-- {:?}", self.current_match);
-                self.reset();
+            // Beginning a new match or ending a previous one
+            (_, MatchState::Before) | (MatchState::After, _) => {
+                self.maybe_emit();
             }
 
             (_prev, next) => {
@@ -115,7 +108,13 @@ impl SearchMatchSink {
     }
 }
 
-impl Sink for SearchMatchSink {
+impl Drop for SearchMatchCollector {
+    fn drop(&mut self) {
+        self.maybe_emit();
+    }
+}
+
+impl Sink for SearchMatchCollector {
     type Error = std::io::Error;
 
     fn matched(
@@ -125,11 +124,14 @@ impl Sink for SearchMatchSink {
     ) -> Result<bool, std::io::Error> {
         self.transition(MatchState::Match);
 
-        let line = std::str::from_utf8(mat.bytes()).unwrap();
-        let line_number = mat.line_number().unwrap();
+        // TODO: handle errors
+        let line = Line(
+            mat.line_number().expect("grab line number"),
+            String::from_utf8_lossy(mat.bytes()).to_string(),
+        );
 
-        self.current_match.line = line.to_string();
-        self.current_match.line_number = line_number;
+        self.cur_match_line = Some(line);
+
         Ok(true)
     }
 
@@ -138,25 +140,35 @@ impl Sink for SearchMatchSink {
         _searcher: &Searcher,
         ctx: &SinkContext<'_>,
     ) -> Result<bool, std::io::Error> {
-        let line = std::str::from_utf8(ctx.bytes()).unwrap();
-
-        // TODO: Use line number
-        let line_number = ctx.line_number().unwrap();
+        // TODO: handle errors.
+        // TODO: can we avoid the additional .to_string() by storing a COW instead?
+        let line = Line(
+            ctx.line_number().expect("grab line number"),
+            String::from_utf8_lossy(ctx.bytes()).to_string(),
+        );
 
         match ctx.kind() {
             &SinkContextKind::Before => {
-                self.current_match.pre_context.push(line.to_string());
                 self.transition(MatchState::Before);
+                self.cur_context_pre.push(line);
             }
             &SinkContextKind::After => {
-                self.current_match.post_context.push(line.to_string());
                 self.transition(MatchState::After);
+                self.cur_context_post.push(line);
             }
             &SinkContextKind::Other => {}
         }
 
         Ok(true)
     }
+}
+
+fn handle_path(path: &Path, searcher: &mut Searcher, matcher: &RegexMatcher) {
+    let mut sink = SearchMatchCollector::new();
+
+    searcher
+        .search_path(&matcher, path, &mut sink)
+        .expect("search failed");
 }
 
 fn main() {
@@ -167,22 +179,19 @@ fn main() {
         .case_insensitive(opts.insensitive)
         .build(&opts.find)
         .expect("bad pattern");
+
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
         .before_context(3)
         .after_context(3)
         .build();
 
-    let mut sink = SearchMatchSink::new();
-
-    for path in Walk::new("../") {
-        let path = path.unwrap();
-        if !path.path().is_file() {
+    for dir_entry in Walk::new("../") {
+        let dir_entry = dir_entry.unwrap();
+        if !dir_entry.path().is_file() {
             continue;
         }
 
-        searcher
-            .search_path(&matcher, path.path(), &mut sink)
-            .expect("search failed");
+        handle_path(dir_entry.path(), &mut searcher, &matcher);
     }
 }
