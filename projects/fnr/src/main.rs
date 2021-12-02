@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use grep::regex::{RegexMatcher, RegexMatcherBuilder};
+use grep::regex::RegexMatcherBuilder;
 use grep::searcher::{Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch};
 
 use ignore::Walk;
@@ -49,7 +49,8 @@ enum MatchState {
     After,
 }
 
-struct SearchMatchCollector {
+struct SearchMatchCollector<'a> {
+    proc: &'a mut SearchMatchProcessor,
     state: MatchState,
 
     cur_context_pre: Vec<Line>,
@@ -57,9 +58,10 @@ struct SearchMatchCollector {
     cur_match_line: Option<Line>,
 }
 
-impl SearchMatchCollector {
-    fn new() -> SearchMatchCollector {
+impl<'a> SearchMatchCollector<'a> {
+    fn new(proc: &'a mut SearchMatchProcessor) -> SearchMatchCollector<'a> {
         return SearchMatchCollector {
+            proc: proc,
             state: MatchState::Init,
             cur_match_line: None,
             cur_context_pre: Vec::new(),
@@ -69,15 +71,14 @@ impl SearchMatchCollector {
 
     fn maybe_emit(&mut self) {
         if let Some(line) = &self.cur_match_line {
-            for ctx in &self.cur_context_pre {
-                println!("-- {:?}", ctx);
-            }
-            println!("-- {:?}", line);
-            for ctx in &self.cur_context_post {
-                println!("-- {:?}", ctx);
-            }
-            println!("---");
+            // TODO: clones are wasteful here.
+            let m = SearchMatch {
+                line: line.clone(),
+                context_pre: self.cur_context_pre.clone(),
+                context_post: self.cur_context_post.clone(),
+            };
 
+            self.proc.handle(m);
             self.reset();
         }
     }
@@ -108,13 +109,13 @@ impl SearchMatchCollector {
     }
 }
 
-impl Drop for SearchMatchCollector {
+impl<'a> Drop for SearchMatchCollector<'a> {
     fn drop(&mut self) {
         self.maybe_emit();
     }
 }
 
-impl Sink for SearchMatchCollector {
+impl<'a> Sink for SearchMatchCollector<'a> {
     type Error = std::io::Error;
 
     fn matched(
@@ -163,12 +164,19 @@ impl Sink for SearchMatchCollector {
     }
 }
 
-fn handle_path(path: &Path, searcher: &mut Searcher, matcher: &RegexMatcher) {
-    let mut sink = SearchMatchCollector::new();
+struct SearchMatchProcessor {}
+impl SearchMatchProcessor {
+    fn handle(&self, m: SearchMatch) {
+        println!("---");
 
-    searcher
-        .search_path(&matcher, path, &mut sink)
-        .expect("search failed");
+        for line in m.context_pre {
+            print!("{}: {}", line.0, line.1);
+        }
+        print!("{}: {}", m.line.0, m.line.1);
+        for line in m.context_post {
+            print!("{}: {}", line.0, line.1);
+        }
+    }
 }
 
 fn main() {
@@ -186,12 +194,18 @@ fn main() {
         .after_context(3)
         .build();
 
+    let mut processor = SearchMatchProcessor {};
+
     for dir_entry in Walk::new("../") {
         let dir_entry = dir_entry.unwrap();
         if !dir_entry.path().is_file() {
             continue;
         }
 
-        handle_path(dir_entry.path(), &mut searcher, &matcher);
+        let mut sink = SearchMatchCollector::new(&mut processor);
+
+        searcher
+            .search_path(&matcher, dir_entry.path(), &mut sink)
+            .expect("search failed");
     }
 }
