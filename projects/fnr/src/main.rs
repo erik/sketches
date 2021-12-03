@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,13 @@ struct Opts {
     /// Print out replacements without actually performing them
     #[structopt(short, long)]
     dry_run: bool,
+
+    #[structopt(short = "A", long, default_value = "0")]
+    after: usize,
+    #[structopt(short = "B", long, default_value = "0")]
+    before: usize,
+    #[structopt(short = "C", long, default_value = "0")]
+    context: usize,
 
     #[structopt(short, long)]
     prompt: bool,
@@ -400,8 +408,8 @@ fn main() {
     let mut searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(0x00))
         .line_number(true)
-        .before_context(1)
-        .after_context(1)
+        .before_context(max(opts.context, opts.before))
+        .after_context(max(opts.context, opts.after))
         .build();
 
     // TODO: Confirm that template does not reference more capture groups than exist.
