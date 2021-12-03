@@ -6,13 +6,7 @@ use std::path::{Path, PathBuf};
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{
-    BinaryDetection,
-    Searcher,
-    SearcherBuilder,
-    Sink,
-    SinkContext,
-    SinkContextKind,
-    SinkMatch,
+    BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
 };
 use ignore::Walk;
 use structopt::StructOpt;
@@ -295,8 +289,13 @@ impl<'a> SearchMatchProcessor<'a> {
                         m.as_change(replacement)
                     }
                     ReplacementDecision::EditThis => {
-                        // TODO: implement this
-                        m.as_change(replacement)
+                        print!("[replace with] ");
+                        std::io::stdout().flush().unwrap();
+                        let mut line: String = read!("{}\n");
+                        line.push('\n');
+                        self.display(m, &line);
+                        println!("--");
+                        m.as_change(line)
                     }
                 }
             };
@@ -361,7 +360,7 @@ enum ReplacementDecision {
 
 fn prompt_for_decision() -> ReplacementDecision {
     loop {
-        print!("Stage this replacement [Y,n,q,a,d,?] ");
+        print!("Stage this replacement [Y,n,q,a,e,d,?] ");
         std::io::stdout().flush().unwrap();
         let line: String = read!("{}\n");
         // TODO: ^D should not result in acceptance
