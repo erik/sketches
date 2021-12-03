@@ -6,11 +6,15 @@ use std::path::{Path, PathBuf};
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{
-    BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
+    BinaryDetection,
+    Searcher,
+    SearcherBuilder,
+    Sink,
+    SinkContext,
+    SinkContextKind,
+    SinkMatch,
 };
 use ignore::Walk;
-use lazy_static::lazy_static;
-use regex::Regex;
 use structopt::StructOpt;
 use text_io::read;
 
@@ -207,43 +211,6 @@ struct RegexReplacer<'a> {
     template: &'a str,
 }
 
-#[derive(Debug)]
-enum TemplatePart<'a> {
-    Literal(&'a str),
-    Capture(u64),
-}
-
-type Template<'a> = Vec<TemplatePart<'a>>;
-
-// TODO: Clean this up
-fn parse_template<'a>(t: &'a str) -> Template<'a> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"\$(\d+)").unwrap();
-    }
-
-    let capture_positions = RE.captures_iter(t).map(|cap| {
-        let num = cap[1].parse::<u64>().expect("invalid capture number");
-        let mat = cap.get(1).unwrap();
-        (mat.start() - 1, mat.end(), num)
-    });
-    let mut pos = 0;
-    let mut template = Vec::new();
-
-    for (start, end, value) in capture_positions {
-        if start > pos {
-            template.push(TemplatePart::Literal(&t[pos..start]));
-        }
-        template.push(TemplatePart::Capture(value));
-        pos = end;
-    }
-
-    if pos < t.len() {
-        template.push(TemplatePart::Literal(&t[pos..t.len()]));
-    }
-
-    template
-}
-
 impl<'a> Replacer for RegexReplacer<'a> {
     fn replace(&self, input: &str) -> Option<String> {
         let mut caps = self.matcher.new_captures().unwrap();
@@ -371,12 +338,12 @@ impl<'a> SearchMatchProcessor<'a> {
             line_num += 1;
 
             if !changes.is_empty() && changes[0].line_number == line_num {
-                writer.write(changes[0].new_line.as_bytes());
+                writer.write(changes[0].new_line.as_bytes()).unwrap();
                 changes = &changes[1..];
             } else {
                 // TODO: don't strip off newlines to begin with
-                writer.write(line.as_bytes());
-                writer.write(b"\n");
+                writer.write(line.as_bytes()).unwrap();
+                writer.write(b"\n").unwrap();
             };
         }
     }
@@ -448,7 +415,6 @@ fn main() {
         template: template_str,
     };
 
-    let should_prompt = opts.prompt;
     let acceptor = if opts.dry_run {
         |_: &SearchMatch| ReplacementDecision::IgnoreThis
     } else if opts.prompt {
