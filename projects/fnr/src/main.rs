@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use grep::matcher::{Captures, Matcher};
@@ -7,6 +8,7 @@ use ignore::Walk;
 use lazy_static::lazy_static;
 use regex::Regex;
 use structopt::StructOpt;
+use text_io::read;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "fnr")]
@@ -40,6 +42,15 @@ struct SearchMatch {
     line: Line,
     context_pre: Vec<Line>,
     context_post: Vec<Line>,
+}
+
+impl SearchMatch {
+    fn as_change(&self) -> Change {
+        return Change {
+            line_number: self.line.0,
+            new_line: self.line.1.clone(),
+        };
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -191,10 +202,10 @@ type Template<'a> = Vec<TemplatePart<'a>>;
 // TODO: Clean this up
 fn parse_template<'a>(t: &'a str) -> Template<'a> {
     lazy_static! {
-        static ref re: Regex = Regex::new(r"\$(\d+)").unwrap();
+        static ref RE: Regex = Regex::new(r"\$(\d+)").unwrap();
     }
 
-    let capture_positions = re.captures_iter(t).map(|cap| {
+    let capture_positions = RE.captures_iter(t).map(|cap| {
         let num = cap[1].parse::<u64>().expect("invalid capture number");
         let mat = cap.get(1).unwrap();
         (mat.start() - 1, mat.end(), num)
@@ -222,41 +233,61 @@ impl<'a> Replacer for RegexReplacer<'a> {
         let mut caps = self.matcher.new_captures().unwrap();
         let mut dst = vec![];
 
-        self.matcher.replace_with_captures(input.as_bytes(), &mut caps, &mut dst, |caps, dst| {
-            caps.interpolate(
-                |name| self.matcher.capture_index(name),
-                input.as_bytes(),
-                self.template.as_bytes(),
-                dst,
-            );
-            false
-        })
+        self.matcher
+            .replace_with_captures(input.as_bytes(), &mut caps, &mut dst, |caps, dst| {
+                caps.interpolate(
+                    |name| self.matcher.capture_index(name),
+                    input.as_bytes(),
+                    self.template.as_bytes(),
+                    dst,
+                );
+                false
+            })
             .unwrap();
 
-        Some(
-            String::from_utf8_lossy(&dst).to_string()
-        )
+        Some(String::from_utf8_lossy(&dst).to_string())
     }
 }
 
+type MatchAcceptor = dyn Fn(&SearchMatch) -> Option<Change>;
 
-struct SearchMatchProcessor<'a> {
-    replacer: &'a dyn Replacer
+struct Change {
+    line_number: u64,
+    // TODO: use slice here
+    new_line: String,
 }
 
-impl <'a> SearchMatchProcessor<'a> {
-    fn handle_path(&self, path: &Path, matches: &Vec<SearchMatch>) {
-        if matches.is_empty() { return }
-        println!("--- {}: {} matches", path.display(), matches.len());
+struct SearchMatchProcessor<'a> {
+    replacer: &'a dyn Replacer,
+    acceptor: &'a MatchAcceptor,
+}
 
-        for m in matches {
-            self.handle(m);
+impl<'a> SearchMatchProcessor<'a> {
+    fn handle_path(&self, path: &Path, matches: &Vec<SearchMatch>) {
+        if matches.is_empty() {
+            return;
         }
+        println!(
+            "--- {}: {} match{}",
+            path.display(),
+            matches.len(),
+            if matches.len() == 1 { "" } else { "es" }
+        );
+
+        let mut change_list = vec![];
+        for m in matches {
+            self.display(m);
+            if let Some(change) = (self.acceptor)(m) {
+                change_list.push(change);
+            }
+        }
+
+        self.apply_changes(path, &change_list.into_iter());
 
         println!("");
     }
 
-    fn handle(&self, m: &SearchMatch) {
+    fn display(&self, m: &SearchMatch) {
         for line in &m.context_pre {
             print!("    {}: {}", line.0, line.1);
         }
@@ -270,6 +301,35 @@ impl <'a> SearchMatchProcessor<'a> {
         // TODO: print gap between non-consecutive lines
         for line in &m.context_post {
             print!("    {}: {}", line.0, line.1);
+        }
+    }
+
+    fn apply_changes(&self, path: &Path, changes: &dyn Iterator<Item = Change>) {}
+}
+
+fn prompt_for_acceptance() -> bool {
+    loop {
+        print!("Stage this replacement [Y,n,q,a,d,?] ");
+        std::io::stdout().flush().unwrap();
+        let line: String = read!("{}\n");
+        match line.as_str() {
+            "y" | "Y" | "" => return true,
+            "n" => return false,
+            // TODO: handle these somehow
+            "q" => return false,
+            "a" => return true,
+            "d" => return false,
+
+            "?" | _ => {
+                println!("
+Y - replace this line
+n - do not replace this line
+q - quit; do not replace this line or any remaining ones
+a - replace this line and all remaining ones in this file
+d - do not replace this line nor any remaining ones in this file
+? - show help
+")
+            }
         }
     }
 }
@@ -296,8 +356,16 @@ fn main() {
         template: template_str,
     };
 
+    let should_prompt = opts.prompt;
     let proc = SearchMatchProcessor {
         replacer: &replacer,
+        acceptor: &move |m| {
+            if !should_prompt || prompt_for_acceptance() {
+                Some(m.as_change())
+            } else {
+                None
+            }
+        },
     };
 
     for dir_entry in Walk::new("../") {
@@ -316,4 +384,6 @@ fn main() {
         let matches = sink.collect();
         proc.handle_path(path, matches);
     }
+
+    println!("All done.");
 }
