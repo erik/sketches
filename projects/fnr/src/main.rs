@@ -75,6 +75,7 @@ enum MatchState {
     After,
 }
 
+#[derive(Debug)]
 struct SearchMatchCollector {
     state: MatchState,
 
@@ -120,12 +121,13 @@ impl SearchMatchCollector {
 
     #[inline]
     fn transition(&mut self, next: MatchState) {
+        println!("transition: {:?} -> {:?}", self, next);
         match (self.state, next) {
-            // No transition, nothing to do
-            (cur, next) if cur == next => {}
-
             // Beginning a new match or ending a previous one
-            (_, MatchState::Before) | (MatchState::After, _) => {
+            (MatchState::Match, MatchState::Before)       // Have before context, no after context
+            | (MatchState::Match, MatchState::Match)      // No before context, no after context
+            | (MatchState::After, MatchState::Before)     // Have before context, have after context
+            | (MatchState::After, MatchState::Match) => { // Have after context, no before context
                 self.maybe_emit();
             }
 
