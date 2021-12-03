@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
-use grep::searcher::{Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch};
+use grep::searcher::{
+    BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
+};
 use ignore::Walk;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -344,6 +346,7 @@ fn main() {
         .expect("bad pattern");
 
     let mut searcher = SearcherBuilder::new()
+        .binary_detection(BinaryDetection::quit(0x00))
         .line_number(true)
         .before_context(1)
         .after_context(1)
