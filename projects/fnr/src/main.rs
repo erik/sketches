@@ -20,6 +20,10 @@ struct Opts {
     #[structopt(short, long)]
     insensitive: bool,
 
+    /// Print out replacements without actually performing them
+    #[structopt(short, long)]
+    dry_run: bool,
+
     #[structopt(short, long)]
     prompt: bool,
 
@@ -251,7 +255,7 @@ impl<'a> Replacer for RegexReplacer<'a> {
     }
 }
 
-type MatchAcceptor = dyn Fn(&SearchMatch) -> Option<Change>;
+type MatchDecider = dyn Fn(&SearchMatch) -> ReplacementDecision;
 
 struct Change {
     line_number: u64,
@@ -261,12 +265,22 @@ struct Change {
 
 struct SearchMatchProcessor<'a> {
     replacer: &'a dyn Replacer,
-    acceptor: &'a MatchAcceptor,
+    acceptor: &'a MatchDecider,
+
+    decide_all: Option<bool>,
 }
 
 impl<'a> SearchMatchProcessor<'a> {
-    fn handle_path(&self, path: &Path, matches: &Vec<SearchMatch>) {
-        if matches.is_empty() {
+    fn new(replacer: &'a dyn Replacer, acceptor: &'a MatchDecider) -> SearchMatchProcessor<'a> {
+        return SearchMatchProcessor {
+            replacer,
+            acceptor,
+            decide_all: None,
+        };
+    }
+
+    fn handle_path(&mut self, path: &Path, matches: &Vec<SearchMatch>) {
+        if matches.is_empty() || Some(false) == self.decide_all {
             return;
         }
         println!(
@@ -275,13 +289,34 @@ impl<'a> SearchMatchProcessor<'a> {
             matches.len(),
             if matches.len() == 1 { "" } else { "es" }
         );
+        let mut accept_remaining = false;
 
         let mut change_list = vec![];
         for m in matches {
             self.display(m);
-            if let Some(change) = (self.acceptor)(m) {
-                change_list.push(change);
-            }
+
+            let change = if accept_remaining || Some(true) == self.decide_all {
+                m.as_change()
+            } else {
+                match (self.acceptor)(m) {
+                    ReplacementDecision::IgnoreThis => continue,
+                    ReplacementDecision::IgnoreFile => break,
+                    ReplacementDecision::IgnoreRest => {
+                        self.decide_all = Some(false);
+                        break;
+                    }
+                    ReplacementDecision::AcceptThis => m.as_change(),
+                    ReplacementDecision::AcceptFile => {
+                        accept_remaining = true;
+                        m.as_change()
+                    }
+                    ReplacementDecision::EditThis => {
+                        // TODO: implement this
+                        m.as_change()
+                    }
+                }
+            };
+            change_list.push(change);
         }
 
         self.apply_changes(path, &change_list.into_iter());
@@ -309,30 +344,47 @@ impl<'a> SearchMatchProcessor<'a> {
     fn apply_changes(&self, path: &Path, changes: &dyn Iterator<Item = Change>) {}
 }
 
-fn prompt_for_acceptance() -> bool {
+#[derive(Debug)]
+enum ReplacementDecision {
+    IgnoreThis,
+    IgnoreFile,
+    IgnoreRest,
+    AcceptThis,
+    AcceptFile,
+    EditThis,
+}
+
+fn prompt_for_decision() -> ReplacementDecision {
     loop {
         print!("Stage this replacement [Y,n,q,a,d,?] ");
         std::io::stdout().flush().unwrap();
         let line: String = read!("{}\n");
-        match line.as_str() {
-            "y" | "Y" | "" => return true,
-            "n" => return false,
+        // TODO: ^D should not result in acceptance
+
+        return match line.as_str() {
+            "y" | "Y" | "" => ReplacementDecision::AcceptThis,
+            "n" => ReplacementDecision::IgnoreThis,
             // TODO: handle these somehow
-            "q" => return false,
-            "a" => return true,
-            "d" => return false,
+            "q" => ReplacementDecision::IgnoreRest,
+            "a" => ReplacementDecision::AcceptFile,
+            "d" => ReplacementDecision::IgnoreFile,
+            "e" => ReplacementDecision::EditThis,
 
             "?" | _ => {
-                println!("
+                println!(
+                    "
 Y - replace this line
 n - do not replace this line
 q - quit; do not replace this line or any remaining ones
 a - replace this line and all remaining ones in this file
 d - do not replace this line nor any remaining ones in this file
+e - edit this replacement
 ? - show help
-")
+"
+                );
+                continue;
             }
-        }
+        };
     }
 }
 
@@ -360,16 +412,14 @@ fn main() {
     };
 
     let should_prompt = opts.prompt;
-    let proc = SearchMatchProcessor {
-        replacer: &replacer,
-        acceptor: &move |m| {
-            if !should_prompt || prompt_for_acceptance() {
-                Some(m.as_change())
-            } else {
-                None
-            }
-        },
+    let acceptor = if opts.dry_run {
+        |_: &SearchMatch| ReplacementDecision::IgnoreThis
+    } else if opts.prompt {
+        |_: &SearchMatch| prompt_for_decision()
+    } else {
+        |_: &SearchMatch| ReplacementDecision::AcceptThis
     };
+    let mut proc = SearchMatchProcessor::new(&replacer, &acceptor);
 
     for dir_entry in Walk::new("../") {
         let dir_entry = dir_entry.unwrap();
