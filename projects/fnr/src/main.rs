@@ -431,21 +431,30 @@ fn main() {
     };
     let mut proc = SearchMatchProcessor::new(&replacer, &acceptor);
 
-    for dir_entry in Walk::new("../") {
-        let dir_entry = dir_entry.unwrap();
-        let path = dir_entry.path();
-        if !path.is_file() {
-            continue;
+    let paths = if opts.paths.is_empty() {
+        vec![Path::new("./").to_owned()]
+    } else {
+        opts.paths
+    };
+
+    for path in paths {
+        // TODO: Support files as well as directories here
+        for dir_entry in Walk::new(path) {
+            let dir_entry = dir_entry.unwrap();
+            let path = dir_entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let mut sink = SearchMatchCollector::new();
+
+            searcher
+                .search_path(&matcher, dir_entry.path(), &mut sink)
+                .expect("search failed");
+
+            let matches = sink.collect();
+            proc.handle_path(path, matches);
         }
-
-        let mut sink = SearchMatchCollector::new();
-
-        searcher
-            .search_path(&matcher, dir_entry.path(), &mut sink)
-            .expect("search failed");
-
-        let matches = sink.collect();
-        proc.handle_path(path, matches);
     }
 
     println!("All done.");
