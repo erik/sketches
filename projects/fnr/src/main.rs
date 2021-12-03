@@ -299,9 +299,11 @@ impl<'a> SearchMatchProcessor<'a> {
                     }
                 }
             };
+
             change_list.push(change);
         }
 
+        // For --prompt, confirm before applying here
         if !change_list.is_empty() {
             self.apply_changes(path, &mut change_list);
         }
@@ -318,6 +320,7 @@ impl<'a> SearchMatchProcessor<'a> {
 
         // TODO: Multiple matches on same line
         // TODO: Disable colors when not atty
+        // TODO: Align line number with padding.
         print!("\x1B[31m-   {}: {}\x1B[0m", m.line.0, m.line.1);
         print!("\x1B[32m+   {}: {}\x1B[0m", m.line.0, replacement);
 
@@ -368,7 +371,7 @@ fn prompt_for_decision() -> ReplacementDecision {
         // TODO: ^D should not result in acceptance
 
         return match line.as_str() {
-            "y" | "Y" | "" => ReplacementDecision::AcceptThis,
+            "y" | "Y" => ReplacementDecision::AcceptThis,
             "n" => ReplacementDecision::IgnoreThis,
             "q" => ReplacementDecision::IgnoreRest,
             "a" => ReplacementDecision::AcceptFile,
@@ -377,7 +380,7 @@ fn prompt_for_decision() -> ReplacementDecision {
 
             "?" | _ => {
                 println!(
-                    "
+                    "\x1B[31m
 Y - replace this line
 n - do not replace this line
 q - quit; do not replace this line or any remaining ones
@@ -385,7 +388,7 @@ a - replace this line and all remaining ones in this file
 d - do not replace this line nor any remaining ones in this file
 e - edit this replacement
 ? - show help
-"
+\x1B[0m"
                 );
                 continue;
             }
@@ -414,6 +417,10 @@ fn main() {
         matcher: &matcher,
         template: &opts.replace,
     };
+
+    if opts.dry_run && opts.prompt {
+        println!("WARN: --prompt does not make sense with --dry-run, skipping");
+    }
 
     let acceptor = if opts.dry_run {
         |_: &SearchMatch| ReplacementDecision::IgnoreThis
@@ -448,6 +455,10 @@ fn main() {
             let matches = sink.collect();
             proc.handle_path(path, matches);
         }
+    }
+
+    if opts.dry_run {
+        println!("--dry-run enabled, no changes applied.");
     }
 
     println!("All done.");
