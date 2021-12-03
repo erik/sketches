@@ -1,5 +1,6 @@
 use std::cmp::max;
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use grep::matcher::{Captures, Matcher};
@@ -59,10 +60,10 @@ struct SearchMatch {
 }
 
 impl SearchMatch {
-    fn as_change(&self) -> Change {
+    fn as_change(&self, line: String) -> Change {
         return Change {
             line_number: self.line.0,
-            new_line: self.line.1.clone(),
+            new_line: line,
         };
     }
 }
@@ -121,7 +122,6 @@ impl SearchMatchCollector {
 
     #[inline]
     fn transition(&mut self, next: MatchState) {
-        println!("transition: {:?} -> {:?}", self, next);
         match (self.state, next) {
             // Beginning a new match or ending a previous one
             (MatchState::Match, MatchState::Before)       // Have before context, no after context
@@ -267,6 +267,7 @@ impl<'a> Replacer for RegexReplacer<'a> {
 
 type MatchDecider = dyn Fn(&SearchMatch) -> ReplacementDecision;
 
+#[derive(Debug)]
 struct Change {
     line_number: u64,
     // TODO: use slice here
@@ -303,10 +304,16 @@ impl<'a> SearchMatchProcessor<'a> {
 
         let mut change_list = vec![];
         for m in matches {
-            self.display(m);
+            let replacement = if let Some(r) = self.replacer.replace(&m.line.1) {
+                r
+            } else {
+                println!("TODO: replacer failed on line");
+                continue;
+            };
+            self.display(m, &replacement);
 
             let change = if accept_remaining || Some(true) == self.decide_all {
-                m.as_change()
+                m.as_change(replacement)
             } else {
                 match (self.acceptor)(m) {
                     ReplacementDecision::IgnoreThis => continue,
@@ -315,35 +322,35 @@ impl<'a> SearchMatchProcessor<'a> {
                         self.decide_all = Some(false);
                         break;
                     }
-                    ReplacementDecision::AcceptThis => m.as_change(),
+                    ReplacementDecision::AcceptThis => m.as_change(replacement),
                     ReplacementDecision::AcceptFile => {
                         accept_remaining = true;
-                        m.as_change()
+                        m.as_change(replacement)
                     }
                     ReplacementDecision::EditThis => {
                         // TODO: implement this
-                        m.as_change()
+                        m.as_change(replacement)
                     }
                 }
             };
             change_list.push(change);
         }
 
-        self.apply_changes(path, &change_list.into_iter());
+        if !change_list.is_empty() {
+            self.apply_changes(path, &mut change_list);
+        }
 
         println!("");
     }
 
-    fn display(&self, m: &SearchMatch) {
+    fn display(&self, m: &SearchMatch, replacement: &str) {
         for line in &m.context_pre {
             print!("    {}: {}", line.0, line.1);
         }
 
         // TODO: Multiple matches on same line
         print!("-   {}: {}", m.line.0, m.line.1);
-        if let Some(replacement) = self.replacer.replace(&m.line.1) {
-            print!("+   {}: {}", m.line.0, replacement);
-        }
+        print!("+   {}: {}", m.line.0, replacement);
 
         // TODO: print gap between non-consecutive lines
         for line in &m.context_post {
@@ -351,7 +358,28 @@ impl<'a> SearchMatchProcessor<'a> {
         }
     }
 
-    fn apply_changes(&self, path: &Path, changes: &dyn Iterator<Item = Change>) {}
+    fn apply_changes(&self, path: &Path, mut changes: &[Change]) {
+        let src = File::open(path).expect("couldn't open file");
+        let reader = BufReader::new(src);
+        // TODO: fix this
+        let dst = File::create("/tmp/replaceme").expect("couldn't create file");
+        let mut writer = BufWriter::new(dst);
+
+        let mut line_num = 0;
+        for line in reader.lines() {
+            let line = line.unwrap();
+            line_num += 1;
+
+            if !changes.is_empty() && changes[0].line_number == line_num {
+                writer.write(changes[0].new_line.as_bytes());
+                changes = &changes[1..];
+            } else {
+                // TODO: don't strip off newlines to begin with
+                writer.write(line.as_bytes());
+                writer.write(b"\n");
+            };
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -374,7 +402,6 @@ fn prompt_for_decision() -> ReplacementDecision {
         return match line.as_str() {
             "y" | "Y" | "" => ReplacementDecision::AcceptThis,
             "n" => ReplacementDecision::IgnoreThis,
-            // TODO: handle these somehow
             "q" => ReplacementDecision::IgnoreRest,
             "a" => ReplacementDecision::AcceptFile,
             "d" => ReplacementDecision::IgnoreFile,
