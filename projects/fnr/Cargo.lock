@@ -115,6 +115,8 @@ version = "0.1.0"
 dependencies = [
  "grep",
  "ignore",
+ "lazy_static",
+ "regex",
  "structopt",
 ]
 

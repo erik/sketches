@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use grep::regex::RegexMatcherBuilder;
+use grep::matcher::{Captures, Matcher};
+use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch};
-
 use ignore::Walk;
-
+use lazy_static::lazy_static;
+use regex::Regex;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -49,23 +50,24 @@ enum MatchState {
     After,
 }
 
-struct SearchMatchCollector<'a> {
-    proc: &'a mut SearchMatchProcessor,
+struct SearchMatchCollector {
     state: MatchState,
 
     cur_context_pre: Vec<Line>,
     cur_context_post: Vec<Line>,
     cur_match_line: Option<Line>,
+
+    matches: Vec<SearchMatch>,
 }
 
-impl<'a> SearchMatchCollector<'a> {
-    fn new(proc: &'a mut SearchMatchProcessor) -> SearchMatchCollector<'a> {
+impl SearchMatchCollector {
+    fn new() -> SearchMatchCollector {
         return SearchMatchCollector {
-            proc: proc,
             state: MatchState::Init,
             cur_match_line: None,
             cur_context_pre: Vec::new(),
             cur_context_post: Vec::new(),
+            matches: Vec::new(),
         };
     }
 
@@ -78,7 +80,7 @@ impl<'a> SearchMatchCollector<'a> {
                 context_post: self.cur_context_post.clone(),
             };
 
-            self.proc.handle(m);
+            self.matches.push(m);
             self.reset();
         }
     }
@@ -107,15 +109,20 @@ impl<'a> SearchMatchCollector<'a> {
             }
         }
     }
+
+    fn collect(&mut self) -> &Vec<SearchMatch> {
+        self.maybe_emit();
+        return &self.matches;
+    }
 }
 
-impl<'a> Drop for SearchMatchCollector<'a> {
+impl Drop for SearchMatchCollector {
     fn drop(&mut self) {
         self.maybe_emit();
     }
 }
 
-impl<'a> Sink for SearchMatchCollector<'a> {
+impl Sink for SearchMatchCollector {
     type Error = std::io::Error;
 
     fn matched(
@@ -164,17 +171,105 @@ impl<'a> Sink for SearchMatchCollector<'a> {
     }
 }
 
-struct SearchMatchProcessor {}
-impl SearchMatchProcessor {
-    fn handle(&self, m: SearchMatch) {
-        println!("---");
+trait Replacer {
+    fn replace(&self, input: &str) -> Option<String>;
+}
 
-        for line in m.context_pre {
-            print!("{}: {}", line.0, line.1);
+struct RegexReplacer<'a> {
+    matcher: &'a RegexMatcher,
+    template: &'a str,
+}
+
+#[derive(Debug)]
+enum TemplatePart<'a> {
+    Literal(&'a str),
+    Capture(u64),
+}
+
+type Template<'a> = Vec<TemplatePart<'a>>;
+
+// TODO: Clean this up
+fn parse_template<'a>(t: &'a str) -> Template<'a> {
+    lazy_static! {
+        static ref re: Regex = Regex::new(r"\$(\d+)").unwrap();
+    }
+
+    let capture_positions = re.captures_iter(t).map(|cap| {
+        let num = cap[1].parse::<u64>().expect("invalid capture number");
+        let mat = cap.get(1).unwrap();
+        (mat.start() - 1, mat.end(), num)
+    });
+    let mut pos = 0;
+    let mut template = Vec::new();
+
+    for (start, end, value) in capture_positions {
+        if start > pos {
+            template.push(TemplatePart::Literal(&t[pos..start]));
         }
-        print!("{}: {}", m.line.0, m.line.1);
-        for line in m.context_post {
-            print!("{}: {}", line.0, line.1);
+        template.push(TemplatePart::Capture(value));
+        pos = end;
+    }
+
+    if pos < t.len() {
+        template.push(TemplatePart::Literal(&t[pos..t.len()]));
+    }
+
+    template
+}
+
+impl<'a> Replacer for RegexReplacer<'a> {
+    fn replace(&self, input: &str) -> Option<String> {
+        let mut caps = self.matcher.new_captures().unwrap();
+        let mut dst = vec![];
+
+        self.matcher.replace_with_captures(input.as_bytes(), &mut caps, &mut dst, |caps, dst| {
+            caps.interpolate(
+                |name| self.matcher.capture_index(name),
+                input.as_bytes(),
+                self.template.as_bytes(),
+                dst,
+            );
+            false
+        })
+            .unwrap();
+
+        Some(
+            String::from_utf8_lossy(&dst).to_string()
+        )
+    }
+}
+
+
+struct SearchMatchProcessor<'a> {
+    replacer: &'a dyn Replacer
+}
+
+impl <'a> SearchMatchProcessor<'a> {
+    fn handle_path(&self, path: &Path, matches: &Vec<SearchMatch>) {
+        if matches.is_empty() { return }
+        println!("--- {}: {} matches", path.display(), matches.len());
+
+        for m in matches {
+            self.handle(m);
+        }
+
+        println!("");
+    }
+
+    fn handle(&self, m: &SearchMatch) {
+        for line in &m.context_pre {
+            print!("    {}: {}", line.0, line.1);
+        }
+
+        // TODO: Multiple matches on same line
+        print!("-   {}: {}", m.line.0, m.line.1);
+        if let Some(replacement) = self.replacer.replace(&m.line.1) {
+            print!("+   {}: {}", m.line.0, replacement);
+        }
+
+        // TODO: print gap between non-consecutive lines
+        for line in &m.context_post {
+            print!("    {}: {}", line.0, line.1);
         }
     }
 }
@@ -190,22 +285,35 @@ fn main() {
 
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
-        .before_context(3)
-        .after_context(3)
+        .before_context(1)
+        .after_context(1)
         .build();
 
-    let mut processor = SearchMatchProcessor {};
+    // TODO: Confirm that template does not reference more capture groups than exist.
+    let template_str = &opts.replace.unwrap();
+    let replacer = RegexReplacer {
+        matcher: &matcher,
+        template: template_str,
+    };
+
+    let proc = SearchMatchProcessor {
+        replacer: &replacer,
+    };
 
     for dir_entry in Walk::new("../") {
         let dir_entry = dir_entry.unwrap();
-        if !dir_entry.path().is_file() {
+        let path = dir_entry.path();
+        if !path.is_file() {
             continue;
         }
 
-        let mut sink = SearchMatchCollector::new(&mut processor);
+        let mut sink = SearchMatchCollector::new();
 
         searcher
             .search_path(&matcher, dir_entry.path(), &mut sink)
             .expect("search failed");
+
+        let matches = sink.collect();
+        proc.handle_path(path, matches);
     }
 }
