@@ -38,9 +38,9 @@ struct Opts {
     #[structopt(name = "FIND")]
     find: String,
 
-    /// What to replace it with. Required unless `prompt` is set.
+    /// What to replace it with.
     #[structopt(name = "REPLACE")]
-    replace: Option<String>,
+    replace: String,
 
     /// Locations to search. Current directory if not specified.
     #[structopt(name = "PATH", parse(from_os_str))]
@@ -310,15 +310,17 @@ impl<'a> SearchMatchProcessor<'a> {
     }
 
     fn display(&self, m: &SearchMatch, replacement: &str) {
+        // TODO: only show this gap if non-consecutive
+        println!("    ...");
         for line in &m.context_pre {
             print!("    {}: {}", line.0, line.1);
         }
 
         // TODO: Multiple matches on same line
-        print!("-   {}: {}", m.line.0, m.line.1);
-        print!("+   {}: {}", m.line.0, replacement);
+        // TODO: Disable colors when not atty
+        print!("\x1B[31m-   {}: {}\x1B[0m", m.line.0, m.line.1);
+        print!("\x1B[32m+   {}: {}\x1B[0m", m.line.0, replacement);
 
-        // TODO: print gap between non-consecutive lines
         for line in &m.context_post {
             print!("    {}: {}", line.0, line.1);
         }
@@ -408,10 +410,9 @@ fn main() {
         .build();
 
     // TODO: Confirm that template does not reference more capture groups than exist.
-    let template_str = &opts.replace.unwrap();
     let replacer = RegexReplacer {
         matcher: &matcher,
-        template: template_str,
+        template: &opts.replace,
     };
 
     let acceptor = if opts.dry_run {
