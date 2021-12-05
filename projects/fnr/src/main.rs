@@ -289,9 +289,14 @@ impl<'a> SearchMatchProcessor<'a> {
                         m.as_change(replacement)
                     }
                     ReplacementDecision::EditThis => {
-                        print!("[replace with] ");
+                        print!("Replace with [^D to skip] ");
                         std::io::stdout().flush().unwrap();
                         let mut line: String = read!("{}\n");
+                        if line == "" {
+                            println!("... skipped ...");
+                            continue;
+                        }
+
                         line.push('\n');
                         self.display(m, &line);
                         println!("--");
@@ -330,25 +335,30 @@ impl<'a> SearchMatchProcessor<'a> {
     }
 
     fn apply_changes(&self, path: &Path, mut changes: &[Change]) {
+        let dst_path = path.with_extension("~");
         let src = File::open(path).expect("couldn't open file");
-        let reader = BufReader::new(src);
-        // TODO: fix this
-        let dst = File::create("/tmp/replaceme").expect("couldn't create file");
+        let dst = File::create(&dst_path).expect("couldn't create file");
+
+        let mut reader = BufReader::new(src);
         let mut writer = BufWriter::new(dst);
 
         let mut line_num = 0;
-        for line in reader.lines() {
-            let line = line.unwrap();
+        loop {
+            let mut line = String::new();
+            let bytes_read = reader.read_line(&mut line).expect("read line");
+            // EOF reached
+            if bytes_read == 0 {
+                break;
+            }
+
             line_num += 1;
 
             if !changes.is_empty() && changes[0].line_number == line_num {
                 writer.write(changes[0].new_line.as_bytes()).unwrap();
                 changes = &changes[1..];
             } else {
-                // TODO: don't strip off newlines to begin with
                 writer.write(line.as_bytes()).unwrap();
-                writer.write(b"\n").unwrap();
-            };
+            }
         }
     }
 }

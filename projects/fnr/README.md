@@ -43,5 +43,3 @@ Enter replacement [^d to skip]: foo
   - 78: Here is a line with _search_ term.
   + 78: Here is a line with _foo_ term.
 ```
-
-todo: dry run mode (or interactive with confirmation only at end?)
