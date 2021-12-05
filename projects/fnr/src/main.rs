@@ -360,6 +360,8 @@ impl<'a> SearchMatchProcessor<'a> {
                 writer.write(line.as_bytes()).unwrap();
             }
         }
+
+        std::fs::rename(dst_path, path).expect("rename file");
     }
 }
 
