@@ -251,9 +251,13 @@ impl<'a> SearchMatchProcessor<'a> {
         };
     }
 
-    fn handle_path(&mut self, path: &Path, matches: &Vec<SearchMatch>) {
+    fn handle_path(
+        &mut self,
+        path: &Path,
+        matches: &Vec<SearchMatch>,
+    ) -> Result<(), std::io::Error> {
         if matches.is_empty() || Some(false) == self.decide_all {
-            return;
+            return Ok(());
         }
         println!(
             "--- {}: {} match{}",
@@ -289,9 +293,7 @@ impl<'a> SearchMatchProcessor<'a> {
                         m.as_change(replacement)
                     }
                     ReplacementDecision::EditThis => {
-                        print!("Replace with [^D to skip] ");
-                        std::io::stdout().flush().unwrap();
-                        let mut line: String = read!("{}\n");
+                        let mut line = read_input("Replace with [^D to skip] ")?;
                         if line == "" {
                             println!("... skipped ...");
                             continue;
@@ -310,10 +312,11 @@ impl<'a> SearchMatchProcessor<'a> {
 
         // For --prompt, confirm before applying here
         if !change_list.is_empty() {
-            self.apply_changes(path, &mut change_list);
+            self.apply_changes(path, &mut change_list)?;
         }
 
         println!("");
+        Ok(())
     }
 
     fn display(&self, m: &SearchMatch, replacement: &str) {
@@ -334,10 +337,10 @@ impl<'a> SearchMatchProcessor<'a> {
         }
     }
 
-    fn apply_changes(&self, path: &Path, mut changes: &[Change]) {
+    fn apply_changes(&self, path: &Path, mut changes: &[Change]) -> Result<(), std::io::Error> {
         let dst_path = path.with_extension("~");
-        let src = File::open(path).expect("couldn't open file");
-        let dst = File::create(&dst_path).expect("couldn't create file");
+        let src = File::open(path)?;
+        let dst = File::create(&dst_path)?;
 
         let mut reader = BufReader::new(src);
         let mut writer = BufWriter::new(dst);
@@ -345,7 +348,7 @@ impl<'a> SearchMatchProcessor<'a> {
         let mut line_num = 0;
         loop {
             let mut line = String::new();
-            let bytes_read = reader.read_line(&mut line).expect("read line");
+            let bytes_read = reader.read_line(&mut line)?;
             // EOF reached
             if bytes_read == 0 {
                 break;
@@ -354,14 +357,15 @@ impl<'a> SearchMatchProcessor<'a> {
             line_num += 1;
 
             if !changes.is_empty() && changes[0].line_number == line_num {
-                writer.write(changes[0].new_line.as_bytes()).unwrap();
+                writer.write(changes[0].new_line.as_bytes())?;
                 changes = &changes[1..];
             } else {
-                writer.write(line.as_bytes()).unwrap();
+                writer.write(line.as_bytes())?;
             }
         }
 
-        std::fs::rename(dst_path, path).expect("rename file");
+        std::fs::rename(dst_path, path)?;
+        return Ok(());
     }
 }
 
@@ -375,12 +379,16 @@ enum ReplacementDecision {
     EditThis,
 }
 
+fn read_input(prompt: &str) -> Result<String, std::io::Error> {
+    print!("{}", prompt);
+    std::io::stdout().flush()?;
+
+    Ok(read!("{}\n"))
+}
+
 fn prompt_for_decision() -> ReplacementDecision {
     loop {
-        print!("Stage this replacement [Y,n,q,a,e,d,?] ");
-        std::io::stdout().flush().unwrap();
-        let line: String = read!("{}\n");
-        // TODO: ^D should not result in acceptance
+        let line = read_input("Stage this replacement [Y,n,q,a,e,d,?] ").unwrap();
 
         return match line.as_str() {
             "y" | "Y" => ReplacementDecision::AcceptThis,
@@ -465,7 +473,7 @@ fn main() {
                 .expect("search failed");
 
             let matches = sink.collect();
-            proc.handle_path(path, matches);
+            proc.handle_path(path, matches).expect("handle path");
         }
     }
 
