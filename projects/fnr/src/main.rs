@@ -242,8 +242,6 @@ impl<'a> Replacer for RegexReplacer<'a> {
     }
 }
 
-type MatchDecider = dyn Fn(&SearchMatch, &str) -> ReplacementDecision;
-
 #[derive(Debug)]
 struct Change {
     line_number: u64,
@@ -253,9 +251,8 @@ struct Change {
 
 struct SearchMatchProcessor<'a> {
     replacer: &'a dyn Replacer,
-    match_decider: &'a MatchDecider,
+    replacement_decider: ReplacementDecider,
 
-    decide_all: Option<bool>,
     total_matches: usize,
     total_replacements: usize,
 }
@@ -263,13 +260,12 @@ struct SearchMatchProcessor<'a> {
 impl<'a> SearchMatchProcessor<'a> {
     fn new(
         replacer: &'a dyn Replacer,
-        match_decider: &'a MatchDecider,
+        replacement_decider: ReplacementDecider,
     ) -> SearchMatchProcessor<'a> {
         return SearchMatchProcessor {
             replacer,
-            match_decider,
+            replacement_decider,
 
-            decide_all: None,
             total_matches: 0,
             total_replacements: 0,
         };
@@ -280,8 +276,7 @@ impl<'a> SearchMatchProcessor<'a> {
         path: &Path,
         matches: &Vec<SearchMatch>,
     ) -> Result<(), std::io::Error> {
-        self.total_matches += matches.len();
-        if matches.is_empty() || Some(false) == self.decide_all {
+        if matches.is_empty() {
             return Ok(());
         }
         println!(
@@ -290,7 +285,8 @@ impl<'a> SearchMatchProcessor<'a> {
             matches.len(),
             if matches.len() == 1 { "" } else { "es" }
         );
-        let mut accept_remaining = false;
+        self.total_matches += matches.len();
+        self.replacement_decider.reset_local_decision();
 
         let mut change_list = vec![];
         for m in matches {
@@ -301,33 +297,21 @@ impl<'a> SearchMatchProcessor<'a> {
                 continue;
             };
 
-            let change = if accept_remaining || Some(true) == self.decide_all {
-                m.as_change(replacement)
-            } else {
-                match (self.match_decider)(m, &replacement) {
-                    ReplacementDecision::IgnoreThis => continue,
-                    ReplacementDecision::IgnoreFile => break,
-                    ReplacementDecision::IgnoreRest => {
-                        self.decide_all = Some(false);
-                        break;
+            let decision = self.replacement_decider.decide(m, &replacement);
+            let change = match decision {
+                ReplacementDecision::Accept => m.as_change(replacement),
+                ReplacementDecision::Ignore => continue,
+                ReplacementDecision::Edit => {
+                    let mut line = read_input("Replace with [^D to skip] ")?;
+                    if line == "" {
+                        println!("... skipped ...");
+                        continue;
                     }
-                    ReplacementDecision::AcceptThis => m.as_change(replacement),
-                    ReplacementDecision::AcceptFile => {
-                        accept_remaining = true;
-                        m.as_change(replacement)
-                    }
-                    ReplacementDecision::EditThis => {
-                        let mut line = read_input("Replace with [^D to skip] ")?;
-                        if line == "" {
-                            println!("... skipped ...");
-                            continue;
-                        }
 
-                        line.push('\n');
-                        m.display_change(&line);
-                        println!("--");
-                        m.as_change(line)
-                    }
+                    line.push('\n');
+                    m.display_change(&line);
+                    println!("--");
+                    m.as_change(line)
                 }
             };
 
@@ -340,7 +324,6 @@ impl<'a> SearchMatchProcessor<'a> {
             self.apply_changes(path, &mut change_list)?;
         }
 
-        println!("");
         Ok(())
     }
 
@@ -389,14 +372,11 @@ impl<'a> SearchMatchProcessor<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum ReplacementDecision {
-    IgnoreThis,
-    IgnoreFile,
-    IgnoreRest,
-    AcceptThis,
-    AcceptFile,
-    EditThis,
+    Accept,
+    Ignore,
+    Edit,
 }
 
 fn read_input(prompt: &str) -> Result<String, std::io::Error> {
@@ -406,21 +386,76 @@ fn read_input(prompt: &str) -> Result<String, std::io::Error> {
     Ok(read!("{}\n"))
 }
 
-fn prompt_for_decision() -> ReplacementDecision {
-    loop {
-        let line = read_input("Stage this replacement [y,n,q,a,e,d,?] ").unwrap();
+struct ReplacementDecider {
+    should_prompt: bool,
+    global_decision: Option<ReplacementDecision>,
+    local_decision: Option<ReplacementDecision>,
+}
 
-        return match line.as_str() {
-            "y" => ReplacementDecision::AcceptThis,
-            "n" => ReplacementDecision::IgnoreThis,
-            "q" => ReplacementDecision::IgnoreRest,
-            "a" => ReplacementDecision::AcceptFile,
-            "d" => ReplacementDecision::IgnoreFile,
-            "e" => ReplacementDecision::EditThis,
+impl ReplacementDecider {
+    fn with_prompt() -> ReplacementDecider {
+        return ReplacementDecider {
+            should_prompt: true,
+            global_decision: None,
+            local_decision: None,
+        };
+    }
 
-            "?" | _ => {
-                println!(
-                    "\x1B[31m
+    fn constantly(decision: ReplacementDecision) -> ReplacementDecider {
+        return ReplacementDecider {
+            should_prompt: false,
+            global_decision: Some(decision),
+            local_decision: None,
+        };
+    }
+
+    fn reset_local_decision(&mut self) {
+        self.local_decision = None;
+    }
+
+    fn decide(&mut self, match_: &SearchMatch, replacement: &str) -> ReplacementDecision {
+        if let Some(decision) = self.global_decision {
+            return decision;
+        } else if let Some(decision) = self.local_decision {
+            return decision;
+        }
+
+        if !self.should_prompt {
+            panic!("invalid state: no decision, but should not prompt");
+        }
+
+        // TODO: Should we display this always?
+        match_.display_change(replacement);
+        return self.prompt_for_decision();
+    }
+
+    fn prompt_for_decision(&mut self) -> ReplacementDecision {
+        loop {
+            let line = read_input("Stage this replacement [y,n,q,a,e,d,?] ").unwrap();
+
+            return match line.as_str() {
+                "y" => ReplacementDecision::Accept,
+                "n" => ReplacementDecision::Ignore,
+                "q" => {
+                    self.global_decision = Some(ReplacementDecision::Ignore);
+                    ReplacementDecision::Ignore
+                }
+                "a" => {
+                    self.local_decision = Some(ReplacementDecision::Ignore);
+                    ReplacementDecision::Accept
+                }
+                "d" => {
+                    self.local_decision = Some(ReplacementDecision::Ignore);
+                    ReplacementDecision::Accept
+                }
+                "e" => {
+                    self.local_decision = Some(ReplacementDecision::Edit);
+                    ReplacementDecision::Edit
+                }
+
+                "?" | _ => {
+                    println!(
+                        "\x1B[31m
 Y - replace this line
 n - do not replace this line
 q - quit; do not replace this line or any remaining ones
@@ -429,10 +464,11 @@ d - do not replace this line nor any remaining ones in this file
 e - edit this replacement
 ? - show help
 \x1B[0m"
-                );
-                continue;
-            }
-        };
+                    );
+                    continue;
+                }
+            };
+        }
     }
 }
 
@@ -462,17 +498,15 @@ fn main() {
         println!("WARN: --prompt does not make sense with --dry-run, skipping");
     }
 
-    let match_decider: &MatchDecider = if opts.dry_run {
-        &|_, _| ReplacementDecision::IgnoreThis
+    let replacement_decider = if opts.dry_run {
+        ReplacementDecider::constantly(ReplacementDecision::Ignore)
     } else if opts.prompt {
-        &|match_, replacement| {
-            match_.display_change(replacement);
-            prompt_for_decision()
-        }
+        ReplacementDecider::with_prompt()
     } else {
-        &|_, _| ReplacementDecision::AcceptThis
+        ReplacementDecider::constantly(ReplacementDecision::Accept)
     };
-    let mut proc = SearchMatchProcessor::new(&replacer, &match_decider);
+
+    let mut proc = SearchMatchProcessor::new(&replacer, replacement_decider);
 
     let paths = if opts.paths.is_empty() {
         vec![Path::new("./").to_owned()]
