@@ -64,6 +64,22 @@ impl SearchMatch {
             new_line: line,
         };
     }
+
+    fn display_change(&self, replacement_line: &str) {
+        for line in &self.context_pre {
+            print!("    {}: {}", line.0, line.1);
+        }
+
+        // TODO: Multiple matches on same line
+        // TODO: Disable colors when not atty
+        // TODO: Align line number with padding.
+        print!("\x1B[31m-   {}: {}\x1B[0m", self.line.0, self.line.1);
+        print!("\x1B[32m+   {}: {}\x1B[0m", self.line.0, replacement_line);
+
+        for line in &self.context_post {
+            print!("    {}: {}", line.0, line.1);
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -226,7 +242,7 @@ impl<'a> Replacer for RegexReplacer<'a> {
     }
 }
 
-type MatchDecider = dyn Fn(&SearchMatch) -> ReplacementDecision;
+type MatchDecider = dyn Fn(&SearchMatch, &str) -> ReplacementDecision;
 
 #[derive(Debug)]
 struct Change {
@@ -237,17 +253,25 @@ struct Change {
 
 struct SearchMatchProcessor<'a> {
     replacer: &'a dyn Replacer,
-    acceptor: &'a MatchDecider,
+    match_decider: &'a MatchDecider,
 
     decide_all: Option<bool>,
+    total_matches: usize,
+    total_replacements: usize,
 }
 
 impl<'a> SearchMatchProcessor<'a> {
-    fn new(replacer: &'a dyn Replacer, acceptor: &'a MatchDecider) -> SearchMatchProcessor<'a> {
+    fn new(
+        replacer: &'a dyn Replacer,
+        match_decider: &'a MatchDecider,
+    ) -> SearchMatchProcessor<'a> {
         return SearchMatchProcessor {
             replacer,
-            acceptor,
+            match_decider,
+
             decide_all: None,
+            total_matches: 0,
+            total_replacements: 0,
         };
     }
 
@@ -256,6 +280,7 @@ impl<'a> SearchMatchProcessor<'a> {
         path: &Path,
         matches: &Vec<SearchMatch>,
     ) -> Result<(), std::io::Error> {
+        self.total_matches += matches.len();
         if matches.is_empty() || Some(false) == self.decide_all {
             return Ok(());
         }
@@ -275,12 +300,11 @@ impl<'a> SearchMatchProcessor<'a> {
                 println!("TODO: replacer failed on line");
                 continue;
             };
-            self.display(m, &replacement);
 
             let change = if accept_remaining || Some(true) == self.decide_all {
                 m.as_change(replacement)
             } else {
-                match (self.acceptor)(m) {
+                match (self.match_decider)(m, &replacement) {
                     ReplacementDecision::IgnoreThis => continue,
                     ReplacementDecision::IgnoreFile => break,
                     ReplacementDecision::IgnoreRest => {
@@ -300,7 +324,7 @@ impl<'a> SearchMatchProcessor<'a> {
                         }
 
                         line.push('\n');
-                        self.display(m, &line);
+                        m.display_change(&line);
                         println!("--");
                         m.as_change(line)
                     }
@@ -308,9 +332,10 @@ impl<'a> SearchMatchProcessor<'a> {
             };
 
             change_list.push(change);
+            self.total_replacements += 1;
         }
 
-        // For --prompt, confirm before applying here
+        // TODO: For --prompt, confirm before applying here
         if !change_list.is_empty() {
             self.apply_changes(path, &mut change_list)?;
         }
@@ -319,25 +344,13 @@ impl<'a> SearchMatchProcessor<'a> {
         Ok(())
     }
 
-    fn display(&self, m: &SearchMatch, replacement: &str) {
-        // TODO: only show this gap if non-consecutive
-        println!("    ...");
-        for line in &m.context_pre {
-            print!("    {}: {}", line.0, line.1);
-        }
-
-        // TODO: Multiple matches on same line
-        // TODO: Disable colors when not atty
-        // TODO: Align line number with padding.
-        print!("\x1B[31m-   {}: {}\x1B[0m", m.line.0, m.line.1);
-        print!("\x1B[32m+   {}: {}\x1B[0m", m.line.0, replacement);
-
-        for line in &m.context_post {
-            print!("    {}: {}", line.0, line.1);
-        }
-    }
-
     fn apply_changes(&self, path: &Path, mut changes: &[Change]) -> Result<(), std::io::Error> {
+        /*println!(
+            "{}: {} change{}",
+            path.display(),
+            changes.len(),
+            if changes.len() != 1 { "s" } else { "" }
+        );*/
         let dst_path = path.with_extension("~");
         let src = File::open(path)?;
         let dst = File::create(&dst_path)?;
@@ -367,6 +380,13 @@ impl<'a> SearchMatchProcessor<'a> {
         std::fs::rename(dst_path, path)?;
         return Ok(());
     }
+
+    fn finalize(&self) {
+        println!(
+            "All done. Replaced {} of {} matches",
+            self.total_replacements, self.total_matches
+        );
+    }
 }
 
 #[derive(Debug)]
@@ -388,10 +408,10 @@ fn read_input(prompt: &str) -> Result<String, std::io::Error> {
 
 fn prompt_for_decision() -> ReplacementDecision {
     loop {
-        let line = read_input("Stage this replacement [Y,n,q,a,e,d,?] ").unwrap();
+        let line = read_input("Stage this replacement [y,n,q,a,e,d,?] ").unwrap();
 
         return match line.as_str() {
-            "y" | "Y" => ReplacementDecision::AcceptThis,
+            "y" => ReplacementDecision::AcceptThis,
             "n" => ReplacementDecision::IgnoreThis,
             "q" => ReplacementDecision::IgnoreRest,
             "a" => ReplacementDecision::AcceptFile,
@@ -442,14 +462,17 @@ fn main() {
         println!("WARN: --prompt does not make sense with --dry-run, skipping");
     }
 
-    let acceptor = if opts.dry_run {
-        |_: &SearchMatch| ReplacementDecision::IgnoreThis
+    let match_decider: &MatchDecider = if opts.dry_run {
+        &|_, _| ReplacementDecision::IgnoreThis
     } else if opts.prompt {
-        |_: &SearchMatch| prompt_for_decision()
+        &|match_, replacement| {
+            match_.display_change(replacement);
+            prompt_for_decision()
+        }
     } else {
-        |_: &SearchMatch| ReplacementDecision::AcceptThis
+        &|_, _| ReplacementDecision::AcceptThis
     };
-    let mut proc = SearchMatchProcessor::new(&replacer, &acceptor);
+    let mut proc = SearchMatchProcessor::new(&replacer, &match_decider);
 
     let paths = if opts.paths.is_empty() {
         vec![Path::new("./").to_owned()]
@@ -481,5 +504,5 @@ fn main() {
         println!("--dry-run enabled, no changes applied.");
     }
 
-    println!("All done.");
+    proc.finalize();
 }
