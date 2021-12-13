@@ -10,8 +10,10 @@ account with barely working code, I start my new projects here.
 When they start to come into shape (and, well, work), I'll split them out
 into their own repos using the subtree commands below.
 
-Unless otherwised noted, all code in this repository falls under the MIT
-License.
+Unless otherwised noted, all code in this repository falls under the 
+Affero GNU General Public License ([AGPL-3.0-or-later]).
+
+[AGPL-3.0-or-later]: https://spdx.org/licenses/AGPL-3.0-or-later.html
 
 ## Importing existing projects.
 
