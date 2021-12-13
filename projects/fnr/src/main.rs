@@ -234,7 +234,7 @@ impl<'a> Replacer for RegexReplacer<'a> {
                     self.template.as_bytes(),
                     dst,
                 );
-                false
+                true
             })
             .unwrap();
 
