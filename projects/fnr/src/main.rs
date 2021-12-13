@@ -441,15 +441,14 @@ impl ReplacementDecider {
                     ReplacementDecision::Ignore
                 }
                 "a" => {
-                    self.local_decision = Some(ReplacementDecision::Ignore);
+                    self.local_decision = Some(ReplacementDecision::Accept);
                     ReplacementDecision::Accept
                 }
                 "d" => {
                     self.local_decision = Some(ReplacementDecision::Ignore);
-                    ReplacementDecision::Accept
+                    ReplacementDecision::Ignore
                 }
                 "e" => {
-                    self.local_decision = Some(ReplacementDecision::Edit);
                     ReplacementDecision::Edit
                 }
 
@@ -473,6 +472,7 @@ e - edit this replacement
 }
 
 fn main() {
+    // TODO: Paths from stdin
     let opts: Opts = Opts::from_args();
     println!("Parsed opts: {:?}", opts);
 
