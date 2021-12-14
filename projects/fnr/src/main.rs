@@ -3,12 +3,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use atty::Stream;
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
 };
-use ignore::Walk;
+use ignore::WalkBuilder;
 use structopt::StructOpt;
 use text_io::read;
 
@@ -280,10 +281,10 @@ impl<'a> SearchMatchProcessor<'a> {
             return Ok(());
         }
         println!(
-            "--- {}: {} match{}",
+            "--- {}: {} matching line{}",
             path.display(),
             matches.len(),
-            if matches.len() == 1 { "" } else { "es" }
+            if matches.len() == 1 { "" } else { "s" }
         );
         self.total_matches += matches.len();
         self.replacement_decider.reset_local_decision();
@@ -472,7 +473,6 @@ e - edit this replacement
 }
 
 fn main() {
-    // TODO: Paths from stdin
     let opts: Opts = Opts::from_args();
     println!("Parsed opts: {:?}", opts);
 
@@ -509,29 +509,51 @@ fn main() {
     let mut proc = SearchMatchProcessor::new(&replacer, replacement_decider);
 
     let paths = if opts.paths.is_empty() {
-        vec![Path::new("./").to_owned()]
+        if !atty::is(Stream::Stdin) {
+            if opts.prompt {
+                panic!("Cannot use --prompt when reading files from stdin!");
+            }
+            let mut paths = vec![];
+            for line in std::io::stdin().lock().lines() {
+                paths.push(Path::new(&line.unwrap()).to_owned());
+            }
+            paths
+        } else {
+            vec![Path::new(".").to_owned()]
+        }
     } else {
         opts.paths
     };
 
-    for path in paths {
-        // TODO: Support files as well as directories here
-        for dir_entry in Walk::new(path) {
-            let dir_entry = dir_entry.unwrap();
-            let path = dir_entry.path();
-            if !path.is_file() {
-                continue;
-            }
+    // TODO: Add path exclusions
+    let mut file_walker = WalkBuilder::new(paths[0].clone());
+    for path in &paths[1..] {
+        file_walker.add(path);
+    }
 
-            let mut sink = SearchMatchCollector::new();
+    // TODO: These settings can be given by command line args.
+    file_walker
+        .ignore(true)
+        .git_ignore(true)
+        .git_exclude(true)
+        .parents(true);
 
-            searcher
-                .search_path(&matcher, dir_entry.path(), &mut sink)
-                .expect("search failed");
-
-            let matches = sink.collect();
-            proc.handle_path(path, matches).expect("handle path");
+    // TODO: There exists a parallel file walker
+    for dir_entry in file_walker.build() {
+        let dir_entry = dir_entry.unwrap();
+        let path = dir_entry.path();
+        if !path.is_file() {
+            continue;
         }
+
+        let mut sink = SearchMatchCollector::new();
+
+        searcher
+            .search_path(&matcher, dir_entry.path(), &mut sink)
+            .expect("search failed");
+
+        let matches = sink.collect();
+        proc.handle_path(path, matches).expect("handle path");
     }
 
     if opts.dry_run {

@@ -12,3 +12,4 @@ lazy_static = "1.4.0"
 regex = "1.5.4"
 structopt = { version = "0.3" }
 text_io = "0.1.9"
+atty = "0.2.14"
