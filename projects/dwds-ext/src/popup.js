@@ -1,5 +1,38 @@
 'use strict';
 
+
+const BASE_URL = 'https://www.dwds.de';
+
+class DwdsClient {
+  constructor (baseUrl = BASE_URL) {
+    this.baseUrl = baseUrl;
+  }
+
+  async get(path, query) {
+  }
+
+  // Return frequency of lemma within DWDS' corpus. Log scale between
+  // 0 (least) and 6 (most)
+  async wordFrequency (lemma) {
+    const response = await this.get('/api/frequency', { q: lemma });
+    const body = await response.json();
+    return body.frequency;
+  }
+
+  // Look up word information (can provide multiple)
+  async wordInformation (...words) {
+    const response = await this.get('/api/wb/snippet', { q: words.join('|') });
+    const body = await response.json();
+
+    return body.map(({url, input, wordart, lemma}) => ({
+      url,
+      lemma,
+      word: input,
+      kind: wortart,
+    }));
+  }
+}
+
 async function fetchLinguee(langPair, query, sourceLang = 'auto') {
   const encoded = window.encodeURIComponent(query);
 

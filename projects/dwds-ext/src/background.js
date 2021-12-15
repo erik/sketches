@@ -21,7 +21,7 @@ browser.browserAction.onClicked.addListener(async (tab) => {
 
   const selections = await browser.tabs.executeScript(
     tab.id,
-    {code: '(window.getSelection().toString())', allFrames: true}
+    { code: '(window.getSelection().toString())', allFrames: true }
   );
 
   const selected = selections.find(it => !!it);

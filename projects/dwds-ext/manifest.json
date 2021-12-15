@@ -1,6 +1,6 @@
 {
-  "name": "DWDS Helper",
-  "description": "Translate selected text.",
+  "name": "Lookup with DWDS",
+  "description": "Look up selected text in Der deutsche Wordschatz (DWDS)",
   "version": "1",
   "manifest_version": 2,
   "background": {
@@ -12,6 +12,7 @@
   },
   "browser_action": {},
   "permissions": [
+    "https://www.dwds.de",
     "menus",
     "activeTab"
   ],
