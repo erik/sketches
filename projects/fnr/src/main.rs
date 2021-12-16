@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -17,23 +16,29 @@ use text_io::read;
 #[structopt(name = "fnr")]
 /// Look for things, optionally replace them.
 struct Opts {
-    /// Run search in case insensitive mode
+    /// Run case insensitive search
+    #[structopt(short = "i", long)]
+    ignore_case: bool,
+
+    /// Modify files in place.
     #[structopt(short, long)]
-    insensitive: bool,
+    write: bool,
 
-    /// Print out replacements without actually performing them
-    #[structopt(short, long)]
-    dry_run: bool,
-
-    #[structopt(short = "A", long, default_value = "0")]
-    after: usize,
-    #[structopt(short = "B", long, default_value = "0")]
-    before: usize,
-    #[structopt(short = "C", long, default_value = "0")]
-    context: usize,
-
+    /// Confirm each modification before making it.
     #[structopt(short, long)]
     prompt: bool,
+
+    /// Print lines after matches.
+    #[structopt(short = "A", long)]
+    after: Option<usize>,
+
+    /// Print lines before matches.
+    #[structopt(short = "B", long)]
+    before: Option<usize>,
+
+    /// Print lines before and after matches.
+    #[structopt(short = "C", long)]
+    context: Option<usize>,
 
     /// What to search for.
     #[structopt(name = "FIND")]
@@ -320,7 +325,6 @@ impl<'a> SearchMatchProcessor<'a> {
             self.total_replacements += 1;
         }
 
-        // TODO: For --prompt, confirm before applying here
         if !change_list.is_empty() {
             self.apply_changes(path, &mut change_list)?;
         }
@@ -415,6 +419,9 @@ impl ReplacementDecider {
     }
 
     fn decide(&mut self, match_: &SearchMatch, replacement: &str) -> ReplacementDecision {
+        // TODO: Should we display this always?
+        match_.display_change(replacement);
+
         if let Some(decision) = self.global_decision {
             return decision;
         } else if let Some(decision) = self.local_decision {
@@ -425,8 +432,6 @@ impl ReplacementDecider {
             panic!("invalid state: no decision, but should not prompt");
         }
 
-        // TODO: Should we display this always?
-        match_.display_change(replacement);
         return self.prompt_for_decision();
     }
 
@@ -449,9 +454,7 @@ impl ReplacementDecider {
                     self.local_decision = Some(ReplacementDecision::Ignore);
                     ReplacementDecision::Ignore
                 }
-                "e" => {
-                    ReplacementDecision::Edit
-                }
+                "e" => ReplacementDecision::Edit,
 
                 "?" | _ => {
                     println!(
@@ -477,15 +480,15 @@ fn main() {
     println!("Parsed opts: {:?}", opts);
 
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(opts.insensitive)
+        .case_insensitive(opts.ignore_case)
         .build(&opts.find)
         .expect("bad pattern");
 
     let mut searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(0x00))
         .line_number(true)
-        .before_context(max(opts.context, opts.before))
-        .after_context(max(opts.context, opts.after))
+        .before_context(opts.before.or(opts.context).unwrap_or(2))
+        .after_context(opts.after.or(opts.context).unwrap_or(2))
         .build();
 
     // TODO: Confirm that template does not reference more capture groups than exist.
@@ -494,16 +497,16 @@ fn main() {
         template: &opts.replace,
     };
 
-    if opts.dry_run && opts.prompt {
-        println!("WARN: --prompt does not make sense with --dry-run, skipping");
+    if opts.write && opts.prompt {
+        eprintln!("both --write and --prompt given, ignore --write.");
     }
 
-    let replacement_decider = if opts.dry_run {
-        ReplacementDecider::constantly(ReplacementDecision::Ignore)
-    } else if opts.prompt {
+    let replacement_decider = if opts.prompt {
         ReplacementDecider::with_prompt()
-    } else {
+    } else if opts.write {
         ReplacementDecider::constantly(ReplacementDecision::Accept)
+    } else {
+        ReplacementDecider::constantly(ReplacementDecision::Ignore)
     };
 
     let mut proc = SearchMatchProcessor::new(&replacer, replacement_decider);
@@ -556,8 +559,8 @@ fn main() {
         proc.handle_path(path, matches).expect("handle path");
     }
 
-    if opts.dry_run {
-        println!("--dry-run enabled, no changes applied.");
+    if !opts.write {
+        println!("Use -w, --write to modify files in place.");
     }
 
     proc.finalize();
