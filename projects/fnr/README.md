@@ -12,7 +12,7 @@ $ fnr '([a-z])([A-Z])' '$2,$1'
 Replaced 15 occurrences in 5 files.
 
 # Interactive mode, prompt for each replacement
-$ fnr -i 'search' 'replace' file...
+$ fnr -p 'search' 'replace' file...
 path/to/file: 15 matches
 
   - 78: Here is a line with _search_ term.
@@ -31,15 +31,9 @@ q: Do not replace this instance and terminate the program
 
 Done. Replaced 0 instances
 
-# Prompt mode - prompt the user for each replacement. Implies -i
-$ fnr -p 'search'
+# Replace matches in files given from stdin
+$ fd tests/ | fnr 'find' 'replace'
 
-path/to/file: 15 matches
-
-78: Here is a line with _search_ term.
-
-Enter replacement [^d to skip]: foo
-
-  - 78: Here is a line with _search_ term.
-  + 78: Here is a line with _foo_ term.
+tests/foo: 20 matching lines
+tests/bar: 1 matching line
 ```
