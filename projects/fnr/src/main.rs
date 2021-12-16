@@ -33,8 +33,20 @@ struct Opts {
     smart_case: bool,
 
     /// Modify files in place.
-    #[structopt(short, long)]
+    #[structopt(short = "W", long)]
     write: bool,
+
+    /// Match pattern only at word boundary
+    #[structopt(short, long)]
+    word: bool,
+
+    /// Find replacements in .hidden files and directories.
+    #[structopt(short = "H", long)]
+    hidden: bool,
+
+    /// Search ALL files, including those hidden by .gitignore etc.
+    #[structopt(short, long)]
+    all: bool,
 
     /// Confirm each modification before making it.
     #[structopt(short, long)]
@@ -63,6 +75,19 @@ struct Opts {
     /// Locations to search. Current directory if not specified.
     #[structopt(name = "PATH", parse(from_os_str))]
     paths: Vec<PathBuf>,
+
+    // TODO: wishlist
+    /// Treat FIND as a string rather than a regular expression
+    #[structopt(long)]
+    literal: bool,
+
+    /// Exclude files / directories matching PATTERN
+    #[structopt(short = "E", long)]
+    exclude: Option<String>,
+
+    /// Include only files / directories matching PATTERN
+    #[structopt(short = "I", long)]
+    include: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -494,6 +519,7 @@ fn main() {
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(!opts.case_sensitive && opts.ignore_case)
         .case_smart(!opts.case_sensitive && opts.smart_case)
+        .word(opts.word)
         .build(&opts.find)
         .expect("bad pattern");
 
@@ -547,12 +573,14 @@ fn main() {
         file_walker.add(path);
     }
 
-    // TODO: These settings can be given by command line args.
+    let should_ignore = !opts.all;
+    let should_show_hidden = opts.hidden || opts.all;
     file_walker
-        .ignore(true)
-        .git_ignore(true)
-        .git_exclude(true)
-        .parents(true);
+        .hidden(!should_show_hidden)
+        .ignore(should_ignore)
+        .git_ignore(should_ignore)
+        .git_exclude(should_ignore)
+        .parents(should_ignore);
 
     // TODO: There exists a parallel file walker
     for dir_entry in file_walker.build() {
