@@ -16,9 +16,21 @@ use text_io::read;
 #[structopt(name = "fnr")]
 /// Look for things, optionally replace them.
 struct Opts {
-    /// Run case insensitive search
+    /// Match case insensitively.
     #[structopt(short = "i", long)]
     ignore_case: bool,
+
+    /// Match case sensitively.
+    #[structopt(short = "s", long)]
+    case_sensitive: bool,
+
+    /// Use case sensitive match if FIND has uppercase characters,
+    /// insensitively otherwise.
+    // TODO: This is still a little jank. Prints out as if it needed a
+    // value, and messes up arg parsing if it appears first.
+    // Option<bool> might be better.
+    #[structopt(short = "S", long, parse(try_from_str), default_value = "true")]
+    smart_case: bool,
 
     /// Modify files in place.
     #[structopt(short, long)]
@@ -480,7 +492,8 @@ fn main() {
     println!("Parsed opts: {:?}", opts);
 
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(opts.ignore_case)
+        .case_insensitive(!opts.case_sensitive && opts.ignore_case)
+        .case_smart(!opts.case_sensitive && opts.smart_case)
         .build(&opts.find)
         .expect("bad pattern");
 
