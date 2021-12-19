@@ -16,7 +16,7 @@ use text_io::read;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "fnr")]
 /// Look for things, optionally replace them.
-struct Opts {
+struct Config {
     /// Match case insensitively.
     #[structopt(short = "i", long)]
     ignore_case: bool,
@@ -41,13 +41,17 @@ struct Opts {
     #[structopt(short, long)]
     word: bool,
 
+    /// Treat FIND as a string rather than a regular expression
+    #[structopt(long)]
+    literal: bool,
+
     /// Find replacements in .hidden files and directories.
     #[structopt(short = "H", long)]
     hidden: bool,
 
     /// Search ALL files, including those hidden by .gitignore etc.
     #[structopt(short, long)]
-    all: bool,
+    all_files: bool,
 
     /// Confirm each modification before making it.
     #[structopt(short, long)]
@@ -65,6 +69,14 @@ struct Opts {
     #[structopt(short = "C", long)]
     context: Option<usize>,
 
+    /// Include only files / directories matching PATTERN
+    #[structopt(short = "I", long)]
+    include: Option<Vec<String>>,
+
+    /// Exclude files / directories matching PATTERN
+    #[structopt(short = "E", long)]
+    exclude: Vec<String>,
+
     /// What to search for.
     #[structopt(name = "FIND")]
     find: String,
@@ -76,19 +88,6 @@ struct Opts {
     /// Locations to search. Current directory if not specified.
     #[structopt(name = "PATH", parse(from_os_str))]
     paths: Vec<PathBuf>,
-
-    // TODO: wishlist
-    /// Treat FIND as a string rather than a regular expression
-    #[structopt(long)]
-    literal: bool,
-
-    /// Exclude files / directories matching PATTERN
-    #[structopt(short = "E", long)]
-    exclude: Vec<String>,
-
-    /// Include only files / directories matching PATTERN
-    #[structopt(short = "I", long)]
-    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -514,14 +513,20 @@ e - edit this replacement
 }
 
 fn main() {
-    let opts: Opts = Opts::from_args();
+    let opts = Config::from_args();
     println!("Parsed opts: {:?}", opts);
+
+    let pattern = if opts.literal {
+        regex::escape(&opts.find)
+    } else {
+        opts.find
+    };
 
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(!opts.case_sensitive && opts.ignore_case)
         .case_smart(!opts.case_sensitive && opts.smart_case)
         .word(opts.word)
-        .build(&opts.find)
+        .build(&pattern)
         .expect("bad pattern");
 
     let mut searcher = SearcherBuilder::new()
@@ -574,8 +579,8 @@ fn main() {
         file_walker.add(path);
     }
 
-    let should_ignore = !opts.all;
-    let should_show_hidden = opts.hidden || opts.all;
+    let should_ignore = !opts.all_files;
+    let should_show_hidden = opts.hidden || opts.all_files;
     file_walker
         .hidden(!should_show_hidden)
         .ignore(should_ignore)
