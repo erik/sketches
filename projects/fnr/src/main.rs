@@ -9,6 +9,7 @@ use grep::searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
 };
 use ignore::WalkBuilder;
+use regex;
 use structopt::StructOpt;
 use text_io::read;
 
@@ -83,11 +84,11 @@ struct Opts {
 
     /// Exclude files / directories matching PATTERN
     #[structopt(short = "E", long)]
-    exclude: Option<String>,
+    exclude: Vec<String>,
 
     /// Include only files / directories matching PATTERN
     #[structopt(short = "I", long)]
-    include: Option<String>,
+    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -582,11 +583,31 @@ fn main() {
         .git_exclude(should_ignore)
         .parents(should_ignore);
 
+    let included_paths = opts.include.map(|included_paths| {
+        let escaped = included_paths.iter().map(|p| regex::escape(p));
+        regex::RegexSet::new(escaped).unwrap()
+    });
+    let excluded_paths = {
+        let escaped = opts.exclude.iter().map(|p| regex::escape(p));
+        regex::RegexSet::new(escaped).unwrap()
+    };
+
     // TODO: There exists a parallel file walker
     for dir_entry in file_walker.build() {
         let dir_entry = dir_entry.unwrap();
         let path = dir_entry.path();
         if !path.is_file() {
+            continue;
+        }
+
+        let path_str = path.to_str().expect("invalid file name");
+
+        if let Some(ref included_paths) = included_paths {
+            if !included_paths.is_match(path_str) {
+                continue;
+            }
+        }
+        if excluded_paths.is_match(path_str) {
             continue;
         }
 
