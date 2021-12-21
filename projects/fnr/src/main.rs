@@ -16,25 +16,35 @@ use text_io::read;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "fnr")]
 /// Recursively find and replace. Like sed, but memorable.
+// TODO: Potential features:
+//
+// #[structopt(short, long)]
+// quiet: bool,
+//
+// Search files with the given file extensions
+// #[structopt(short = "T", long, multiple = true, conflicts_with = "include")]
+// file_type: Option<String>,
 struct Config {
     /// Match case insensitively.
-    #[structopt(short = "i", long)]
+    #[structopt(short = "i", long, conflicts_with = "case_sensitive, smart_case")]
     ignore_case: bool,
 
     /// Match case sensitively.
-    #[structopt(short = "s", long)]
+    #[structopt(short = "s", long, conflicts_with = "ignore_case, smart_case")]
     case_sensitive: bool,
 
-    /// Use case sensitive match if FIND has uppercase characters,
-    /// insensitive otherwise.
-    // TODO: This is still a little jank. Prints out as if it needed a
-    // value, and messes up arg parsing if it appears first.
-    // Option<bool> might be better.
-    #[structopt(short = "S", long, parse(try_from_str), default_value = "true")]
-    smart_case: bool,
+    /// Match case sensitively if FIND has uppercase characters,
+    /// insensitively otherwise. [default: true].
+    #[structopt(
+        short = "S",
+        long,
+        conflicts_with = "ignore_case, case_sensitive",
+        takes_value = false
+    )]
+    smart_case: Option<bool>,
 
     /// Modify files in place.
-    #[structopt(short = "W", long)]
+    #[structopt(short = "W", long, conflicts_with = "prompt")]
     write: bool,
 
     /// Match FIND only at word boundary.
@@ -45,16 +55,16 @@ struct Config {
     #[structopt(long)]
     literal: bool,
 
-    /// Find replacements in .hidden files and directories.
-    #[structopt(short = "H", long)]
-    hidden: bool,
-
-    /// Search ALL files.
+    /// Search ALL files in given paths for matches.
     #[structopt(short, long)]
     all_files: bool,
 
-    /// Confirm each modification before making it.
-    #[structopt(short, long)]
+    /// Find replacements in hidden files and directories.
+    #[structopt(short = "H", long)]
+    hidden: bool,
+
+    /// Confirm each modification before making it. Implies --write.
+    #[structopt(short, long, conflicts_with = "write")]
     prompt: bool,
 
     /// Print lines after matches.
@@ -66,7 +76,7 @@ struct Config {
     before: Option<usize>,
 
     /// Print lines before and after matches.
-    #[structopt(short = "C", long)]
+    #[structopt(short = "C", long, conflicts_with = "after, before")]
     context: Option<usize>,
 
     /// Include only files or directories matching pattern.
@@ -81,14 +91,14 @@ struct Config {
     ///
     /// For supported regular expression syntax, see:
     /// https://docs.rs/regex/latest/regex/#syntax
-    #[structopt(name = "FIND")]
+    #[structopt(name = "FIND", required = true)]
     find: String,
 
     /// What to replace it with.
     ///
     /// May contain numbered references to capture groups given in
     /// FIND in the form $1, $2, etc.
-    #[structopt(name = "REPLACE")]
+    #[structopt(name = "REPLACE", required = true)]
     replace: String,
 
     /// Locations to search. Current directory if not given.
@@ -534,8 +544,7 @@ fn main() {
 
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(!opts.case_sensitive && opts.ignore_case)
-        .case_smart(!opts.case_sensitive && opts.smart_case)
-        .word(opts.word)
+        .case_smart(!opts.case_sensitive && opts.smart_case.unwrap_or(true))
         .build(&pattern)
         .expect("bad pattern");
 
