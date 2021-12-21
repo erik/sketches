@@ -1,39 +1,59 @@
-# Find and Replace
+# fnr – find and replace
+
+Like `sed`, but with a memorable interface.
+
+Recursively find and replace patterns in files and directories.
+
+```
+fnr [OPTIONS] FIND REPLACE [PATH...]
+```
+
+## About
+
+Built on top of [ripgrep]'s path traversal and pattern matching.
+
+**fnr is alpha quality.** Don't use `--write` in situations you
+wouldn't be able to revert.
+
+[ripgrep]: https://github.com/BurntSushi/ripgrep
+
+## Examples
 
 ``` console
-# Basic string replacement
-$ fnr 'search term' 'replacement term' file1 dir1...
+Replace "old_function" with "new_function" in current directory.
+$ fnr old_function new_function
 
-Replaced 15 occurrences in 5 files.
+Choose files and directories to consider
+$ fnr 'EDITOR=vim' 'EDITOR=emacs' ~/.zshrc ~/.config/
 
-# Regex replacement with capturing group
-$ fnr '([a-z])([A-Z])' '$2,$1'
+We can use --literal so the pattern isn't treated as a regular expression.
+$ fnr --literal 'i += 1' 'i++'
 
-Replaced 15 occurrences in 5 files.
+Replace using capturing groups.
+$ fnr 'const (\w+) = \d+;' 'const $1 = 42;'
 
-# Interactive mode, prompt for each replacement
-$ fnr -p 'search' 'replace' file...
-path/to/file: 15 matches
+Use -w, --write to write changes back to files.
+$ fnr --write 'Linus Torvalds' 'Linux Torvalds'
 
-  - 78: Here is a line with _search_ term.
-  + 78: Here is a line with _replace_ term.
+Use -I, --include to only modify files or directories matching a pattern.
+$ fnr --include 'Test.*\.kt' 'mockito' 'mockk'
 
-<Y,n,a,d,q,?> ?
+Similarly, use -E, --exclude to ignore certain files.
+$ fnr --exclude ChangeLog 2021 2022
 
-y: Replace this instance.
-n: Leave this instance intact, do not replace.
-a: Replace this instance and all others in this file.
-d: Do not replace this instance or any others in this file.
-q: Do not replace this instance and terminate the program
-?: Display this help text
+Files and directories to consider can also be given over standard input.
+$ find /tmp/ -name "*.csv" -print | fnr "," "\t"
 
-<Y,n,a,d,q,?> q
+Use -p, --prompt to individually accept or reject each replacement.
+$ fnr --prompt --literal 'i++' '++i'
+--- ./README.md: 2 matching lines
+-   18: $ fnr --literal 'i += 1' 'i++'
++   18: $ fnr --literal 'i += 1' '++i'
+Stage this replacement [y,n,q,a,e,d,?] ?
+```
 
-Done. Replaced 0 instances
+## Install
 
-# Replace matches in files given from stdin
-$ fd tests/ | fnr 'find' 'replace'
-
-tests/foo: 20 matching lines
-tests/bar: 1 matching line
+```
+cargo install fnr
 ```
