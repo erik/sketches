@@ -1,15 +1,16 @@
 [package]
 name = "fnr"
+description = "Intuitive find and replace."
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "GPL-3.0-or-later"
+repository = "https://github.com/erik/fnr"
+categories = ["command-line-utilities"]
 
 [dependencies]
+atty = "0.2.14"
 grep = "0.2.8"
 ignore = "0.4"
-lazy_static = "1.4.0"
 regex = "1.5.4"
 structopt = { version = "0.3" }
 text_io = "0.1.9"
-atty = "0.2.14"

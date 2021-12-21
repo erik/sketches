@@ -15,7 +15,7 @@ use text_io::read;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "fnr")]
-/// Look for things, optionally replace them.
+/// Recursively find and replace. Like sed, but memorable.
 struct Config {
     /// Match case insensitively.
     #[structopt(short = "i", long)]
@@ -26,7 +26,7 @@ struct Config {
     case_sensitive: bool,
 
     /// Use case sensitive match if FIND has uppercase characters,
-    /// insensitively otherwise.
+    /// insensitive otherwise.
     // TODO: This is still a little jank. Prints out as if it needed a
     // value, and messes up arg parsing if it appears first.
     // Option<bool> might be better.
@@ -37,11 +37,11 @@ struct Config {
     #[structopt(short = "W", long)]
     write: bool,
 
-    /// Match pattern only at word boundary
+    /// Match FIND only at word boundary.
     #[structopt(short, long)]
     word: bool,
 
-    /// Treat FIND as a string rather than a regular expression
+    /// Treat FIND as a string rather than a regular expression.
     #[structopt(long)]
     literal: bool,
 
@@ -49,7 +49,7 @@ struct Config {
     #[structopt(short = "H", long)]
     hidden: bool,
 
-    /// Search ALL files, including those hidden by .gitignore etc.
+    /// Search ALL files.
     #[structopt(short, long)]
     all_files: bool,
 
@@ -69,23 +69,33 @@ struct Config {
     #[structopt(short = "C", long)]
     context: Option<usize>,
 
-    /// Include only files / directories matching PATTERN
+    /// Include only files or directories matching pattern.
     #[structopt(short = "I", long)]
     include: Option<Vec<String>>,
 
-    /// Exclude files / directories matching PATTERN
+    /// Exclude files or directories matching pattern.
     #[structopt(short = "E", long)]
     exclude: Vec<String>,
 
-    /// What to search for.
+    /// What to search for. Literal string or regular expression.
+    ///
+    /// For supported regular expression syntax, see:
+    /// https://docs.rs/regex/latest/regex/#syntax
     #[structopt(name = "FIND")]
     find: String,
 
     /// What to replace it with.
+    ///
+    /// May contain numbered references to capture groups given in
+    /// FIND in the form $1, $2, etc.
     #[structopt(name = "REPLACE")]
     replace: String,
 
-    /// Locations to search. Current directory if not specified.
+    /// Locations to search. Current directory if not given.
+    ///
+    /// Paths may also be provided through standard input, e.g.
+    ///
+    /// $ fd .rs | fnr 'old_fn' 'new_fn'
     #[structopt(name = "PATH", parse(from_os_str))]
     paths: Vec<PathBuf>,
 }

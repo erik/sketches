@@ -116,7 +116,6 @@ dependencies = [
  "atty",
  "grep",
  "ignore",
- "lazy_static",
  "regex",
  "structopt",
  "text_io",
