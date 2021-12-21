@@ -8,6 +8,7 @@ repository = "https://github.com/erik/fnr"
 categories = ["command-line-utilities"]
 
 [dependencies]
+anyhow = "1.0.51"
 atty = "0.2.14"
 grep = "0.2.8"
 ignore = "0.4"

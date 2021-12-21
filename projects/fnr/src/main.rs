@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use anyhow::{ensure, Context, Result};
 use atty::Stream;
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
@@ -18,12 +19,17 @@ use text_io::read;
 /// Recursively find and replace. Like sed, but memorable.
 // TODO: Potential features:
 //
+// /// Disable printing matches
 // #[structopt(short, long)]
 // quiet: bool,
 //
-// Search files with the given file extensions
+// /// Search files with the given file extensions.
 // #[structopt(short = "T", long, multiple = true, conflicts_with = "include")]
 // file_type: Option<String>,
+//
+// /// Control whether terminal output is in color.
+// #[structopt(long, allow_values = "always, auto, never", default_value = "auto")]
+// color: String,
 struct Config {
     /// Match case insensitively.
     #[structopt(short = "i", long, conflicts_with = "case_sensitive, smart_case")]
@@ -334,11 +340,7 @@ impl<'a> SearchMatchProcessor<'a> {
         };
     }
 
-    fn handle_path(
-        &mut self,
-        path: &Path,
-        matches: &Vec<SearchMatch>,
-    ) -> Result<(), std::io::Error> {
+    fn handle_path(&mut self, path: &Path, matches: &Vec<SearchMatch>) -> Result<()> {
         if matches.is_empty() {
             return Ok(());
         }
@@ -389,7 +391,7 @@ impl<'a> SearchMatchProcessor<'a> {
         Ok(())
     }
 
-    fn apply_changes(&self, path: &Path, mut changes: &[Change]) -> Result<(), std::io::Error> {
+    fn apply_changes(&self, path: &Path, mut changes: &[Change]) -> Result<()> {
         /*println!(
             "{}: {} change{}",
             path.display(),
@@ -486,7 +488,7 @@ impl ReplacementDecider {
         }
 
         if !self.should_prompt {
-            panic!("invalid state: no decision, but should not prompt");
+            panic!("[bug] invalid state: no decision, but should not prompt");
         }
 
         return self.prompt_for_decision();
@@ -532,42 +534,39 @@ e - edit this replacement
     }
 }
 
-fn main() {
-    let opts = Config::from_args();
-    println!("Parsed opts: {:?}", opts);
+// Main entry point
+fn run_find_and_replace() -> Result<()> {
+    let config = Config::from_args();
+    // println!("Parsed config: {:?}", config);
 
-    let pattern = if opts.literal {
-        regex::escape(&opts.find)
+    let pattern = if config.literal {
+        regex::escape(&config.find)
     } else {
-        opts.find
+        config.find
     };
 
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(!opts.case_sensitive && opts.ignore_case)
-        .case_smart(!opts.case_sensitive && opts.smart_case.unwrap_or(true))
+        .case_insensitive(!config.case_sensitive && config.ignore_case)
+        .case_smart(!config.case_sensitive && config.smart_case.unwrap_or(true))
         .build(&pattern)
-        .expect("bad pattern");
+        .with_context(|| format!("Failed to parse pattern '{}'", pattern))?;
 
     let mut searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(0x00))
         .line_number(true)
-        .before_context(opts.before.or(opts.context).unwrap_or(2))
-        .after_context(opts.after.or(opts.context).unwrap_or(2))
+        .before_context(config.before.or(config.context).unwrap_or(2))
+        .after_context(config.after.or(config.context).unwrap_or(2))
         .build();
 
     // TODO: Confirm that template does not reference more capture groups than exist.
     let replacer = RegexReplacer {
         matcher: &matcher,
-        template: &opts.replace,
+        template: &config.replace,
     };
 
-    if opts.write && opts.prompt {
-        eprintln!("both --write and --prompt given, ignore --write.");
-    }
-
-    let replacement_decider = if opts.prompt {
+    let replacement_decider = if config.prompt {
         ReplacementDecider::with_prompt()
-    } else if opts.write {
+    } else if config.write {
         ReplacementDecider::constantly(ReplacementDecision::Accept)
     } else {
         ReplacementDecider::constantly(ReplacementDecision::Ignore)
@@ -575,11 +574,12 @@ fn main() {
 
     let mut proc = SearchMatchProcessor::new(&replacer, replacement_decider);
 
-    let paths = if opts.paths.is_empty() {
+    let paths = if config.paths.is_empty() {
         if !atty::is(Stream::Stdin) {
-            if opts.prompt {
-                panic!("Cannot use --prompt when reading files from stdin!");
-            }
+            ensure!(
+                config.prompt == false,
+                "cannot use --prompt when reading files from stdin"
+            );
             let mut paths = vec![];
             for line in std::io::stdin().lock().lines() {
                 paths.push(Path::new(&line.unwrap()).to_owned());
@@ -589,17 +589,16 @@ fn main() {
             vec![Path::new(".").to_owned()]
         }
     } else {
-        opts.paths
+        config.paths
     };
 
-    // TODO: Add path exclusions
     let mut file_walker = WalkBuilder::new(paths[0].clone());
     for path in &paths[1..] {
         file_walker.add(path);
     }
 
-    let should_ignore = !opts.all_files;
-    let should_show_hidden = opts.hidden || opts.all_files;
+    let should_ignore = !config.all_files;
+    let should_show_hidden = config.hidden || config.all_files;
     file_walker
         .hidden(!should_show_hidden)
         .ignore(should_ignore)
@@ -607,24 +606,27 @@ fn main() {
         .git_exclude(should_ignore)
         .parents(should_ignore);
 
-    let included_paths = opts.include.map(|included_paths| {
+    let included_paths = config.include.map(|included_paths| {
         let escaped = included_paths.iter().map(|p| regex::escape(p));
         regex::RegexSet::new(escaped).unwrap()
     });
+
     let excluded_paths = {
-        let escaped = opts.exclude.iter().map(|p| regex::escape(p));
-        regex::RegexSet::new(escaped).unwrap()
+        let escaped = config.exclude.iter().map(|p| regex::escape(p));
+        regex::RegexSet::new(escaped)?
     };
 
     // TODO: There exists a parallel file walker
     for dir_entry in file_walker.build() {
-        let dir_entry = dir_entry.unwrap();
+        let dir_entry = dir_entry?;
         let path = dir_entry.path();
         if !path.is_file() {
             continue;
         }
 
-        let path_str = path.to_str().expect("invalid file name");
+        let path_str = path.to_str().with_context(|| {
+            format!("Failed to interpret path name as UTF-8 string: {:?}", path)
+        })?;
 
         if let Some(ref included_paths) = included_paths {
             if !included_paths.is_match(path_str) {
@@ -637,17 +639,29 @@ fn main() {
 
         let mut sink = SearchMatchCollector::new();
 
-        searcher
-            .search_path(&matcher, dir_entry.path(), &mut sink)
-            .expect("search failed");
+        searcher.search_path(&matcher, dir_entry.path(), &mut sink)?;
 
         let matches = sink.collect();
-        proc.handle_path(path, matches).expect("handle path");
+        proc.handle_path(path, matches)?;
     }
 
-    if !opts.write {
+    if !config.write {
         println!("Use -w, --write to modify files in place.");
     }
 
     proc.finalize();
+
+    Ok(())
+}
+
+fn main() {
+    let exit_code = match run_find_and_replace() {
+        Err(e) => {
+            eprintln!("{:?}", e);
+            1
+        }
+        Ok(()) => 0,
+    };
+
+    std::process::exit(exit_code);
 }
