@@ -18,6 +18,18 @@ replace tool.
 Built on top of [ripgrep]'s path traversal and pattern matching, so
 even though performance isn't an explicit goal, it's fairly quick.
 
+``` console
+$ time fnr -ic rust 'rust!!' target/doc > /dev/null
+fnr -ic rust 'rust!!' target/doc > /dev/null  0.29s user 0.22s system 99% cpu 0.511 total
+
+$ time ag -i rust target/doc > /dev/null
+ag -i rust target/doc > /dev/null  3.12s user 0.27s system 108% cpu 3.134 total
+
+$ time find target/doc -type f | xargs -I{} sed -i '' 's/rust/rust!!/g' '{}'
+find target/doc -type f  0.01s user 0.04s system 0% cpu 13.846 total
+xargs -I{} sed -i '' 's/rust/rust!!/g' '{}'  6.40s user 11.41s system 93% cpu 19.044 total
+```
+
 **fnr is alpha quality.** Don't use `--write` in situations you
 wouldn't be able to revert.
 
