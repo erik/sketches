@@ -13,7 +13,7 @@ use grep::searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
 };
 use ignore::{WalkBuilder, WalkState};
-use regex;
+use regex::RegexSet;
 use structopt::StructOpt;
 use text_io::read;
 
@@ -217,10 +217,10 @@ impl MatchFormatter {
         let has_line_break = self
             .last_line_num
             .map(|last_line_num| {
-                if m.context_pre.len() > 0 {
+                if !m.context_pre.is_empty() {
                     m.context_pre[0].0 > last_line_num + 1
                 } else {
-                    m.context_pre.len() == 0 && m.line.0 > last_line_num + 1
+                    m.line.0 > last_line_num + 1
                 }
             })
             .unwrap_or(false);
@@ -293,13 +293,13 @@ struct SearchMatchCollector {
 
 impl SearchMatchCollector {
     fn new() -> SearchMatchCollector {
-        return SearchMatchCollector {
+        SearchMatchCollector {
             state: MatchState::Init,
             cur_match_line: None,
             cur_context_pre: Vec::new(),
             cur_context_post: Vec::new(),
             matches: Vec::new(),
-        };
+        }
     }
 
     fn maybe_emit(&mut self) {
@@ -307,15 +307,15 @@ impl SearchMatchCollector {
         std::mem::swap(&mut cur_match_line, &mut self.cur_match_line);
 
         if let Some(line) = cur_match_line {
-            let mut cur_ctx_pre = vec![];
-            let mut cur_ctx_post = vec![];
-            std::mem::swap(&mut cur_ctx_pre, &mut self.cur_context_pre);
-            std::mem::swap(&mut cur_ctx_post, &mut self.cur_context_post);
+            let mut context_pre = vec![];
+            let mut context_post = vec![];
+            std::mem::swap(&mut context_pre, &mut self.cur_context_pre);
+            std::mem::swap(&mut context_post, &mut self.cur_context_post);
 
             let search_match = SearchMatch {
-                line: line,
-                context_pre: cur_ctx_pre,
-                context_post: cur_ctx_post,
+                line,
+                context_pre,
+                context_post,
             };
 
             self.matches.push(search_match);
@@ -346,7 +346,7 @@ impl SearchMatchCollector {
         let mut matches = vec![];
         std::mem::swap(&mut self.matches, &mut matches);
 
-        return matches;
+        matches
     }
 }
 
@@ -362,7 +362,7 @@ impl Sink for SearchMatchCollector {
 
         // TODO: handle errors
         let line = Line(
-            mat.line_number().expect("grab line number"),
+            mat.line_number().unwrap(),
             String::from_utf8_lossy(mat.bytes()).to_string(),
         );
 
@@ -383,16 +383,16 @@ impl Sink for SearchMatchCollector {
             String::from_utf8_lossy(ctx.bytes()).to_string(),
         );
 
-        match ctx.kind() {
-            &SinkContextKind::Before => {
+        match *ctx.kind() {
+            SinkContextKind::Before => {
                 self.transition(MatchState::Before);
                 self.cur_context_pre.push(line);
             }
-            &SinkContextKind::After => {
+            SinkContextKind::After => {
                 self.transition(MatchState::After);
                 self.cur_context_post.push(line);
             }
-            &SinkContextKind::Other => {}
+            SinkContextKind::Other => {}
         }
 
         Ok(true)
@@ -437,7 +437,7 @@ struct SearchProcessor {
 }
 
 impl SearchProcessor {
-    fn search_path<'a>(&mut self, path: &'a Path) -> Result<Vec<SearchMatch>> {
+    fn search_path(&mut self, path: &'_ Path) -> Result<Vec<SearchMatch>> {
         let mut collector = SearchMatchCollector::new();
 
         self.searcher
@@ -463,14 +463,14 @@ impl MatchProcessor {
         replacement_decider: ReplacementDecider,
         match_formatter: MatchFormatter,
     ) -> MatchProcessor {
-        return MatchProcessor {
+        MatchProcessor {
             replacer,
             replacement_decider,
             match_formatter,
 
             total_matches: 0,
             total_replacements: 0,
-        };
+        }
     }
 
     fn consume_matches(&mut self, path: &Path, matches: &mut Vec<SearchMatch>) -> Result<()> {
@@ -500,7 +500,7 @@ impl MatchProcessor {
                 ReplacementDecision::Ignore => continue,
                 ReplacementDecision::Edit => {
                     let mut line = read_input("Replace with [^D to skip] ")?;
-                    if line == "" {
+                    if line.is_empty() {
                         println!("... skipped ...");
                         continue;
                     }
@@ -520,7 +520,7 @@ impl MatchProcessor {
         }
 
         if !replacement_list.is_empty() {
-            self.apply_replacements(path, &mut replacement_list)?;
+            self.apply_replacements(path, &replacement_list)?;
         }
 
         Ok(())
@@ -546,15 +546,15 @@ impl MatchProcessor {
             line_num += 1;
 
             if !replacements.is_empty() && replacements[0].search_match.line.0 == line_num {
-                writer.write(replacements[0].replacement.as_bytes())?;
+                writer.write_all(replacements[0].replacement.as_bytes())?;
                 replacements = &replacements[1..];
             } else {
-                writer.write(line.as_bytes())?;
+                writer.write_all(line.as_bytes())?;
             }
         }
 
         std::fs::rename(dst_path, path)?;
-        return Ok(());
+        Ok(())
     }
 
     fn finalize(&self) {
@@ -585,19 +585,19 @@ struct ReplacementDecider {
 
 impl ReplacementDecider {
     fn with_prompt() -> ReplacementDecider {
-        return ReplacementDecider {
+        ReplacementDecider {
             should_prompt: true,
             global_decision: None,
             local_decision: None,
-        };
+        }
     }
 
     fn constantly(decision: ReplacementDecision) -> ReplacementDecider {
-        return ReplacementDecider {
+        ReplacementDecider {
             should_prompt: false,
             global_decision: Some(decision),
             local_decision: None,
-        };
+        }
     }
 
     fn reset_local_decision(&mut self) {
@@ -615,7 +615,7 @@ impl ReplacementDecider {
             panic!("[bug] invalid state: no decision, but should not prompt");
         }
 
-        return self.prompt_for_decision();
+        self.prompt_for_decision()
     }
 
     fn prompt_for_decision(&mut self) -> ReplacementDecision {
@@ -639,7 +639,7 @@ impl ReplacementDecider {
                 }
                 "e" => ReplacementDecision::Edit,
 
-                "?" | _ => {
+                _ => {
                     println!(
                         "\x1B[31m
 Y - replace this line
@@ -727,7 +727,7 @@ impl FindAndReplacer {
             // there's input piped to the process.
             if !atty::is(Stream::Stdin) {
                 ensure!(
-                    config.prompt == false,
+                    !config.prompt,
                     "cannot use --prompt when reading files from stdin"
                 );
                 let mut paths = vec![];
@@ -758,24 +758,24 @@ impl FindAndReplacer {
 
         let included_paths = config.include.map(|included_paths| {
             let escaped = included_paths.iter().map(|p| regex::escape(p));
-            regex::RegexSet::new(escaped).unwrap()
+            RegexSet::new(escaped).unwrap()
         });
 
         let excluded_paths = {
             let escaped = config.exclude.iter().map(|p| regex::escape(p));
-            regex::RegexSet::new(escaped)?
+            RegexSet::new(escaped)?
         };
 
         let path_matcher = PathMatcher {
-            included_paths: included_paths,
-            excluded_paths: excluded_paths,
+            included_paths,
+            excluded_paths,
         };
 
         Ok(FindAndReplacer {
-            file_walker: file_walker,
-            path_matcher: path_matcher,
-            searcher_factory: searcher_factory,
-            match_processor: match_processor,
+            file_walker,
+            path_matcher,
+            searcher_factory,
+            match_processor,
         })
     }
 
@@ -828,8 +828,8 @@ impl FindAndReplacer {
 }
 
 struct PathMatcher {
-    included_paths: Option<regex::RegexSet>,
-    excluded_paths: regex::RegexSet,
+    included_paths: Option<RegexSet>,
+    excluded_paths: RegexSet,
 }
 
 impl PathMatcher {
@@ -847,7 +847,7 @@ impl PathMatcher {
         let is_excluded = self.excluded_paths.is_match(path_str);
 
         // Inclusion takes precedence.
-        return is_included || !is_excluded;
+        is_included || !is_excluded
     }
 }
 
@@ -856,7 +856,7 @@ fn run_find_and_replace() -> Result<()> {
     let config = Config::from_args();
     let mut find_and_replacer = FindAndReplacer::from_config(config)?;
 
-    return find_and_replacer.run();
+    find_and_replacer.run()
 }
 
 fn main() {
