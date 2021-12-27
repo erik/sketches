@@ -19,11 +19,17 @@ Built on top of [ripgrep]'s path traversal and pattern matching, so
 even though performance isn't an explicit goal, it's fairly quick.
 
 ``` console
-$ time fnr -ic rust 'rust!!' target/doc > /dev/null
-fnr -ic rust 'rust!!' target/doc > /dev/null  0.29s user 0.22s system 99% cpu 0.511 total
+$ fnr -i rust 'rust!!' target/doc -c > /dev/null
+fnr -i rust 'rust!!' target/doc -c > /dev/null  0.29s user 0.23s system 259% cpu 0.198 total
+
+$ time rg -i rust target/doc > /dev/null
+rg -i rust target/doc > /dev/null  0.16s user 0.44s system 919% cpu 0.066 total
+
+$ time grep -inRI -i rust target/doc > /dev/null
+grep -inRI rust target/doc > /dev/null  1.27s user 0.20s system 99% cpu 1.483 total
 
 $ time ag -i rust target/doc > /dev/null
-ag -i rust target/doc > /dev/null  3.12s user 0.27s system 108% cpu 3.134 total
+ag -i rust target/doc > /dev/null  3.18s user 0.28s system 107% cpu 3.207 total
 
 $ time find target/doc -type f | xargs -I{} sed -i '' 's/rust/rust!!/g' '{}'
 find target/doc -type f  0.01s user 0.04s system 0% cpu 13.846 total

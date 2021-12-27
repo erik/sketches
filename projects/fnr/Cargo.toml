@@ -10,6 +10,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 anyhow = "1.0.51"
 atty = "0.2.14"
+crossbeam = "0.8.1"
 grep = "0.2.8"
 ignore = "0.4"
 regex = "1.5.4"

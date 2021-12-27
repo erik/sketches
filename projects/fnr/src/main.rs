@@ -2,15 +2,17 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::channel;
 
 use anyhow::{ensure, Context, Result};
 use atty::Stream;
+use crossbeam::thread;
 use grep::matcher::{Captures, Matcher};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkContextKind, SinkMatch,
 };
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use regex;
 use structopt::StructOpt;
 use text_io::read;
@@ -428,6 +430,7 @@ struct MatchReplacement<'a> {
     replacement: Cow<'a, str>,
 }
 
+#[derive(Clone)]
 struct SearchProcessor {
     searcher: Searcher,
     matcher: RegexMatcher,
@@ -657,10 +660,10 @@ e - edit this replacement
 
 struct FindAndReplacer {
     file_walker: WalkBuilder,
-    included_paths: Option<regex::RegexSet>,
-    excluded_paths: regex::RegexSet,
+    path_matcher: PathMatcher,
     match_processor: MatchProcessor,
-    search_processor: SearchProcessor,
+    // search_processor: SearchProcessor,
+    searcher_factory: Box<dyn Fn() -> SearchProcessor + Sync>,
 }
 
 const DEFAULT_BEFORE_CONTEXT_LINES: usize = 2;
@@ -674,12 +677,14 @@ impl FindAndReplacer {
             config.find.to_owned()
         };
 
-        let mut matcher_builder = RegexMatcherBuilder::new();
-        matcher_builder
+        let pattern_matcher = RegexMatcherBuilder::new()
             .case_insensitive(!config.case_sensitive && config.ignore_case)
-            .case_smart(!config.case_sensitive && config.smart_case.unwrap_or(true));
+            .case_smart(!config.case_sensitive && config.smart_case.unwrap_or(true))
+            .build(&pattern)
+            .with_context(|| format!("Failed to parse pattern '{}'", pattern))?;
 
-        let searcher = SearcherBuilder::new()
+        let mut searcher_builder = SearcherBuilder::new();
+        searcher_builder
             .binary_detection(BinaryDetection::quit(0x00))
             .line_number(true)
             .before_context(
@@ -693,12 +698,7 @@ impl FindAndReplacer {
                     .after
                     .or(config.context)
                     .unwrap_or(DEFAULT_AFTER_CONTEXT_LINES),
-            )
-            .build();
-
-        let pattern_matcher = matcher_builder
-            .build(&pattern)
-            .with_context(|| format!("Failed to parse pattern '{}'", pattern))?;
+            );
 
         // TODO: Confirm that template does not reference more capture groups than exist.
         let replacer = RegexReplacer {
@@ -716,10 +716,11 @@ impl FindAndReplacer {
 
         let match_formatter = MatchFormatter::from_config(&config);
         let match_processor = MatchProcessor::new(replacer, replacement_decider, match_formatter);
-        let search_processor = SearchProcessor {
-            matcher: pattern_matcher,
-            searcher: searcher,
-        };
+
+        let searcher_factory = Box::new(move || SearchProcessor {
+            matcher: pattern_matcher.clone(),
+            searcher: searcher_builder.build(),
+        });
 
         let paths = if config.paths.is_empty() {
             // Read paths from standard in if none are specified and
@@ -765,44 +766,88 @@ impl FindAndReplacer {
             regex::RegexSet::new(escaped)?
         };
 
-        Ok(FindAndReplacer {
-            file_walker: file_walker,
+        let path_matcher = PathMatcher {
             included_paths: included_paths,
             excluded_paths: excluded_paths,
-            search_processor: search_processor,
+        };
+
+        Ok(FindAndReplacer {
+            file_walker: file_walker,
+            path_matcher: path_matcher,
+            searcher_factory: searcher_factory,
             match_processor: match_processor,
         })
     }
 
     fn run(&mut self) -> Result<()> {
-        // TODO: There exists a parallel file walker
-        let file_walker = self.file_walker.build();
-        for dir_entry in file_walker {
-            let dir_entry = dir_entry?;
-            let path = dir_entry.path();
-            if !path.is_file() {
-                continue;
+        thread::scope(|scope| {
+            let (tx, rx) = channel();
+            let path_matcher = &self.path_matcher;
+            let searcher_factory = &self.searcher_factory;
+            let file_walker = self.file_walker.build_parallel();
+
+            scope.spawn(move |_| {
+                file_walker.run(|| {
+                    let tx = tx.clone();
+
+                    Box::new(move |dir_entry| {
+                        let dir_entry = dir_entry.unwrap();
+                        if !dir_entry.file_type().unwrap().is_file() {
+                            return WalkState::Continue;
+                        }
+
+                        let path = dir_entry.path();
+                        if !path_matcher.is_match(path) {
+                            return WalkState::Continue;
+                        }
+
+                        let mut searcher = (searcher_factory)();
+                        let matches = searcher.search_path(path).unwrap();
+                        tx.send((path.to_owned(), matches)).unwrap();
+
+                        WalkState::Continue
+                    })
+                });
+
+                // Close the channel
+                drop(tx);
+            });
+
+            for (path, mut matches) in rx.iter() {
+                self.match_processor
+                    .consume_matches(&path, &mut matches)
+                    .unwrap();
             }
 
-            let path_str = path.to_str().with_context(|| {
-                format!("Failed to interpret path name as UTF-8 string: {:?}", path)
-            })?;
+            self.match_processor.finalize();
+        })
+        .unwrap();
 
-            if let Some(ref included_paths) = self.included_paths {
-                if !included_paths.is_match(path_str) {
-                    continue;
-                }
-            }
-            if self.excluded_paths.is_match(path_str) {
-                continue;
-            }
-
-            let mut matches = self.search_processor.search_path(path)?;
-            self.match_processor.consume_matches(path, &mut matches)?;
-        }
-
-        self.match_processor.finalize();
         Ok(())
+    }
+}
+
+struct PathMatcher {
+    included_paths: Option<regex::RegexSet>,
+    excluded_paths: regex::RegexSet,
+}
+
+impl PathMatcher {
+    fn is_match(&self, path: &Path) -> bool {
+        let path_str = path
+            .to_str()
+            .with_context(|| format!("Failed to interpret path name as UTF-8 string: {:?}", path))
+            .unwrap();
+
+        let is_included = self
+            .included_paths
+            .as_ref()
+            .map(|included| included.is_match(path_str))
+            .unwrap_or(true);
+        let is_excluded = self.excluded_paths.is_match(path_str);
+
+        // Inclusion takes precedence.
+        return is_included || !is_excluded;
     }
 }
 
