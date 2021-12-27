@@ -20,10 +20,6 @@ use text_io::read;
 /// Recursively find and replace. Like sed, but memorable.
 // TODO: Potential features:
 //
-// /// Disable printing matches
-// #[structopt(short, long)]
-// quiet: bool,
-//
 // /// Search files with the given file extensions.
 // #[structopt(short = "T", long, multiple = true, conflicts_with = "include")]
 // file_type: Option<String>,
@@ -53,6 +49,10 @@ struct Config {
         takes_value = false
     )]
     smart_case: Option<bool>,
+
+    /// Disable printing matches
+    #[structopt(short, long, conflicts_with = "prompt")]
+    quiet: bool,
 
     /// Modify files in place.
     #[structopt(short = "W", long, conflicts_with = "prompt")]
@@ -124,7 +124,14 @@ struct Config {
 #[derive(Debug, Clone)]
 struct Line(u64, String);
 
+enum MatchPrintMode {
+    Silent,
+    Full,
+    // TODO: Compact,
+}
+
 struct MatchFormatter {
+    print_mode: MatchPrintMode,
     writes_enabled: bool,
     last_line_num: Option<u64>,
 }
@@ -132,12 +139,25 @@ struct MatchFormatter {
 impl MatchFormatter {
     fn from_config(cfg: &Config) -> MatchFormatter {
         MatchFormatter {
+            print_mode: if cfg.quiet {
+                MatchPrintMode::Silent
+            } else {
+                MatchPrintMode::Full
+            },
             writes_enabled: cfg.write || cfg.prompt,
             last_line_num: None,
         }
     }
 
     fn display_header(&mut self, path: &Path, num_matches: usize) {
+        match self.print_mode {
+            MatchPrintMode::Silent => {}
+            MatchPrintMode::Full => self.display_header_full(path, num_matches),
+        }
+    }
+
+    #[inline]
+    fn display_header_full(&mut self, path: &Path, num_matches: usize) {
         println!(
             "\x1B[4m{}\x1B[0m {} match{}",
             path.display(),
@@ -148,7 +168,15 @@ impl MatchFormatter {
         self.last_line_num = None;
     }
 
-    fn display_match(&mut self, _: &Path, m: &SearchMatch, replacement: &str) {
+    fn display_match(&mut self, _path: &Path, search_match: &SearchMatch, replacement: &str) {
+        match self.print_mode {
+            MatchPrintMode::Silent => {}
+            MatchPrintMode::Full => self.display_match_full(search_match, replacement),
+        }
+    }
+
+    #[inline]
+    fn display_match_full(&mut self, m: &SearchMatch, replacement: &str) {
         let has_line_break = self
             .last_line_num
             .map(|last_line_num| {
@@ -180,6 +208,14 @@ impl MatchFormatter {
     }
 
     fn display_footer(&self) {
+        match self.print_mode {
+            MatchPrintMode::Silent => {}
+            MatchPrintMode::Full => self.display_footer_full(),
+        }
+    }
+
+    #[inline]
+    fn display_footer_full(&self) {
         if !self.writes_enabled {
             println!("Use -w, --write to modify files in place.");
         }
