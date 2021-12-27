@@ -71,11 +71,11 @@ struct Config {
     literal: bool,
 
     /// Search ALL files in given paths for matches.
-    #[structopt(short, long)]
+    #[structopt(short, long, conflicts_with = "hidden")]
     all_files: bool,
 
     /// Find replacements in hidden files and directories.
-    #[structopt(short = "H", long)]
+    #[structopt(short = "H", long, conflicts_with = "all_files")]
     hidden: bool,
 
     /// Confirm each modification before making it. Implies --write.
@@ -301,25 +301,24 @@ impl SearchMatchCollector {
     }
 
     fn maybe_emit(&mut self) {
-        // TODO: is .to_owned() wasteful? implicit .clone()?
-        if let Some(line) = self.cur_match_line.to_owned() {
-            let m = SearchMatch {
+        let mut cur_match_line = None;
+        std::mem::swap(&mut cur_match_line, &mut self.cur_match_line);
+
+        if let Some(line) = cur_match_line {
+            let mut cur_ctx_pre = vec![];
+            let mut cur_ctx_post = vec![];
+            std::mem::swap(&mut cur_ctx_pre, &mut self.cur_context_pre);
+            std::mem::swap(&mut cur_ctx_post, &mut self.cur_context_post);
+
+            let search_match = SearchMatch {
                 line: line,
-                context_pre: self.cur_context_pre.to_owned(),
-                context_post: self.cur_context_post.to_owned(),
+                context_pre: cur_ctx_pre,
+                context_post: cur_ctx_post,
             };
 
-            self.matches.push(m);
-            self.reset();
+            self.matches.push(search_match);
+            self.state = MatchState::Init;
         }
-    }
-
-    fn reset(&mut self) {
-        self.state = MatchState::Init;
-
-        self.cur_match_line = None;
-        self.cur_context_pre.clear();
-        self.cur_context_post.clear();
     }
 
     #[inline]
@@ -346,12 +345,6 @@ impl SearchMatchCollector {
         std::mem::swap(&mut self.matches, &mut matches);
 
         return matches;
-    }
-}
-
-impl Drop for SearchMatchCollector {
-    fn drop(&mut self) {
-        self.maybe_emit();
     }
 }
 
