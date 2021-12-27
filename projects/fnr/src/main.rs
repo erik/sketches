@@ -123,35 +123,83 @@ struct Config {
 #[derive(Debug, Clone)]
 struct Line(u64, String);
 
+struct MatchFormatter {
+    writes_enabled: bool,
+    last_line_num: Option<u64>,
+}
+
+impl MatchFormatter {
+    fn from_config(cfg: &Config) -> MatchFormatter {
+        MatchFormatter {
+            writes_enabled: cfg.write || cfg.prompt,
+            last_line_num: None,
+        }
+    }
+
+    fn display_header(&mut self, path: &Path, num_matches: usize) {
+        println!(
+            "\x1B[4m{}\x1B[0m {} match{}",
+            path.display(),
+            num_matches,
+            if num_matches == 1 { "" } else { "es" }
+        );
+
+        self.last_line_num = None;
+    }
+
+    fn display_match(&mut self, _: &Path, m: &SearchMatch, replacement: &str) {
+        let has_line_break = self
+            .last_line_num
+            .map(|last_line_num| {
+                if m.context_pre.len() > 0 {
+                    m.context_pre[0].0 > last_line_num + 1
+                } else {
+                    m.context_pre.len() == 0 && m.line.0 > last_line_num + 1
+                }
+            })
+            .unwrap_or(false);
+
+        if has_line_break {
+            println!("  ---");
+        }
+
+        for line in &m.context_pre {
+            print!(" {:4} {}", line.0, line.1);
+        }
+
+        // TODO: Highlight matching part of line
+        // TODO: Disable colors when not atty
+        print!("\x1B[31m-{:4} {}\x1B[0m", m.line.0, m.line.1);
+        print!("\x1B[32m+{:4} {}\x1B[0m", m.line.0, replacement);
+
+        for line in &m.context_post {
+            print!(" {:4} {}", line.0, line.1);
+            self.last_line_num = Some(line.0);
+        }
+    }
+
+    fn display_footer(&self) {
+        if !self.writes_enabled {
+            println!("Use -w, --write to modify files in place.");
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SearchMatch {
     line: Line,
     context_pre: Vec<Line>,
     context_post: Vec<Line>,
+    // replacement: Option<String>,
 }
 
 impl SearchMatch {
-    fn as_change(&self, line: String) -> Change {
+    // fn with_replacement(&mut self, line: std::borrow::Cow<'a, str>)
+    fn as_change<'a>(&self, line: std::borrow::Cow<'a, str>) -> Change<'a> {
         return Change {
             line_number: self.line.0,
             new_line: line,
         };
-    }
-
-    fn display_change(&self, replacement_line: &str) {
-        for line in &self.context_pre {
-            print!("    {}: {}", line.0, line.1);
-        }
-
-        // TODO: Multiple matches on same line
-        // TODO: Disable colors when not atty
-        // TODO: Align line number with padding.
-        print!("\x1B[31m-   {}: {}\x1B[0m", self.line.0, self.line.1);
-        print!("\x1B[32m+   {}: {}\x1B[0m", self.line.0, replacement_line);
-
-        for line in &self.context_post {
-            print!("    {}: {}", line.0, line.1);
-        }
     }
 }
 
@@ -316,10 +364,9 @@ impl RegexReplacer {
 }
 
 #[derive(Debug)]
-struct Change {
+struct Change<'a> {
     line_number: u64,
-    // TODO: use slice here
-    new_line: String,
+    new_line: std::borrow::Cow<'a, str>,
 }
 
 struct SearchProcessor {
@@ -342,16 +389,22 @@ impl SearchProcessor {
 struct MatchProcessor {
     replacer: RegexReplacer,
     replacement_decider: ReplacementDecider,
+    match_formatter: MatchFormatter,
 
     total_matches: usize,
     total_replacements: usize,
 }
 
 impl MatchProcessor {
-    fn new(replacer: RegexReplacer, replacement_decider: ReplacementDecider) -> MatchProcessor {
+    fn new(
+        replacer: RegexReplacer,
+        replacement_decider: ReplacementDecider,
+        match_formatter: MatchFormatter,
+    ) -> MatchProcessor {
         return MatchProcessor {
             replacer,
             replacement_decider,
+            match_formatter,
 
             total_matches: 0,
             total_replacements: 0,
@@ -362,12 +415,8 @@ impl MatchProcessor {
         if matches.is_empty() {
             return Ok(());
         }
-        println!(
-            "--- {}: {} matching line{}",
-            path.display(),
-            matches.len(),
-            if matches.len() == 1 { "" } else { "s" }
-        );
+
+        self.match_formatter.display_header(path, matches.len());
         self.total_matches += matches.len();
         self.replacement_decider.reset_local_decision();
 
@@ -380,9 +429,9 @@ impl MatchProcessor {
                 continue;
             };
 
-            let decision = self.replacement_decider.decide(m, &replacement);
-            let change = match decision {
-                ReplacementDecision::Accept => m.as_change(replacement),
+            self.match_formatter.display_match(path, m, &replacement);
+            let change = match self.replacement_decider.decide() {
+                ReplacementDecision::Accept => m.as_change(std::borrow::Cow::Owned(replacement)),
                 ReplacementDecision::Ignore => continue,
                 ReplacementDecision::Edit => {
                     let mut line = read_input("Replace with [^D to skip] ")?;
@@ -392,9 +441,9 @@ impl MatchProcessor {
                     }
 
                     line.push('\n');
-                    m.display_change(&line);
+                    self.match_formatter.display_match(path, m, &line);
                     println!("--");
-                    m.as_change(line)
+                    m.as_change(std::borrow::Cow::Owned(line))
                 }
             };
 
@@ -409,13 +458,7 @@ impl MatchProcessor {
         Ok(())
     }
 
-    fn apply_changes(&self, path: &Path, mut changes: &[Change]) -> Result<()> {
-        /*println!(
-            "{}: {} change{}",
-            path.display(),
-            changes.len(),
-            if changes.len() != 1 { "s" } else { "" }
-        );*/
+    fn apply_changes(&self, path: &Path, mut changes: &[Change<'_>]) -> Result<()> {
         let dst_path = path.with_extension("~");
         let src = File::open(path)?;
         let dst = File::create(&dst_path)?;
@@ -451,6 +494,8 @@ impl MatchProcessor {
             "All done. Replaced {} of {} matches",
             self.total_replacements, self.total_matches
         );
+
+        self.match_formatter.display_footer();
     }
 }
 
@@ -495,14 +540,11 @@ impl ReplacementDecider {
         self.local_decision = None;
     }
 
-    fn decide(&mut self, match_: &SearchMatch, replacement: &str) -> ReplacementDecision {
-        // TODO: Should we display this always?
-        match_.display_change(replacement);
-
-        if let Some(decision) = self.global_decision {
-            return decision;
-        } else if let Some(decision) = self.local_decision {
-            return decision;
+    fn decide(&mut self) -> ReplacementDecision {
+        if let Some(global_decision) = self.global_decision {
+            return global_decision;
+        } else if let Some(local_decision) = self.local_decision {
+            return local_decision;
         }
 
         if !self.should_prompt {
@@ -568,7 +610,7 @@ impl FindAndReplacer {
         let pattern = if config.literal {
             regex::escape(&config.find)
         } else {
-            config.find
+            config.find.to_owned()
         };
 
         let mut matcher_builder = RegexMatcherBuilder::new();
@@ -600,7 +642,7 @@ impl FindAndReplacer {
         // TODO: Confirm that template does not reference more capture groups than exist.
         let replacer = RegexReplacer {
             matcher: pattern_matcher.clone(),
-            template: config.replace,
+            template: config.replace.to_owned(),
         };
 
         let replacement_decider = if config.prompt {
@@ -611,7 +653,8 @@ impl FindAndReplacer {
             ReplacementDecider::constantly(ReplacementDecision::Ignore)
         };
 
-        let match_processor = MatchProcessor::new(replacer, replacement_decider);
+        let match_formatter = MatchFormatter::from_config(&config);
+        let match_processor = MatchProcessor::new(replacer, replacement_decider, match_formatter);
         let search_processor = SearchProcessor {
             matcher: pattern_matcher,
             searcher: searcher,
@@ -696,10 +739,6 @@ impl FindAndReplacer {
             let matches = self.search_processor.search_path(path)?;
             self.match_processor.handle_path(path, &matches)?;
         }
-
-        // if !self.config.write {
-        //     println!("Use -w, --write to modify files in place.");
-        // }
 
         self.match_processor.finalize();
         Ok(())
