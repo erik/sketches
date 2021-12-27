@@ -186,12 +186,12 @@ impl SearchMatchCollector {
     }
 
     fn maybe_emit(&mut self) {
-        if let Some(line) = &self.cur_match_line {
-            // TODO: clones are wasteful here.
+        // TODO: is .to_owned() wasteful? implicit .clone()?
+        if let Some(line) = self.cur_match_line.to_owned() {
             let m = SearchMatch {
-                line: line.clone(),
-                context_pre: self.cur_context_pre.clone(),
-                context_post: self.cur_context_post.clone(),
+                line: line,
+                context_pre: self.cur_context_pre.to_owned(),
+                context_post: self.cur_context_post.to_owned(),
             };
 
             self.matches.push(m);
@@ -637,7 +637,7 @@ impl FindAndReplacer {
             config.paths
         };
 
-        let mut file_walker = WalkBuilder::new(paths[0].clone());
+        let mut file_walker = WalkBuilder::new(&paths[0]);
         for path in &paths[1..] {
             file_walker.add(path);
         }
