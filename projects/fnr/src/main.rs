@@ -662,7 +662,6 @@ struct FindAndReplacer {
     file_walker: WalkBuilder,
     path_matcher: PathMatcher,
     match_processor: MatchProcessor,
-    // search_processor: SearchProcessor,
     searcher_factory: Box<dyn Fn() -> SearchProcessor + Sync>,
 }
 
@@ -760,7 +759,6 @@ impl FindAndReplacer {
             let escaped = included_paths.iter().map(|p| regex::escape(p));
             RegexSet::new(escaped).unwrap()
         });
-
         let excluded_paths = {
             let escaped = config.exclude.iter().map(|p| regex::escape(p));
             RegexSet::new(escaped)?
@@ -780,13 +778,12 @@ impl FindAndReplacer {
     }
 
     fn run(&mut self) -> Result<()> {
-        thread::scope(|scope| {
+        thread::scope(|thread_scope| {
             let (tx, rx) = channel();
-            let path_matcher = &self.path_matcher;
-            let searcher_factory = &self.searcher_factory;
             let file_walker = self.file_walker.build_parallel();
-
-            scope.spawn(move |_| {
+            let searcher_factory = &self.searcher_factory;
+            let path_matcher = &self.path_matcher;
+            thread_scope.spawn(move |_| {
                 file_walker.run(|| {
                     let tx = tx.clone();
 
@@ -818,10 +815,10 @@ impl FindAndReplacer {
                     .consume_matches(&path, &mut matches)
                     .unwrap();
             }
-
-            self.match_processor.finalize();
         })
         .unwrap();
+
+        self.match_processor.finalize();
 
         Ok(())
     }
@@ -839,15 +836,13 @@ impl PathMatcher {
             .with_context(|| format!("Failed to interpret path name as UTF-8 string: {:?}", path))
             .unwrap();
 
-        let is_included = self
-            .included_paths
-            .as_ref()
-            .map(|included| included.is_match(path_str))
-            .unwrap_or(true);
-        let is_excluded = self.excluded_paths.is_match(path_str);
+        if let Some(included_paths) = &self.included_paths {
+            return included_paths.is_match(path_str);
+        }
 
-        // Inclusion takes precedence.
-        is_included || !is_excluded
+        eprintln!("matching {} against {:?}", path_str, self.excluded_paths);
+
+        !self.excluded_paths.is_match(path_str)
     }
 }
 
@@ -869,4 +864,73 @@ fn main() {
     };
 
     std::process::exit(exit_code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    mod path_matcher {
+        use super::*;
+
+        fn as_regex_set(v: Vec<&str>) -> RegexSet {
+            let escaped = v.iter().map(|r| regex::escape(r));
+            RegexSet::new(escaped).unwrap()
+        }
+
+        #[test]
+        fn test_empty_included_set() {
+            let disallow_list: Vec<&str> = vec![];
+
+            let matcher = PathMatcher {
+                included_paths: None,
+                excluded_paths: as_regex_set(disallow_list),
+            };
+
+            assert_eq!(matcher.is_match(&Path::new("foo")), true);
+        }
+
+        #[test]
+        fn test_included_set() {
+            let allow_list: Vec<&str> = vec!["foo", "bar"];
+            let disallow_list: Vec<&str> = vec![];
+
+            let matcher = PathMatcher {
+                included_paths: Some(as_regex_set(allow_list)),
+                excluded_paths: as_regex_set(disallow_list),
+            };
+
+            assert_eq!(matcher.is_match(&Path::new("foo.rs")), true);
+            assert_eq!(matcher.is_match(&Path::new("bar.rs")), true);
+            assert_eq!(matcher.is_match(&Path::new("baz.rs")), false);
+        }
+
+        #[test]
+        fn test_excluded_set() {
+            let disallow_list = vec!["foo", "bar"];
+            let matcher = PathMatcher {
+                included_paths: None,
+                excluded_paths: as_regex_set(disallow_list),
+            };
+
+            assert_eq!(matcher.is_match(&Path::new("foo.rs")), false);
+            assert_eq!(matcher.is_match(&Path::new("bar.rs")), false);
+            assert_eq!(matcher.is_match(&Path::new("baz.rs")), true);
+        }
+
+        // Inclusion should take precedence
+        #[test]
+        fn test_included_and_excluded_set() {
+            let allow_list = vec!["foo", "bar"];
+            let disallow_list = vec!["foo", "bar"];
+
+            let matcher = PathMatcher {
+                included_paths: Some(as_regex_set(allow_list)),
+                excluded_paths: as_regex_set(disallow_list),
+            };
+
+            assert_eq!(matcher.is_match(&Path::new("foo.rs")), true);
+            assert_eq!(matcher.is_match(&Path::new("bar.rs")), true);
+            assert_eq!(matcher.is_match(&Path::new("baz.rs")), false);
+        }
+    }
 }

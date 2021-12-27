@@ -258,3 +258,74 @@ fn test_simple_replace_include_all() {
         modified_content
     );
 }
+
+#[test]
+fn test_simple_replace_include_allowlist() {
+    let orig_content = "original";
+    let test_dir = create_test_files(&[
+        ("a", orig_content),
+        ("b", orig_content),
+        ("c", orig_content),
+    ]);
+
+    Command::cargo_bin("fnr")
+        .unwrap()
+        .args(&[
+            "original",
+            "replaced",
+            "--include=/a",
+            "--include=/b",
+            "--write",
+            test_dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        read_to_string(test_dir.path().join("a")).unwrap(),
+        "replaced"
+    );
+    assert_eq!(
+        read_to_string(test_dir.path().join("b")).unwrap(),
+        "replaced"
+    );
+    assert_eq!(
+        read_to_string(test_dir.path().join("c")).unwrap(),
+        "original"
+    );
+}
+
+#[test]
+fn test_simple_replace_exclude_disallowlist() {
+    let orig_content = "original";
+    let test_dir = create_test_files(&[
+        ("a", orig_content),
+        ("b", orig_content),
+        ("c", orig_content),
+    ]);
+
+    Command::cargo_bin("fnr")
+        .unwrap()
+        .args(&[
+            "original",
+            "replaced",
+            "--exclude=/a",
+            "--exclude=/b",
+            "--write",
+            test_dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        read_to_string(test_dir.path().join("a")).unwrap(),
+        "original"
+    );
+    assert_eq!(
+        read_to_string(test_dir.path().join("b")).unwrap(),
+        "original"
+    );
+    assert_eq!(
+        read_to_string(test_dir.path().join("c")).unwrap(),
+        "replaced"
+    );
+}
