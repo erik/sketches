@@ -54,6 +54,10 @@ struct Config {
     #[structopt(short, long, conflicts_with = "prompt")]
     quiet: bool,
 
+    /// Display compacted output format
+    #[structopt(short, long, conflicts_with = "prompt, quiet")]
+    compact: bool,
+
     /// Modify files in place.
     #[structopt(short = "W", long, conflicts_with = "prompt")]
     write: bool,
@@ -126,8 +130,8 @@ struct Line(u64, String);
 
 enum MatchPrintMode {
     Silent,
+    Compact,
     Full,
-    // TODO: Compact,
 }
 
 struct MatchFormatter {
@@ -141,6 +145,8 @@ impl MatchFormatter {
         MatchFormatter {
             print_mode: if cfg.quiet {
                 MatchPrintMode::Silent
+            } else if cfg.compact {
+                MatchPrintMode::Compact
             } else {
                 MatchPrintMode::Full
             },
@@ -152,6 +158,7 @@ impl MatchFormatter {
     fn display_header(&mut self, path: &Path, num_matches: usize) {
         match self.print_mode {
             MatchPrintMode::Silent => {}
+            MatchPrintMode::Compact => {}
             MatchPrintMode::Full => self.display_header_full(path, num_matches),
         }
     }
@@ -168,10 +175,38 @@ impl MatchFormatter {
         self.last_line_num = None;
     }
 
-    fn display_match(&mut self, _path: &Path, search_match: &SearchMatch, replacement: &str) {
+    fn display_match(&mut self, path: &Path, search_match: &SearchMatch, replacement: &str) {
         match self.print_mode {
             MatchPrintMode::Silent => {}
+            MatchPrintMode::Compact => self.display_match_compact(path, search_match, replacement),
             MatchPrintMode::Full => self.display_match_full(search_match, replacement),
+        }
+    }
+
+    #[inline]
+    fn display_match_compact(
+        &mut self,
+        path: &Path,
+        search_match: &SearchMatch,
+        replacement: &str,
+    ) {
+        let path = path.display();
+
+        for line in &search_match.context_pre {
+            print!("{}:{}:{}", path, line.0, line.1);
+        }
+
+        print!(
+            "\x1B[31m{}:{}-{}\x1B[0m",
+            path, search_match.line.0, search_match.line.1
+        );
+        print!(
+            "\x1B[32m{}:{}+{}\x1B[0m",
+            path, search_match.line.0, replacement
+        );
+
+        for line in &search_match.context_post {
+            print!("{}:{}:{}", path, line.0, line.1);
         }
     }
 
@@ -207,15 +242,21 @@ impl MatchFormatter {
         }
     }
 
-    fn display_footer(&self) {
+    fn display_footer(&self, total_replacements: usize, total_matches: usize) {
         match self.print_mode {
             MatchPrintMode::Silent => {}
-            MatchPrintMode::Full => self.display_footer_full(),
+            MatchPrintMode::Compact => {}
+            MatchPrintMode::Full => self.display_footer_full(total_replacements, total_matches),
         }
     }
 
     #[inline]
-    fn display_footer_full(&self) {
+    fn display_footer_full(&self, total_replacements: usize, total_matches: usize) {
+        println!(
+            "All done. Replaced {} of {} matches",
+            total_replacements, total_matches
+        );
+
         if !self.writes_enabled {
             println!("Use -w, --write to modify files in place.");
         }
@@ -521,12 +562,8 @@ impl MatchProcessor {
     }
 
     fn finalize(&self) {
-        println!(
-            "All done. Replaced {} of {} matches",
-            self.total_replacements, self.total_matches
-        );
-
-        self.match_formatter.display_footer();
+        self.match_formatter
+            .display_footer(self.total_replacements, self.total_matches);
     }
 }
 
