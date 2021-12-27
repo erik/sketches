@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -190,17 +191,6 @@ struct SearchMatch {
     line: Line,
     context_pre: Vec<Line>,
     context_post: Vec<Line>,
-    // replacement: Option<String>,
-}
-
-impl SearchMatch {
-    // fn with_replacement(&mut self, line: std::borrow::Cow<'a, str>)
-    fn as_change<'a>(&self, line: std::borrow::Cow<'a, str>) -> Change<'a> {
-        return Change {
-            line_number: self.line.0,
-            new_line: line,
-        };
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -363,10 +353,9 @@ impl RegexReplacer {
     }
 }
 
-#[derive(Debug)]
-struct Change<'a> {
-    line_number: u64,
-    new_line: std::borrow::Cow<'a, str>,
+struct MatchReplacement<'a> {
+    search_match: SearchMatch,
+    replacement: Cow<'a, str>,
 }
 
 struct SearchProcessor {
@@ -411,7 +400,7 @@ impl MatchProcessor {
         };
     }
 
-    fn handle_path(&mut self, path: &Path, matches: &Vec<SearchMatch>) -> Result<()> {
+    fn consume_matches(&mut self, path: &Path, matches: &mut Vec<SearchMatch>) -> Result<()> {
         if matches.is_empty() {
             return Ok(());
         }
@@ -420,8 +409,8 @@ impl MatchProcessor {
         self.total_matches += matches.len();
         self.replacement_decider.reset_local_decision();
 
-        let mut change_list = vec![];
-        for m in matches {
+        let mut replacement_list = vec![];
+        for m in matches.drain(0..) {
             let replacement = if let Some(r) = self.replacer.replace(&m.line.1) {
                 r
             } else {
@@ -429,9 +418,12 @@ impl MatchProcessor {
                 continue;
             };
 
-            self.match_formatter.display_match(path, m, &replacement);
-            let change = match self.replacement_decider.decide() {
-                ReplacementDecision::Accept => m.as_change(std::borrow::Cow::Owned(replacement)),
+            self.match_formatter.display_match(path, &m, &replacement);
+            let match_replacement = match self.replacement_decider.decide() {
+                ReplacementDecision::Accept => MatchReplacement {
+                    search_match: m,
+                    replacement: replacement.into(),
+                },
                 ReplacementDecision::Ignore => continue,
                 ReplacementDecision::Edit => {
                     let mut line = read_input("Replace with [^D to skip] ")?;
@@ -441,24 +433,27 @@ impl MatchProcessor {
                     }
 
                     line.push('\n');
-                    self.match_formatter.display_match(path, m, &line);
+                    self.match_formatter.display_match(path, &m, &line);
                     println!("--");
-                    m.as_change(std::borrow::Cow::Owned(line))
+                    MatchReplacement {
+                        search_match: m,
+                        replacement: line.into(),
+                    }
                 }
             };
 
-            change_list.push(change);
+            replacement_list.push(match_replacement);
             self.total_replacements += 1;
         }
 
-        if !change_list.is_empty() {
-            self.apply_changes(path, &mut change_list)?;
+        if !replacement_list.is_empty() {
+            self.apply_replacements(path, &mut replacement_list)?;
         }
 
         Ok(())
     }
 
-    fn apply_changes(&self, path: &Path, mut changes: &[Change<'_>]) -> Result<()> {
+    fn apply_replacements(&self, path: &Path, mut replacements: &[MatchReplacement]) -> Result<()> {
         let dst_path = path.with_extension("~");
         let src = File::open(path)?;
         let dst = File::create(&dst_path)?;
@@ -477,9 +472,9 @@ impl MatchProcessor {
 
             line_num += 1;
 
-            if !changes.is_empty() && changes[0].line_number == line_num {
-                writer.write(changes[0].new_line.as_bytes())?;
-                changes = &changes[1..];
+            if !replacements.is_empty() && replacements[0].search_match.line.0 == line_num {
+                writer.write(replacements[0].replacement.as_bytes())?;
+                replacements = &replacements[1..];
             } else {
                 writer.write(line.as_bytes())?;
             }
@@ -736,8 +731,8 @@ impl FindAndReplacer {
                 continue;
             }
 
-            let matches = self.search_processor.search_path(path)?;
-            self.match_processor.handle_path(path, &matches)?;
+            let mut matches = self.search_processor.search_path(path)?;
+            self.match_processor.consume_matches(path, &mut matches)?;
         }
 
         self.match_processor.finalize();
