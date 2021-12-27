@@ -30,6 +30,10 @@ use text_io::read;
 // /// Control whether terminal output is in color.
 // #[structopt(long, allow_values = "always, auto, never", default_value = "auto")]
 // color: String,
+//
+// /// Save changes as a .patch file rather than modifying in place.
+// #[structopt(long)]
+// write_patch: bool
 struct Config {
     /// Match case insensitively.
     #[structopt(short = "i", long, conflicts_with = "case_sensitive, smart_case")]
@@ -220,9 +224,13 @@ impl SearchMatchCollector {
         }
     }
 
-    fn collect(&mut self) -> &Vec<SearchMatch> {
+    fn collect(&mut self) -> Vec<SearchMatch> {
         self.maybe_emit();
-        return &self.matches;
+
+        let mut matches = vec![];
+        std::mem::swap(&mut self.matches, &mut matches);
+
+        return matches;
     }
 }
 
@@ -281,16 +289,12 @@ impl Sink for SearchMatchCollector {
     }
 }
 
-trait Replacer {
-    fn replace(&self, input: &str) -> Option<String>;
+struct RegexReplacer {
+    matcher: RegexMatcher,
+    template: String,
 }
 
-struct RegexReplacer<'a> {
-    matcher: &'a RegexMatcher,
-    template: &'a str,
-}
-
-impl<'a> Replacer for RegexReplacer<'a> {
+impl RegexReplacer {
     fn replace(&self, input: &str) -> Option<String> {
         let mut caps = self.matcher.new_captures().unwrap();
         let mut dst = vec![];
@@ -318,20 +322,34 @@ struct Change {
     new_line: String,
 }
 
-struct SearchMatchProcessor<'a> {
-    replacer: &'a dyn Replacer,
+struct SearchProcessor {
+    searcher: Searcher,
+    matcher: RegexMatcher,
+}
+
+impl SearchProcessor {
+    fn search_path<'a>(&mut self, path: &'a Path) -> Result<Vec<SearchMatch>> {
+        let mut collector = SearchMatchCollector::new();
+
+        self.searcher
+            .search_path(&self.matcher, path, &mut collector)?;
+
+        let matches = collector.collect();
+        Ok(matches)
+    }
+}
+
+struct MatchProcessor {
+    replacer: RegexReplacer,
     replacement_decider: ReplacementDecider,
 
     total_matches: usize,
     total_replacements: usize,
 }
 
-impl<'a> SearchMatchProcessor<'a> {
-    fn new(
-        replacer: &'a dyn Replacer,
-        replacement_decider: ReplacementDecider,
-    ) -> SearchMatchProcessor<'a> {
-        return SearchMatchProcessor {
+impl MatchProcessor {
+    fn new(replacer: RegexReplacer, replacement_decider: ReplacementDecider) -> MatchProcessor {
+        return MatchProcessor {
             replacer,
             replacement_decider,
 
@@ -534,124 +552,166 @@ e - edit this replacement
     }
 }
 
+struct FindAndReplacer {
+    file_walker: WalkBuilder,
+    included_paths: Option<regex::RegexSet>,
+    excluded_paths: regex::RegexSet,
+    match_processor: MatchProcessor,
+    search_processor: SearchProcessor,
+}
+
+const DEFAULT_BEFORE_CONTEXT_LINES: usize = 2;
+const DEFAULT_AFTER_CONTEXT_LINES: usize = 2;
+
+impl FindAndReplacer {
+    fn from_config(config: Config) -> Result<FindAndReplacer> {
+        let pattern = if config.literal {
+            regex::escape(&config.find)
+        } else {
+            config.find
+        };
+
+        let mut matcher_builder = RegexMatcherBuilder::new();
+        matcher_builder
+            .case_insensitive(!config.case_sensitive && config.ignore_case)
+            .case_smart(!config.case_sensitive && config.smart_case.unwrap_or(true));
+
+        let searcher = SearcherBuilder::new()
+            .binary_detection(BinaryDetection::quit(0x00))
+            .line_number(true)
+            .before_context(
+                config
+                    .before
+                    .or(config.context)
+                    .unwrap_or(DEFAULT_BEFORE_CONTEXT_LINES),
+            )
+            .after_context(
+                config
+                    .after
+                    .or(config.context)
+                    .unwrap_or(DEFAULT_AFTER_CONTEXT_LINES),
+            )
+            .build();
+
+        let pattern_matcher = matcher_builder
+            .build(&pattern)
+            .with_context(|| format!("Failed to parse pattern '{}'", pattern))?;
+
+        // TODO: Confirm that template does not reference more capture groups than exist.
+        let replacer = RegexReplacer {
+            matcher: pattern_matcher.clone(),
+            template: config.replace,
+        };
+
+        let replacement_decider = if config.prompt {
+            ReplacementDecider::with_prompt()
+        } else if config.write {
+            ReplacementDecider::constantly(ReplacementDecision::Accept)
+        } else {
+            ReplacementDecider::constantly(ReplacementDecision::Ignore)
+        };
+
+        let match_processor = MatchProcessor::new(replacer, replacement_decider);
+        let search_processor = SearchProcessor {
+            matcher: pattern_matcher,
+            searcher: searcher,
+        };
+
+        let paths = if config.paths.is_empty() {
+            // Read paths from standard in if none are specified and
+            // there's input piped to the process.
+            if !atty::is(Stream::Stdin) {
+                ensure!(
+                    config.prompt == false,
+                    "cannot use --prompt when reading files from stdin"
+                );
+                let mut paths = vec![];
+                for line in std::io::stdin().lock().lines() {
+                    paths.push(Path::new(&line.unwrap()).to_owned());
+                }
+                paths
+            } else {
+                vec![Path::new(".").to_owned()]
+            }
+        } else {
+            config.paths
+        };
+
+        let mut file_walker = WalkBuilder::new(paths[0].clone());
+        for path in &paths[1..] {
+            file_walker.add(path);
+        }
+
+        let should_ignore = !config.all_files;
+        let should_show_hidden = config.hidden || config.all_files;
+        file_walker
+            .hidden(!should_show_hidden)
+            .ignore(should_ignore)
+            .git_ignore(should_ignore)
+            .git_exclude(should_ignore)
+            .parents(should_ignore);
+
+        let included_paths = config.include.map(|included_paths| {
+            let escaped = included_paths.iter().map(|p| regex::escape(p));
+            regex::RegexSet::new(escaped).unwrap()
+        });
+
+        let excluded_paths = {
+            let escaped = config.exclude.iter().map(|p| regex::escape(p));
+            regex::RegexSet::new(escaped)?
+        };
+
+        Ok(FindAndReplacer {
+            file_walker: file_walker,
+            included_paths: included_paths,
+            excluded_paths: excluded_paths,
+            search_processor: search_processor,
+            match_processor: match_processor,
+        })
+    }
+
+    fn run(&mut self) -> Result<()> {
+        // TODO: There exists a parallel file walker
+        let file_walker = self.file_walker.build();
+        for dir_entry in file_walker {
+            let dir_entry = dir_entry?;
+            let path = dir_entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let path_str = path.to_str().with_context(|| {
+                format!("Failed to interpret path name as UTF-8 string: {:?}", path)
+            })?;
+
+            if let Some(ref included_paths) = self.included_paths {
+                if !included_paths.is_match(path_str) {
+                    continue;
+                }
+            }
+            if self.excluded_paths.is_match(path_str) {
+                continue;
+            }
+
+            let matches = self.search_processor.search_path(path)?;
+            self.match_processor.handle_path(path, &matches)?;
+        }
+
+        // if !self.config.write {
+        //     println!("Use -w, --write to modify files in place.");
+        // }
+
+        self.match_processor.finalize();
+        Ok(())
+    }
+}
+
 // Main entry point
 fn run_find_and_replace() -> Result<()> {
     let config = Config::from_args();
-    // println!("Parsed config: {:?}", config);
+    let mut find_and_replacer = FindAndReplacer::from_config(config)?;
 
-    let pattern = if config.literal {
-        regex::escape(&config.find)
-    } else {
-        config.find
-    };
-
-    let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(!config.case_sensitive && config.ignore_case)
-        .case_smart(!config.case_sensitive && config.smart_case.unwrap_or(true))
-        .build(&pattern)
-        .with_context(|| format!("Failed to parse pattern '{}'", pattern))?;
-
-    let mut searcher = SearcherBuilder::new()
-        .binary_detection(BinaryDetection::quit(0x00))
-        .line_number(true)
-        .before_context(config.before.or(config.context).unwrap_or(2))
-        .after_context(config.after.or(config.context).unwrap_or(2))
-        .build();
-
-    // TODO: Confirm that template does not reference more capture groups than exist.
-    let replacer = RegexReplacer {
-        matcher: &matcher,
-        template: &config.replace,
-    };
-
-    let replacement_decider = if config.prompt {
-        ReplacementDecider::with_prompt()
-    } else if config.write {
-        ReplacementDecider::constantly(ReplacementDecision::Accept)
-    } else {
-        ReplacementDecider::constantly(ReplacementDecision::Ignore)
-    };
-
-    let mut proc = SearchMatchProcessor::new(&replacer, replacement_decider);
-
-    let paths = if config.paths.is_empty() {
-        if !atty::is(Stream::Stdin) {
-            ensure!(
-                config.prompt == false,
-                "cannot use --prompt when reading files from stdin"
-            );
-            let mut paths = vec![];
-            for line in std::io::stdin().lock().lines() {
-                paths.push(Path::new(&line.unwrap()).to_owned());
-            }
-            paths
-        } else {
-            vec![Path::new(".").to_owned()]
-        }
-    } else {
-        config.paths
-    };
-
-    let mut file_walker = WalkBuilder::new(paths[0].clone());
-    for path in &paths[1..] {
-        file_walker.add(path);
-    }
-
-    let should_ignore = !config.all_files;
-    let should_show_hidden = config.hidden || config.all_files;
-    file_walker
-        .hidden(!should_show_hidden)
-        .ignore(should_ignore)
-        .git_ignore(should_ignore)
-        .git_exclude(should_ignore)
-        .parents(should_ignore);
-
-    let included_paths = config.include.map(|included_paths| {
-        let escaped = included_paths.iter().map(|p| regex::escape(p));
-        regex::RegexSet::new(escaped).unwrap()
-    });
-
-    let excluded_paths = {
-        let escaped = config.exclude.iter().map(|p| regex::escape(p));
-        regex::RegexSet::new(escaped)?
-    };
-
-    // TODO: There exists a parallel file walker
-    for dir_entry in file_walker.build() {
-        let dir_entry = dir_entry?;
-        let path = dir_entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
-        let path_str = path.to_str().with_context(|| {
-            format!("Failed to interpret path name as UTF-8 string: {:?}", path)
-        })?;
-
-        if let Some(ref included_paths) = included_paths {
-            if !included_paths.is_match(path_str) {
-                continue;
-            }
-        }
-        if excluded_paths.is_match(path_str) {
-            continue;
-        }
-
-        let mut sink = SearchMatchCollector::new();
-
-        searcher.search_path(&matcher, dir_entry.path(), &mut sink)?;
-
-        let matches = sink.collect();
-        proc.handle_path(path, matches)?;
-    }
-
-    if !config.write {
-        println!("Use -w, --write to modify files in place.");
-    }
-
-    proc.finalize();
-
-    Ok(())
+    return find_and_replacer.run();
 }
 
 fn main() {
