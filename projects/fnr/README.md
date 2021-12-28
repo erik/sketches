@@ -11,29 +11,30 @@ fnr [OPTIONS] FIND REPLACE [PATH...]
 ## About
 
 `fnr` is intended to be more intuitive to use than `sed`, but is not a
-drop in replacement. `fnr` is instaead focused on making changes in a
+drop in replacement. `fnr` is instead focused on making changes in a
 directory, and is more comparable with your IDE or editor's find and
 replace tool.
 
 Built on top of [ripgrep]'s path traversal and pattern matching, so
-even though performance isn't an explicit goal, it's fairly quick.
+even though performance isn't an explicit goal, it's fast enough to
+not be the bottleneck.
 
 ``` console
-$ fnr -i rust 'rust!!' target/doc -c > /dev/null
-fnr -i rust 'rust!!' target/doc -c > /dev/null  0.29s user 0.23s system 259% cpu 0.198 total
+$ time fnr -iq linux 'gnu/linux' /tmp/linux > /dev/null
+fnr -iq linux 'gnu/linux' /tmp/linux > /dev/null  1.73s user 2.12s system 226% cpu 1.701 total
 
-$ time rg -i rust target/doc > /dev/null
-rg -i rust target/doc > /dev/null  0.16s user 0.44s system 919% cpu 0.066 total
+$ time rg -i linux /tmp/linux > /dev/null
+rg -i linux /tmp/linux > /dev/null  1.34s user 3.57s system 1130% cpu 0.434 total
 
-$ time grep -inRI -i rust target/doc > /dev/null
-grep -inRI rust target/doc > /dev/null  1.27s user 0.20s system 99% cpu 1.483 total
+$ time ag -i linux /tmp/linux > /dev/null
+ag -i linux /tmp/linux > /dev/null  3.58s user 3.18s system 312% cpu 2.161 total
 
-$ time ag -i rust target/doc > /dev/null
-ag -i rust target/doc > /dev/null  3.18s user 0.28s system 107% cpu 3.207 total
+$ time grep -irI linux /tmp/linux > /dev/null
+grep -irI linux /tmp/linux > /dev/null  26.09s user 2.22s system 99% cpu 28.327 total
 
-$ time find target/doc -type f | xargs -I{} sed -i '' 's/rust/rust!!/g' '{}'
-find target/doc -type f  0.01s user 0.04s system 0% cpu 13.846 total
-xargs -I{} sed -i '' 's/rust/rust!!/g' '{}'  6.40s user 11.41s system 93% cpu 19.044 total
+$ time find /tmp/linux -type f | xargs sed -i '' 's;linux;gnu/linux;g'
+find /tmp/linux -type f  0.04s user 0.34s system 0% cpu 39.504 total
+xargs sed -i '' 's;linux;gnu/linux;g'  19.18s user 22.71s system 97% cpu 42.992 total
 ```
 
 **fnr is alpha quality.** Don't use `--write` in situations you

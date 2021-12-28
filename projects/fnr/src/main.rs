@@ -840,8 +840,6 @@ impl PathMatcher {
             return included_paths.is_match(path_str);
         }
 
-        eprintln!("matching {} against {:?}", path_str, self.excluded_paths);
-
         !self.excluded_paths.is_match(path_str)
     }
 }
