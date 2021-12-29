@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 
 use anyhow::{ensure, Context, Result};
 use atty::Stream;
@@ -433,7 +434,7 @@ struct MatchReplacement<'a> {
 #[derive(Clone)]
 struct SearchProcessor {
     searcher: Searcher,
-    matcher: RegexMatcher,
+    matcher: Arc<RegexMatcher>,
 }
 
 impl SearchProcessor {
@@ -441,7 +442,7 @@ impl SearchProcessor {
         let mut collector = SearchMatchCollector::new();
 
         self.searcher
-            .search_path(&self.matcher, path, &mut collector)?;
+            .search_path(self.matcher.as_ref(), path, &mut collector)?;
 
         let matches = collector.collect();
         Ok(matches)
@@ -716,10 +717,14 @@ impl FindAndReplacer {
         let match_formatter = MatchFormatter::from_config(&config);
         let match_processor = MatchProcessor::new(replacer, replacement_decider, match_formatter);
 
-        let searcher_factory = Box::new(move || SearchProcessor {
-            matcher: pattern_matcher.clone(),
-            searcher: searcher_builder.build(),
-        });
+        let searcher_factory = {
+            let matcher = Arc::new(pattern_matcher);
+
+            Box::new(move || SearchProcessor {
+                matcher: matcher.clone(),
+                searcher: searcher_builder.build(),
+            })
+        };
 
         let paths = if config.paths.is_empty() {
             // Read paths from standard in if none are specified and
