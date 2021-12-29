@@ -11,36 +11,12 @@ fnr [OPTIONS] FIND REPLACE [PATH...]
 ## About
 
 `fnr` is intended to be more intuitive to use than `sed`, but is not a
-drop in replacement. `fnr` is instead focused on making changes in a
+drop in replacement. Instead, it's focused on making bulk changes in a
 directory, and is more comparable with your IDE or editor's find and
 replace tool.
 
-Built on top of [ripgrep]'s path traversal and pattern matching, so
-even though performance isn't an explicit goal, it's fast enough to
-not be the bottleneck.
-
-``` console
-$ time fnr -iq linux 'gnu/linux' /tmp/linux > /dev/null
-fnr -iq linux 'gnu/linux' /tmp/linux > /dev/null  1.73s user 2.12s system 226% cpu 1.701 total
-
-$ time rg -i linux /tmp/linux > /dev/null
-rg -i linux /tmp/linux > /dev/null  1.34s user 3.57s system 1130% cpu 0.434 total
-
-$ time ag -i linux /tmp/linux > /dev/null
-ag -i linux /tmp/linux > /dev/null  3.58s user 3.18s system 312% cpu 2.161 total
-
-$ time grep -irI linux /tmp/linux > /dev/null
-grep -irI linux /tmp/linux > /dev/null  26.09s user 2.22s system 99% cpu 28.327 total
-
-$ time find /tmp/linux -type f | xargs sed -i '' 's;linux;gnu/linux;g'
-find /tmp/linux -type f  0.04s user 0.34s system 0% cpu 39.504 total
-xargs sed -i '' 's;linux;gnu/linux;g'  19.18s user 22.71s system 97% cpu 42.992 total
-```
-
 **fnr is alpha quality.** Don't use `--write` in situations you
 wouldn't be able to revert.
-
-[ripgrep]: https://github.com/BurntSushi/ripgrep
 
 ## Examples
 
@@ -106,6 +82,24 @@ $ git clone git@github.com/erik/fnr.git
 $ cd fnr
 $ cargo install --path .
 ```
+
+## Performance
+
+Built on top of [ripgrep]'s path traversal and pattern matching, so
+even though performance isn't an explicit goal, it's fast enough to
+not be the bottleneck.
+
+Even when comparing against tools which don't do any replacement,
+`fnr` still performs well.
+
+| Command                              |       Mean [s] | Min [s] | Max [s] |     Relative |
+|:-------------------------------------|---------------:|--------:|--------:|-------------:|
+| `rg "EINVAL" ./linux`                |  0.456 ± 0.005 |   0.448 |   0.463 |         1.00 |
+| `fnr "EINVAL" "ERR_INVALID" ./linux` |  1.521 ± 0.010 |   1.511 |   1.545 |  3.33 ± 0.04 |
+| `ag "EINVAL" ./linux`                |  2.457 ± 0.018 |   2.432 |   2.487 |  5.38 ± 0.07 |
+| `grep -irI "EINVAL" ./linux`         | 29.515 ± 0.382 |  29.133 |  30.193 | 64.68 ± 1.07 |
+
+[ripgrep]: https://github.com/BurntSushi/ripgrep
 
 ## Similar Tools
 
