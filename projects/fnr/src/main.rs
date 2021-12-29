@@ -736,11 +736,11 @@ impl FindAndReplacer {
                 );
                 let mut paths = vec![];
                 for line in std::io::stdin().lock().lines() {
-                    paths.push(Path::new(&line.unwrap()).to_owned());
+                    paths.push(PathBuf::from(line.unwrap()));
                 }
                 paths
             } else {
-                vec![Path::new(".").to_owned()]
+                vec![PathBuf::from(".")]
             }
         } else {
             config.paths
@@ -788,6 +788,10 @@ impl FindAndReplacer {
             let file_walker = self.file_walker.build_parallel();
             let searcher_factory = &self.searcher_factory;
             let path_matcher = &self.path_matcher;
+
+            // TODO: No real reason this needs to happen in another
+            // thread. Combine match processor + searcher and allow
+            // file_walker.run to manage the parallelism.
             thread_scope.spawn(move |_| {
                 file_walker.run(|| {
                     let tx = tx.clone();
@@ -804,10 +808,19 @@ impl FindAndReplacer {
                         }
 
                         let mut searcher = (searcher_factory)();
-                        let matches = searcher.search_path(path).unwrap();
-                        tx.send((path.to_owned(), matches)).unwrap();
+                        match searcher.search_path(path) {
+                            Ok(matches) => {
+                                // TODO: it would be cheaper to handle matches
+                                // here rather than sending to another thread.
+                                tx.send((path.to_owned(), matches)).unwrap();
+                                WalkState::Continue
+                            }
 
-                        WalkState::Continue
+                            err => {
+                                eprintln!("search failed: {:?}", err);
+                                WalkState::Quit
+                            }
+                        }
                     })
                 });
 
@@ -815,6 +828,7 @@ impl FindAndReplacer {
                 drop(tx);
             });
 
+            // TODO: Handle errors here.
             for (path, mut matches) in rx.iter() {
                 self.match_processor
                     .consume_matches(&path, &mut matches)
