@@ -1,9 +1,16 @@
 import SwiftUI
 
-struct PlanItem {
+class PlanItem: ObservableObject {
     var id: Int
-    var task: String
-    var isCompleted: Bool
+    @Published var task: String
+    @Published var isCompleted: Bool
+    @Published var isRemoved: Bool = false
+    
+    init(id: Int, task: String, isCompleted: Bool) {
+        self.id = id
+        self.task = task
+        self.isCompleted = isCompleted
+    }
 }
 
 // Apparently not possible to modify this with SwiftUI yet.
@@ -12,6 +19,61 @@ extension NSTextField {
     open override var focusRingType: NSFocusRingType {
         get { .none }
         set { }
+    }
+}
+
+struct PlanItemView: View {
+    @StateObject var item: PlanItem
+    
+    var body: some View {
+        HStack {
+            Circle()
+                .strokeBorder(item.isCompleted ? .green : .gray, lineWidth: 1.0)
+                .background(
+                    Circle().foregroundColor(item.isCompleted ? .green : .clear)
+                )
+                .frame(width: 14, height: 14)
+                .padding(.leading, 4)
+            
+            Text(item.task)
+                .foregroundColor(item.isCompleted ? .secondary : .primary)
+                .strikethrough(item.isCompleted, color: .secondary)
+        }
+        .onHover { isWithin in
+            DispatchQueue.main.async {
+                if isWithin { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
+        }
+        .contentShape(Rectangle()) // In order to make the whole thing clickable
+        .onTapGesture { item.isCompleted = !item.isCompleted }
+        .contextMenu { Button("Remove item", action: { item.isRemoved = true }) }
+    }
+}
+
+struct NoteView: View {
+    let placeholderText: String = "What's on your mind?"
+    
+    @State var text: String
+    var disabled: Bool = false
+    
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // TODO: If we want nicer padding here, I think we need to wrap in a scrollview
+            TextEditor(text: $text)
+                .disabled(disabled)
+                .cornerRadius(10)
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.leading)
+                .frame(height: 90)
+            
+            Text(placeholderText)
+                .foregroundColor(.secondary)
+                .allowsHitTesting(false)
+                .padding(.leading, 5)
+                .opacity(self.text == "" ? 1 : 0)
+        }
+        .font(.system(size: 16))
     }
 }
 
@@ -33,102 +95,72 @@ struct ContentView: View {
         // lmao
         GeometryReader { geometryReader in
             ScrollView(showsIndicators: false) {
-                VStack {
-                    VStack(alignment: .leading) {
-                        Text("Today's Plan")
-                            .font(.title)
+                VStack(alignment: .leading) {
+                    ScrollView {
+                        HStack {
+                            Text("Friday")
+                                .font(.body.bold())
+                            + Text(" ")
+                            + Text("January 14")
+                                .font(.body.bold())
+                                .foregroundColor(.gray)
+                            + Text(" 2022")
+                                .foregroundColor(.gray)
+                            Spacer()
+                        }
                         
                         ScrollViewReader { scrollViewReader in
-                            ScrollView {
-                                VStack(alignment: .leading) {
-                                    ForEach(planItems, id: \.id) { item in
-                                        HStack {
-                                            Circle()
-                                                .strokeBorder(item.isCompleted ? .green : .gray, lineWidth: 1.0)
-                                                .background(
-                                                    Circle().foregroundColor(item.isCompleted ? .green : .clear)
-                                                )
-                                                .frame(width: 14, height: 14)
-                                                .padding(.leading, 4)
-                                            
-                                            Text(item.task)
-                                        }
-                                        .onHover { isWithin in
-                                            DispatchQueue.main.async {
-                                                if isWithin { NSCursor.pointingHand.push() }
-                                                else { NSCursor.pop() }
-                                            }
-                                        }
-                                        .contentShape(Rectangle()) // In order to make the whole thing clickable
-                                        .onTapGesture {
-                                            self.planItems[item.id].isCompleted = !self.planItems[item.id].isCompleted
-                                        }
-                                        .contextMenu {
-                                            Button("Remove item", action: {
-                                                // TODO: implement me!
-                                            })
-                                        }
+                            VStack(alignment: .leading) {
+                                ForEach(planItems, id: \.id) { item in
+                                    if !item.isRemoved {
+                                        PlanItemView(item: item)
                                     }
+                                }
+                                
+                                HStack {
+                                    Circle()
+                                        .stroke(.gray)
+                                        .frame(width: 14, height: 14)
+                                        .padding(.leading, 4)
                                     
-                                    HStack {
-                                        Circle()
-                                            .stroke(.gray)
-                                            .frame(width: 14, height: 14)
-                                            .padding(.leading, 4)
-                                        
-                                        TextField(
-                                            "Add another...",
-                                            text: $newPlanItem,
-                                            onCommit: {
-                                                if !newPlanItem.isEmpty {
-                                                    self.planItems.append(
-                                                        PlanItem(
-                                                            id: planItems.count,
-                                                            task: newPlanItem,
-                                                            isCompleted: false
-                                                        )
+                                    TextField(
+                                        "Add another...",
+                                        text: $newPlanItem,
+                                        onCommit: {
+                                            if !newPlanItem.isEmpty {
+                                                self.planItems.append(
+                                                    PlanItem(
+                                                        id: planItems.count,
+                                                        task: newPlanItem,
+                                                        isCompleted: false
                                                     )
-                                                }
-                                                
-                                                
-                                                newPlanItem = ""
-                                                withAnimation {
-                                                    scrollViewReader.scrollTo(planListBottomId)
-                                                }
+                                                )
                                             }
-                                        )
-                                            .textFieldStyle(.plain)
-                                            .id(planListBottomId)
-                                    }
+                                            
+                                            newPlanItem = ""
+                                            withAnimation {
+                                                scrollViewReader.scrollTo(planListBottomId)
+                                            }
+                                        }
+                                    )
+                                        .textFieldStyle(.plain)
+                                        .id(planListBottomId)
                                 }
                             }
                         }
                         
-                        Text("Today's Notes")
-                            .font(.title)
-                        
-                        ZStack(alignment: .topLeading) {
-                            
-                            TextEditor(text: $text)
-                                .cornerRadius(6.0)
-                                .multilineTextAlignment(.leading)
-                                .frame(minHeight: 1, maxHeight: .infinity, alignment: .leading)
-                            
-                            Text(placeholderText)
-                                .foregroundColor(.gray)
-                                .padding(.leading, 5)
-                                .opacity(self.text == "" ? 1 : 0)
-                        }
-                        .font(.body)
+                        NoteView(text: text)
                     }
-                }
-                .padding()
-                .frame(height: geometryReader.size.height)
+                }  
+                .frame(height: geometryReader.size.height, alignment: .topLeading)
                 
                 VStack {
+                    Text("here")
                     // TODO: Historical view goes here.
                 }
             }
+            .frame(alignment: .topLeading)
+            .padding()
         }
     }
 }
