@@ -5,7 +5,7 @@ class PlanItem: ObservableObject {
     @Published var task: String
     @Published var isCompleted: Bool
     @Published var isRemoved: Bool = false
-    
+
     init(id: Int, task: String, isCompleted: Bool) {
         self.id = id
         self.task = task
@@ -28,12 +28,10 @@ struct PlanItemView: View {
     var body: some View {
         HStack {
             Circle()
-                .strokeBorder(item.isCompleted ? .green : .gray, lineWidth: 1.0)
-                .background(
-                    Circle().foregroundColor(item.isCompleted ? .green : .clear)
-                )
+                .strokeBorder(item.isCompleted ? Color.secondary : .gray, lineWidth: 1.0)
+                .background(Circle().foregroundColor(item.isCompleted ? .secondary : .clear))
                 .frame(width: 14, height: 14)
-                .padding(.leading, 4)
+                //.padding(.leading, 4)
             
             Text(item.task)
                 .foregroundColor(item.isCompleted ? .secondary : .primary)
@@ -47,7 +45,17 @@ struct PlanItemView: View {
         }
         .contentShape(Rectangle()) // In order to make the whole thing clickable
         .onTapGesture { item.isCompleted = !item.isCompleted }
+        // FIXME: doesn't work.
         .contextMenu { Button("Remove item", action: { item.isRemoved = true }) }
+    }
+}
+
+extension NSTextView {
+    open override var frame: CGRect {
+        didSet {
+            backgroundColor = .clear
+            drawsBackground = true
+        }
     }
 }
 
@@ -56,13 +64,12 @@ struct NoteView: View {
     
     @State var text: String
     var disabled: Bool = false
-    
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // TODO: If we want nicer padding here, I think we need to wrap in a scrollview
             TextEditor(text: $text)
                 .disabled(disabled)
-                .cornerRadius(10)
                 .foregroundColor(.primary)
                 .multilineTextAlignment(.leading)
                 .frame(height: 90)
@@ -145,11 +152,11 @@ struct ContentView: View {
                                 HStack {
                                     Circle()
                                         .stroke(.gray)
+                                        .background(Circle().foregroundColor(.clear))
                                         .frame(width: 14, height: 14)
-                                        .padding(.leading, 4)
-                                    
+
                                     TextField(
-                                        "Add another...",
+                                        planItems.isEmpty ? "Add plan..." : "Add another...",
                                         text: $newPlanItem,
                                         onCommit: {
                                             if !newPlanItem.isEmpty {
@@ -173,10 +180,13 @@ struct ContentView: View {
                                 }
                             }
                         }
+
+                        Spacer()
+                            .frame(minHeight: 15)
                         
                         NoteView(text: text)
                     }
-                }  
+                }
                 .frame(height: geometryReader.size.height, alignment: .topLeading)
                 
                 VStack {
@@ -186,6 +196,7 @@ struct ContentView: View {
             }
             .frame(alignment: .topLeading)
             .padding()
+            .background(Color(NSColor.windowBackgroundColor))
         }
     }
 }
