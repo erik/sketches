@@ -27,20 +27,13 @@ struct PlanItemView: View {
 
     var body: some View {
         HStack {
-            Circle()
-                .strokeBorder(item.isCompleted ? Color.secondary : .gray, lineWidth: 1.0)
-                .background(Circle().foregroundColor(item.isCompleted ? .secondary : .clear))
+            Image(systemName: item.isCompleted ? "circle.fill" : "circle")
+                .foregroundColor(.gray)
                 .frame(width: 14, height: 14)
-            // .padding(.leading, 4)
 
             Text(item.task)
                 .foregroundColor(item.isCompleted ? .secondary : .primary)
                 .strikethrough(item.isCompleted, color: .secondary)
-        }
-        .onHover { isWithin in
-            DispatchQueue.main.async {
-                if isWithin { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
         }
         .contentShape(Rectangle()) // In order to make the whole thing clickable
         .onTapGesture { item.isCompleted = !item.isCompleted }
@@ -117,82 +110,115 @@ struct DateHeader: View {
     }
 }
 
-struct ContentView: View {
-    let placeholderText: String = "What's on your mind?"
-
-    @EnvironmentObject var statusBar: StatusBarController
-    @Namespace var planListBottomId
-
-    @State private var text: String = ""
-    @State private var newPlanItem: String = ""
-    @State private var planItems: [PlanItem] = [
+class DailyPlanModel: ObservableObject {
+    @Published var date: Date = .init()
+    @Published var planItems: [PlanItem] = [
         PlanItem(id: 0, task: "Figure out the scope of Jot", isCompleted: false),
         PlanItem(id: 1, task: "Plan the tech stack", isCompleted: true),
         PlanItem(id: 2, task: "Design this application in Figma", isCompleted: true),
     ]
+}
+
+struct TodayView: View {
+    let date: Date
+    let isEditable: Bool
+
+    @Namespace var planListBottomId
+
+    @State var notesText: String = ""
+    @State var newPlanItem: String = ""
+    @StateObject var dailyPlan: DailyPlanModel = .init()
 
     var body: some View {
-        // lmao
-        GeometryReader { geometryReader in
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading) {
-                    ScrollView {
-                        DateHeader(date: Date())
+        DateHeader(date: date)
+            .padding(.bottom, 5)
 
-                        ScrollViewReader { scrollViewReader in
-                            VStack(alignment: .leading) {
-                                ForEach(planItems, id: \.id) { item in
-                                    if !item.isRemoved {
-                                        PlanItemView(item: item)
-                                    }
-                                }
-
-                                HStack {
-                                    Circle()
-                                        .stroke(.gray)
-                                        .background(Circle().foregroundColor(.clear))
-                                        .frame(width: 14, height: 14)
-
-                                    TextField(
-                                        planItems.isEmpty ? "Add plan..." : "Add another...",
-                                        text: $newPlanItem,
-                                        onCommit: {
-                                            if !newPlanItem.isEmpty {
-                                                self.planItems.append(
-                                                    PlanItem(
-                                                        id: planItems.count,
-                                                        task: newPlanItem,
-                                                        isCompleted: false
-                                                    )
-                                                )
-                                            }
-
-                                            newPlanItem = ""
-                                            withAnimation {
-                                                scrollViewReader.scrollTo(planListBottomId)
-                                            }
-                                        }
-                                    )
-                                    .textFieldStyle(.plain)
-                                    .id(planListBottomId)
-                                }
-                            }
-                        }
-
-                        Spacer()
-                            .frame(minHeight: 15)
-
-                        NoteView(text: text)
+        ScrollViewReader { scrollViewReader in
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(dailyPlan.planItems, id: \.id) { item in
+                    if !item.isRemoved {
+                        PlanItemView(item: item)
                     }
                 }
-                .frame(height: geometryReader.size.height, alignment: .topLeading)
 
-                VStack {
-                    Text("here")
-                    // TODO: Historical view goes here.
+                if isEditable {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                            .foregroundColor(.gray)
+                            .frame(width: 14, height: 14)
+
+                        TextField(
+                            dailyPlan.planItems.isEmpty ? "Add plan..." : "Add another...",
+                            text: $newPlanItem,
+                            onCommit: {
+                                if !newPlanItem.isEmpty {
+                                    dailyPlan.planItems.append(
+                                        PlanItem(
+                                            id: dailyPlan.planItems.count,
+                                            task: newPlanItem,
+                                            isCompleted: false
+                                        )
+                                    )
+                                }
+
+                                newPlanItem = ""
+                                withAnimation {
+                                    scrollViewReader.scrollTo(planListBottomId)
+                                }
+                            }
+                        )
+                        .textFieldStyle(.plain)
+                        .id(planListBottomId)
+                    }
                 }
             }
-            .frame(alignment: .topLeading)
+        }
+
+        Spacer()
+            .frame(minHeight: 15)
+
+        if isEditable || !notesText.isEmpty {
+            NoteView(
+                text: notesText,
+                disabled: !isEditable
+            )
+        }
+    }
+}
+
+struct ContentView: View {
+    @EnvironmentObject var statusBar: StatusBarController
+
+    var body: some View {
+        // TODO: Kind of wacky nesting going on here.
+        GeometryReader { _ in
+            ScrollView(showsIndicators: true) {
+                VStack(alignment: .leading) {
+                    TodayView(
+                        date: Date(),
+                        isEditable: true
+                    )
+
+                    // TODO: Historical view goes here.
+                    ForEach(1 ... 5, id: \.self) { dayOffset in
+                        TodayView(
+                            date: Calendar.current.date(
+                                byAdding: DateComponents(day: -dayOffset),
+                                to: Date()
+                            )!,
+                            isEditable: false
+                        )
+                    }
+
+                    VStack(alignment: .center) {
+                        Text("That's all!")
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
             .padding()
             .background(Color(NSColor.windowBackgroundColor))
         }
