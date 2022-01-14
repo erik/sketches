@@ -16,31 +16,30 @@ class PlanItem: ObservableObject {
 // Apparently not possible to modify this with SwiftUI yet.
 // https://stackoverflow.com/questions/59813943/
 extension NSTextField {
-    open override var focusRingType: NSFocusRingType {
+    override open var focusRingType: NSFocusRingType {
         get { .none }
-        set { }
+        set {}
     }
 }
 
 struct PlanItemView: View {
     @StateObject var item: PlanItem
-    
+
     var body: some View {
         HStack {
             Circle()
                 .strokeBorder(item.isCompleted ? Color.secondary : .gray, lineWidth: 1.0)
                 .background(Circle().foregroundColor(item.isCompleted ? .secondary : .clear))
                 .frame(width: 14, height: 14)
-                //.padding(.leading, 4)
-            
+            // .padding(.leading, 4)
+
             Text(item.task)
                 .foregroundColor(item.isCompleted ? .secondary : .primary)
                 .strikethrough(item.isCompleted, color: .secondary)
         }
         .onHover { isWithin in
             DispatchQueue.main.async {
-                if isWithin { NSCursor.pointingHand.push() }
-                else { NSCursor.pop() }
+                if isWithin { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
         }
         .contentShape(Rectangle()) // In order to make the whole thing clickable
@@ -51,7 +50,7 @@ struct PlanItemView: View {
 }
 
 extension NSTextView {
-    open override var frame: CGRect {
+    override open var frame: CGRect {
         didSet {
             backgroundColor = .clear
             drawsBackground = true
@@ -61,7 +60,7 @@ extension NSTextView {
 
 struct NoteView: View {
     let placeholderText: String = "What's on your mind?"
-    
+
     @State var text: String
     var disabled: Bool = false
 
@@ -73,7 +72,7 @@ struct NoteView: View {
                 .foregroundColor(.primary)
                 .multilineTextAlignment(.leading)
                 .frame(height: 90)
-            
+
             Text(placeholderText)
                 .foregroundColor(.secondary)
                 .allowsHitTesting(false)
@@ -105,13 +104,12 @@ struct DateHeader: View {
         year = fmt.string(from: date)
     }
 
-
     var body: some View {
         HStack {
             Text(weekday)
                 .font(.body.bold())
-            + Text(" ")
-            + Text(monthday)
+                + Text(" ")
+                + Text(monthday)
                 .font(.body.bold())
                 .foregroundColor(.gray)
             Spacer()
@@ -121,25 +119,25 @@ struct DateHeader: View {
 
 struct ContentView: View {
     let placeholderText: String = "What's on your mind?"
-    
+
     @EnvironmentObject var statusBar: StatusBarController
     @Namespace var planListBottomId
-    
+
     @State private var text: String = ""
     @State private var newPlanItem: String = ""
-    @State private var planItems: Array<PlanItem> = [
+    @State private var planItems: [PlanItem] = [
         PlanItem(id: 0, task: "Figure out the scope of Jot", isCompleted: false),
         PlanItem(id: 1, task: "Plan the tech stack", isCompleted: true),
         PlanItem(id: 2, task: "Design this application in Figma", isCompleted: true),
     ]
-    
+
     var body: some View {
         // lmao
         GeometryReader { geometryReader in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading) {
                     ScrollView {
-                        DateHeader(date: Date.init())
+                        DateHeader(date: Date())
 
                         ScrollViewReader { scrollViewReader in
                             VStack(alignment: .leading) {
@@ -148,7 +146,7 @@ struct ContentView: View {
                                         PlanItemView(item: item)
                                     }
                                 }
-                                
+
                                 HStack {
                                     Circle()
                                         .stroke(.gray)
@@ -168,27 +166,27 @@ struct ContentView: View {
                                                     )
                                                 )
                                             }
-                                            
+
                                             newPlanItem = ""
                                             withAnimation {
                                                 scrollViewReader.scrollTo(planListBottomId)
                                             }
                                         }
                                     )
-                                        .textFieldStyle(.plain)
-                                        .id(planListBottomId)
+                                    .textFieldStyle(.plain)
+                                    .id(planListBottomId)
                                 }
                             }
                         }
 
                         Spacer()
                             .frame(minHeight: 15)
-                        
+
                         NoteView(text: text)
                     }
                 }
                 .frame(height: geometryReader.size.height, alignment: .topLeading)
-                
+
                 VStack {
                     Text("here")
                     // TODO: Historical view goes here.
@@ -206,7 +204,7 @@ struct ContentView_Previews: PreviewProvider {
         Group {
             ContentView()
                 .environment(\.colorScheme, .dark)
-            
+
             ContentView()
                 .environment(\.colorScheme, .light)
         }
