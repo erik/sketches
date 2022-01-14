@@ -73,7 +73,42 @@ struct NoteView: View {
                 .padding(.leading, 5)
                 .opacity(self.text == "" ? 1 : 0)
         }
-        .font(.system(size: 16))
+        .padding()
+        .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+        .font(.body)
+    }
+}
+
+struct DateHeader: View {
+    let weekday: String!
+    let monthday: String!
+    let year: String!
+
+    init(date: Date) {
+        let fmt = DateFormatter()
+
+        fmt.dateFormat = "EEEE"
+        weekday = fmt.string(from: date)
+
+        fmt.dateFormat = "MMMM dd"
+        monthday = fmt.string(from: date)
+
+        fmt.dateFormat = "yyyy"
+        year = fmt.string(from: date)
+    }
+
+
+    var body: some View {
+        HStack {
+            Text(weekday)
+                .font(.body.bold())
+            + Text(" ")
+            + Text(monthday)
+                .font(.body.bold())
+                .foregroundColor(.gray)
+            Spacer()
+        }
     }
 }
 
@@ -97,18 +132,8 @@ struct ContentView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading) {
                     ScrollView {
-                        HStack {
-                            Text("Friday")
-                                .font(.body.bold())
-                            + Text(" ")
-                            + Text("January 14")
-                                .font(.body.bold())
-                                .foregroundColor(.gray)
-                            + Text(" 2022")
-                                .foregroundColor(.gray)
-                            Spacer()
-                        }
-                        
+                        DateHeader(date: Date.init())
+
                         ScrollViewReader { scrollViewReader in
                             VStack(alignment: .leading) {
                                 ForEach(planItems, id: \.id) { item in
