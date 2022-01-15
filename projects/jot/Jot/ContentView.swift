@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 class PlanItem: ObservableObject {
@@ -51,35 +52,6 @@ extension NSTextView {
     }
 }
 
-struct NoteView: View {
-    let placeholderText: String = "What's on your mind?"
-
-    @State var text: String
-    var disabled: Bool = false
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            // TODO: If we want nicer padding here, I think we need to wrap in a scrollview
-            TextEditor(text: $text)
-                .disabled(disabled)
-                .foregroundColor(disabled ? .secondary : .primary)
-                .multilineTextAlignment(.leading)
-                .frame(height: 90)
-
-            Text(placeholderText)
-                .foregroundColor(.secondary)
-                .disabled(disabled)
-                .allowsHitTesting(false)
-                .padding(.leading, 5)
-                .opacity(self.text == "" ? 1 : 0)
-        }
-        .padding()
-        .background(Color(NSColor.textBackgroundColor).opacity(0.5))
-        .cornerRadius(10)
-        .font(.body)
-    }
-}
-
 struct DateHeader: View {
     let weekday: String!
     let monthday: String!
@@ -113,6 +85,8 @@ struct DateHeader: View {
 
 struct JournalView: View {
     @Environment(\.managedObjectContext) var managedObjectContext
+
+    private let placeholderText: String = "What's on your mind?"
 
     @ObservedObject var journal: JournalEntry
     let isEditable: Bool
@@ -176,10 +150,31 @@ struct JournalView: View {
             .frame(minHeight: 15)
 
         if isEditable || !(journal.note ?? "").isEmpty {
-            NoteView(
-                text: journal.note!,
-                disabled: !isEditable
-            )
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $journal.noteOrEmpty)
+                    // TODO: this saves on every character, need to add back in a debounce function.
+                    .onChange(of: journal.noteOrEmpty, perform: { _ in
+                        managedObjectContext.performAndWait {
+                            print("Saving!")
+                            try? managedObjectContext.save()
+                        }
+                    })
+                    .disabled(!isEditable)
+                    .foregroundColor(!isEditable ? .secondary : .primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(height: 90)
+
+                Text(placeholderText)
+                    .foregroundColor(.secondary)
+                    .disabled(!isEditable)
+                    .allowsHitTesting(false)
+                    .padding(.leading, 5)
+                    .opacity(journal.noteOrEmpty == "" ? 1 : 0)
+            }
+            .padding()
+            .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+            .cornerRadius(10)
+            .font(.body)
         }
     }
 }
