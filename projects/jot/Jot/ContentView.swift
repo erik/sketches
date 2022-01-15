@@ -1,19 +1,6 @@
 import Combine
 import SwiftUI
 
-class PlanItem: ObservableObject {
-    var id: Int
-    @Published var task: String
-    @Published var isCompleted: Bool
-    @Published var isRemoved: Bool = false
-
-    init(id: Int, task: String, isCompleted: Bool) {
-        self.id = id
-        self.task = task
-        self.isCompleted = isCompleted
-    }
-}
-
 // Apparently not possible to modify this with SwiftUI yet.
 // https://stackoverflow.com/questions/59813943/
 extension NSTextField {
@@ -24,7 +11,13 @@ extension NSTextField {
 }
 
 struct PlanItemView: View {
-    @StateObject var item: TodoItem
+    @Environment(\.managedObjectContext) var moc
+    @ObservedObject var item: TodoItem
+
+    func commitChange() {
+        item.objectWillChange.send()
+        try? moc.save()
+    }
 
     var body: some View {
         HStack {
@@ -37,9 +30,8 @@ struct PlanItemView: View {
                 .strikethrough(item.isCompleted, color: .secondary)
         }
         .contentShape(Rectangle()) // In order to make the whole thing clickable
-        .onTapGesture { item.isCompleted = !item.isCompleted }
-        // FIXME: doesn't work.
-        .contextMenu { Button("Remove item", action: { item.isRemoved = true }) }
+        .onTapGesture { item.isCompleted = !item.isCompleted; commitChange() }
+        .contextMenu { Button("Remove item", action: { item.isRemoved = true; commitChange() }) }
     }
 }
 
