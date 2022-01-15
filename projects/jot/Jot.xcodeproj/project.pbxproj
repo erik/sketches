@@ -12,16 +12,22 @@
 		034B692C278DC14200257219 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 034B692B278DC14200257219 /* Assets.xcassets */; };
 		034B692F278DC14200257219 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 034B692E278DC14200257219 /* Preview Assets.xcassets */; };
 		034B6937278DC22300257219 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034B6936278DC22300257219 /* StatusBarController.swift */; };
+		03561E6427933CA500422567 /* JournalEntry+CoreData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0368326727933A1300006F54 /* JournalEntry+CoreData.swift */; };
+		0368326327932F7000006F54 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0368326227932F7000006F54 /* PersistenceController.swift */; };
+		03F0182A27932D9900F97F7A /* Model.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 03F0182827932D9900F97F7A /* Model.xcdatamodeld */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		034B6924278DC13F00257219 /* Jot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		034B6927278DC13F00257219 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		034B6929278DC13F00257219 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		034B6929278DC13F00257219 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ContentView.swift; path = Jot/ContentView.swift; sourceTree = SOURCE_ROOT; };
 		034B692B278DC14200257219 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		034B692E278DC14200257219 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		034B6930278DC14200257219 /* Jot.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Jot.entitlements; sourceTree = "<group>"; };
 		034B6936278DC22300257219 /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
+		0368326227932F7000006F54 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		0368326727933A1300006F54 /* JournalEntry+CoreData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "JournalEntry+CoreData.swift"; path = "/Users/erik/code/sketches/projects/jot/Jot/Model/JournalEntry+CoreData.swift"; sourceTree = "<absolute>"; };
+		03F0182927932D9900F97F7A /* Model.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Model.xcdatamodel; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +44,7 @@
 		034B691B278DC13F00257219 = {
 			isa = PBXGroup;
 			children = (
+				03F0182827932D9900F97F7A /* Model.xcdatamodeld */,
 				034B6926278DC13F00257219 /* Jot */,
 				034B6925278DC13F00257219 /* Products */,
 			);
@@ -54,6 +61,8 @@
 		034B6926278DC13F00257219 /* Jot */ = {
 			isa = PBXGroup;
 			children = (
+				0368326727933A1300006F54 /* JournalEntry+CoreData.swift */,
+				0368326227932F7000006F54 /* PersistenceController.swift */,
 				034B6927278DC13F00257219 /* AppDelegate.swift */,
 				034B6929278DC13F00257219 /* ContentView.swift */,
 				034B692B278DC14200257219 /* Assets.xcassets */,
@@ -142,9 +151,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				03561E6427933CA500422567 /* JournalEntry+CoreData.swift in Sources */,
+				0368326327932F7000006F54 /* PersistenceController.swift in Sources */,
 				034B692A278DC13F00257219 /* ContentView.swift in Sources */,
 				034B6937278DC22300257219 /* StatusBarController.swift in Sources */,
 				034B6928278DC13F00257219 /* AppDelegate.swift in Sources */,
+				03F0182A27932D9900F97F7A /* Model.xcdatamodeld in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,6 +354,19 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		03F0182827932D9900F97F7A /* Model.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				03F0182927932D9900F97F7A /* Model.xcdatamodel */,
+			);
+			currentVersion = 03F0182927932D9900F97F7A /* Model.xcdatamodel */;
+			path = Model.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
 	rootObject = 034B691C278DC13F00257219 /* Project object */;
 }

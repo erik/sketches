@@ -12,6 +12,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover = .init()
     var statusBar: StatusBarController?
 
+    let persistenceController = PersistenceController.shared
+
     func applicationDidFinishLaunching(_: Notification) {
         // Hide the dock icon
         NSApp.setActivationPolicy(.accessory)
@@ -19,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let contentView = ContentView()
             .environmentObject(statusBar!)
+            .environment(\.managedObjectContext, persistenceController.container.viewContext)
+
+        // TODO: Call persistenceController.save() on scenePhase change.
 
         popover.behavior = .transient
         popover.animates = true
@@ -27,7 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
-        // Insert code here to tear down your application
+        persistenceController.save()
     }
 }
 

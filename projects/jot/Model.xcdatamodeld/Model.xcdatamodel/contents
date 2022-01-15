@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="19574" systemVersion="20G165" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="JournalEntry" representedClassName=".JournalEntry" syncable="YES" codeGenerationType="class">
+        <attribute name="date" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="note" attributeType="String" defaultValueString=""/>
+        <relationship name="todoItems" optional="YES" toMany="YES" deletionRule="Nullify" ordered="YES" destinationEntity="TodoItem" inverseName="journalEntry" inverseEntity="TodoItem"/>
+    </entity>
+    <entity name="TodoItem" representedClassName="TodoItem" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isCompleted" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="isRemoved" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="task" attributeType="String" defaultValueString=""/>
+        <relationship name="journalEntry" maxCount="1" deletionRule="Nullify" destinationEntity="JournalEntry" inverseName="todoItems" inverseEntity="JournalEntry"/>
+    </entity>
+    <elements>
+        <element name="JournalEntry" positionX="165.606689453125" positionY="91.19735717773438" width="128" height="74"/>
+        <element name="TodoItem" positionX="-54" positionY="18" width="128" height="104"/>
+    </elements>
+</model>

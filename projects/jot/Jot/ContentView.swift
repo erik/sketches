@@ -23,7 +23,7 @@ extension NSTextField {
 }
 
 struct PlanItemView: View {
-    @StateObject var item: PlanItem
+    @StateObject var item: TodoItem
 
     var body: some View {
         HStack {
@@ -31,7 +31,7 @@ struct PlanItemView: View {
                 .foregroundColor(.gray)
                 .frame(width: 14, height: 14)
 
-            Text(item.task)
+            Text(item.task!)
                 .foregroundColor(item.isCompleted ? .secondary : .primary)
                 .strikethrough(item.isCompleted, color: .secondary)
         }
@@ -62,12 +62,13 @@ struct NoteView: View {
             // TODO: If we want nicer padding here, I think we need to wrap in a scrollview
             TextEditor(text: $text)
                 .disabled(disabled)
-                .foregroundColor(.primary)
+                .foregroundColor(disabled ? .secondary : .primary)
                 .multilineTextAlignment(.leading)
                 .frame(height: 90)
 
             Text(placeholderText)
                 .foregroundColor(.secondary)
+                .disabled(disabled)
                 .allowsHitTesting(false)
                 .padding(.leading, 5)
                 .opacity(self.text == "" ? 1 : 0)
@@ -110,32 +111,33 @@ struct DateHeader: View {
     }
 }
 
-class DailyPlanModel: ObservableObject {
-    @Published var date: Date = .init()
-    @Published var planItems: [PlanItem] = [
-        PlanItem(id: 0, task: "Figure out the scope of Jot", isCompleted: false),
-        PlanItem(id: 1, task: "Plan the tech stack", isCompleted: true),
-        PlanItem(id: 2, task: "Design this application in Figma", isCompleted: true),
-    ]
-}
+struct JournalView: View {
+    @Environment(\.managedObjectContext) var managedObjectContext
 
-struct TodayView: View {
-    let date: Date
+    @ObservedObject var journal: JournalEntry
     let isEditable: Bool
 
     @Namespace var planListBottomId
-
-    @State var notesText: String = ""
     @State var newPlanItem: String = ""
-    @StateObject var dailyPlan: DailyPlanModel = .init()
+
+    func createNewTodo() {
+        if !newPlanItem.isEmpty {
+            journal.addTodo(
+                of: newPlanItem,
+                using: managedObjectContext
+            )
+        }
+
+        newPlanItem = ""
+    }
 
     var body: some View {
-        DateHeader(date: date)
+        DateHeader(date: journal.date!)
             .padding(.bottom, 5)
 
         ScrollViewReader { scrollViewReader in
             VStack(alignment: .leading, spacing: 5) {
-                ForEach(dailyPlan.planItems, id: \.id) { item in
+                ForEach(journal.todoItemsArray, id: \.self) { item in
                     if !item.isRemoved {
                         PlanItemView(item: item)
                     }
@@ -146,22 +148,18 @@ struct TodayView: View {
                         Image(systemName: "plus.circle")
                             .foregroundColor(.gray)
                             .frame(width: 14, height: 14)
+                            .onTapGesture {
+                                createNewTodo()
+                                withAnimation {
+                                    scrollViewReader.scrollTo(planListBottomId)
+                                }
+                            }
 
                         TextField(
-                            dailyPlan.planItems.isEmpty ? "Add plan..." : "Add another...",
+                            journal.todoItemsArray.isEmpty ? "Add plan..." : "Add another...",
                             text: $newPlanItem,
                             onCommit: {
-                                if !newPlanItem.isEmpty {
-                                    dailyPlan.planItems.append(
-                                        PlanItem(
-                                            id: dailyPlan.planItems.count,
-                                            task: newPlanItem,
-                                            isCompleted: false
-                                        )
-                                    )
-                                }
-
-                                newPlanItem = ""
+                                createNewTodo()
                                 withAnimation {
                                     scrollViewReader.scrollTo(planListBottomId)
                                 }
@@ -177,49 +175,86 @@ struct TodayView: View {
         Spacer()
             .frame(minHeight: 15)
 
-        if isEditable || !notesText.isEmpty {
+        if isEditable || !(journal.note ?? "").isEmpty {
             NoteView(
-                text: notesText,
+                text: journal.note!,
                 disabled: !isEditable
             )
         }
     }
 }
 
+struct JournalListView: View {
+    var currentJournal: JournalEntry
+    @FetchRequest var previousJournals: FetchedResults<JournalEntry>
+
+    // TODO: Would this break when the day rolls over?
+    init(_ currentDate: Date, _ managedObjectContext: NSManagedObjectContext) {
+        currentJournal = JournalEntry.getOrCreateFor(
+            date: currentDate,
+            using: managedObjectContext
+        )
+
+        _previousJournals = FetchRequest<JournalEntry>(
+            sortDescriptors: [NSSortDescriptor(keyPath: \JournalEntry.date, ascending: false)],
+            predicate: NSPredicate(format: "%K != %@", #keyPath(JournalEntry.date), currentDate as NSDate)
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            JournalView(
+                journal: currentJournal,
+                isEditable: true
+            )
+
+            ForEach(previousJournals, id: \.self) { journal in
+                JournalView(
+                    journal: journal,
+                    isEditable: false
+                )
+            }
+
+            VStack(alignment: .center) {
+                Text("That's all!")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+class ContentViewModel: ObservableObject {
+    @Published var currentDate: Date = Calendar.current.startOfDay(for: Date())
+
+    init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(dateChanged),
+            name: .NSCalendarDayChanged,
+            object: nil
+        )
+    }
+
+    @objc func dateChanged() {
+        currentDate = Calendar.current.startOfDay(for: Date())
+    }
+}
+
 struct ContentView: View {
+    @ObservedObject var viewModel = ContentViewModel()
     @EnvironmentObject var statusBar: StatusBarController
+    @Environment(\.managedObjectContext) var managedObjectContext
 
     var body: some View {
         // TODO: Kind of wacky nesting going on here.
         GeometryReader { _ in
             ScrollView(showsIndicators: true) {
-                VStack(alignment: .leading) {
-                    TodayView(
-                        date: Date(),
-                        isEditable: true
-                    )
-
-                    // TODO: Historical view goes here.
-                    ForEach(1 ... 5, id: \.self) { dayOffset in
-                        TodayView(
-                            date: Calendar.current.date(
-                                byAdding: DateComponents(day: -dayOffset),
-                                to: Date()
-                            )!,
-                            isEditable: false
-                        )
-                    }
-
-                    VStack(alignment: .center) {
-                        Text("That's all!")
-                            .font(.body)
-                            .foregroundColor(.secondary)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                    }
-                }
+                JournalListView(viewModel.currentDate, managedObjectContext)
+                    .padding()
             }
-            .padding()
             .background(Color(NSColor.windowBackgroundColor))
         }
     }
@@ -230,9 +265,11 @@ struct ContentView_Previews: PreviewProvider {
         Group {
             ContentView()
                 .environment(\.colorScheme, .dark)
+                .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
 
             ContentView()
                 .environment(\.colorScheme, .light)
+                .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
         }
     }
 }
