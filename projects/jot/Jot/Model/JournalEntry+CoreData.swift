@@ -38,6 +38,7 @@ public extension JournalEntry {
         }
     }
 
+    // TODO: This feels like a hack, is this necessary?
     var noteOrEmpty: String {
         get { note ?? "" }
         set { print("setting = \(newValue)"); note = newValue }
@@ -45,6 +46,8 @@ public extension JournalEntry {
 
     var todoItemsArray: [TodoItem] {
         let set = (todoItems?.set ?? []) as! Set<TodoItem>
-        return set.sorted { $0.createdAt! < $1.createdAt! }
+        return set.sorted {
+            ($0.isCompleted ? 1 : 0, $0.createdAt!) < ($1.isCompleted ? 1 : 0, $1.createdAt!)
+        }
     }
 }

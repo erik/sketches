@@ -158,7 +158,7 @@ struct JournalView: View {
                 }
 
                 if isEditable {
-                    HStack {
+                    HStack(alignment: .firstTextBaseline) {
                         Image(systemName: "plus.circle")
                             .foregroundColor(.gray)
                             .frame(width: 14, height: 14)
@@ -179,6 +179,7 @@ struct JournalView: View {
                                 }
                             }
                         )
+                        .padding(2.0)
                         .textFieldStyle(.plain)
                         .id(planListBottomId)
                     }
