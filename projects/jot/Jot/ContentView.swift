@@ -75,10 +75,25 @@ struct DateHeader: View {
     }
 }
 
+class DebouncingExecutor: ObservableObject {
+    private var timer: Timer?
+
+    func afterDelay(of: TimeInterval, perform block: @escaping () -> Void) {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(
+            withTimeInterval: of,
+            repeats: false,
+            block: { _ in block() }
+        )
+    }
+}
+
 struct JournalView: View {
     @Environment(\.managedObjectContext) var managedObjectContext
 
+    private let debouncedSaveExecutor = DebouncingExecutor()
     private let placeholderText: String = "What's on your mind?"
+    @State var notePersistenceDebouncer: Timer?
 
     @ObservedObject var journal: JournalEntry
     let isEditable: Bool
@@ -144,12 +159,12 @@ struct JournalView: View {
         if isEditable || !(journal.note ?? "").isEmpty {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $journal.noteOrEmpty)
-                    // TODO: this saves on every character, need to add back in a debounce function.
                     .onChange(of: journal.noteOrEmpty, perform: { _ in
-                        managedObjectContext.performAndWait {
-                            print("Saving!")
-                            try? managedObjectContext.save()
-                        }
+                        debouncedSaveExecutor.afterDelay(of: 2.0, perform: {
+                            managedObjectContext.perform {
+                                try? managedObjectContext.save()
+                            }
+                        })
                     })
                     .disabled(!isEditable)
                     .foregroundColor(!isEditable ? .secondary : .primary)
@@ -172,7 +187,7 @@ struct JournalView: View {
 }
 
 struct JournalListView: View {
-    var currentJournal: JournalEntry
+    @ObservedObject var currentJournal: JournalEntry
     @FetchRequest var previousJournals: FetchedResults<JournalEntry>
 
     // TODO: Would this break when the day rolls over?
@@ -226,7 +241,9 @@ class ContentViewModel: ObservableObject {
     }
 
     @objc func dateChanged() {
-        currentDate = Calendar.current.startOfDay(for: Date())
+        DispatchQueue.main.sync {
+            currentDate = Calendar.current.startOfDay(for: Date())
+        }
     }
 }
 

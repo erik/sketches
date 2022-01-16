@@ -42,15 +42,11 @@ struct PersistenceController {
             container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
         }
 
-        container.loadPersistentStores { description, error in
+        container.loadPersistentStores { _, error in
             if let error = error {
                 fatalError("Error: \(error.localizedDescription)")
             }
-
-            print("done? \(description)")
         }
-
-        print("loaded!")
     }
 
     func save() {
