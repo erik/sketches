@@ -13,25 +13,59 @@ extension NSTextField {
 struct PlanItemView: View {
     @Environment(\.managedObjectContext) var moc
     @ObservedObject var item: TodoItem
+    @State var isEditing = false
 
     func commitChange() {
+        isEditing = false
+
         item.objectWillChange.send()
-        try? moc.save()
+        moc.perform {
+            try? moc.save()
+        }
     }
 
     var body: some View {
-        HStack {
-            Image(systemName: item.isCompleted ? "circle.fill" : "circle")
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: isEditing ? "pencil.circle" : (item.isCompleted ? "circle.fill" : "circle"))
                 .foregroundColor(.gray)
                 .frame(width: 14, height: 14)
+                .onTapGesture(count: 1) { item.isCompleted = !item.isCompleted; commitChange() }
 
-            Text(item.task!)
-                .foregroundColor(item.isCompleted ? .secondary : .primary)
-                .strikethrough(item.isCompleted, color: .secondary)
+            ZStack(alignment: .leading) {
+                TextField(
+                    item.task ?? "",
+                    text: Binding($item.task)!,
+                    onEditingChanged: { hasFocus in
+                        if !hasFocus {
+                            self.isEditing = false
+                        }
+                    },
+                    onCommit: { commitChange() }
+                )
+                .padding(2)
+                .background(Color(NSColor.textBackgroundColor))
+                .cornerRadius(6.0)
+                .opacity(isEditing ? 1 : 0)
+                .onExitCommand { isEditing = false }
+                .onReceive(NotificationCenter.default.publisher(for: NSTextField.textDidEndEditingNotification)) { _ in
+                    commitChange()
+                }
+
+                Text(item.task!)
+                    .strikethrough(item.isCompleted, color: .secondary)
+                    .foregroundColor(item.isCompleted ? .secondary : .primary)
+                    .opacity(isEditing ? 0 : 1)
+                    .onTapGesture { isEditing = true }
+            }
+            .textFieldStyle(.plain)
+            .foregroundColor(.secondary)
         }
         .contentShape(Rectangle()) // In order to make the whole thing clickable
-        .onTapGesture { item.isCompleted = !item.isCompleted; commitChange() }
-        .contextMenu { Button("Remove item", action: { item.isRemoved = true; commitChange() }) }
+        .contextMenu {
+            Button("Edit", action: { self.isEditing = true })
+            // TODO: This doesn't work.
+            Button("Remove", action: { item.isRemoved = true; commitChange() })
+        }
     }
 }
 
@@ -93,7 +127,6 @@ struct JournalView: View {
 
     private let debouncedSaveExecutor = DebouncingExecutor()
     private let placeholderText: String = "What's on your mind?"
-    @State var notePersistenceDebouncer: Timer?
 
     @ObservedObject var journal: JournalEntry
     let isEditable: Bool
