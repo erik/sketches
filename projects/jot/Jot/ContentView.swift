@@ -193,6 +193,7 @@ struct JournalView: View {
         if isEditable || !(journal.note ?? "").isEmpty {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $journal.noteOrEmpty)
+                    .disableAutocorrection(false)
                     .onChange(of: journal.noteOrEmpty, perform: { _ in
                         debouncedSaveExecutor.afterDelay(of: 2.0, perform: {
                             managedObjectContext.perform {
