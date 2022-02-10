@@ -1,0 +1,8 @@
+node_modules
+
+.env
+.mf
+/.cache
+/build
+/dist
+/public/build
