@@ -1,8 +1,10 @@
+import { getSession, commitSession } from "~/sessions.server";
+
 type AuthToken = {
-    athlete_id: number;
-    access_token: string;
-    refresh_token: string;
-    expires_at: Date;
+    athleteId: number;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: Date;
 };
 
 // Defined in .env
@@ -96,24 +98,32 @@ export async function exchangeCodeForToken(code: string): AuthToken {
     } = await response.json();
 
     return {
-        access_token,
-        refresh_token,
-        expires_at: new Date(expires_at * 1000),
-        athlete_id: id,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        expiresAt: new Date(expires_at * 1000),
+        athleteId: id,
     };
 }
 
 export async function refreshToken(tok: AuthToken): AuthToken {
+    console.log('Token needs refresh', tok);
+
     const response = await fetch('https://www.strava.com/api/v3/oauth/token', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            refresh_token: tok.refresh_token,
+            refresh_token: tok.refreshToken,
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
             grant_type: 'refresh_token',
         }),
     });
+
+    if (response.status !== 200) {
+        console.error('Token refresh failed!', response);
+        // TODO: log user out here.
+        throw ':(';
+    }
 
     const {
         access_token,
@@ -122,20 +132,34 @@ export async function refreshToken(tok: AuthToken): AuthToken {
     } = await response.json();
 
     return {
-        access_token,
-        refresh_token,
-        expires_at: new Date(expires_at * 1000),
-        athlete_id: tok.athlete_id,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        expiresAt: new Date(expires_at * 1000),
+        athleteId: tok.athleteId,
     };
 }
 
-export async function getGear(tok: AuthToken) {
+export async function getGear(session) {
+    let tok = JSON.parse(session.get('token'));
+
+    if (new Date(tok.expiresAt) <= new Date()) {
+        tok = refreshToken(tok);
+        session.set("token", JSON.stringify(tok));
+        // TODO: Do I need to set cookie here?
+        await commitSession(session);
+    }
+
     const response = await fetch('https://www.strava.com/api/v3/athlete', {
         headers: {
             'Accept': 'application/json',
-            'Authorization': `Bearer ${tok.access_token}`,
+            'Authorization': `Bearer ${tok.accessToken}`,
         }
     });
+
+    if (response.status !== 200) {
+        console.error('Failed to fetch gear:', response);
+        throw 'D:';
+    }
 
     const { bikes, shoes } = await response.json();
     return { bikes, shoes };
