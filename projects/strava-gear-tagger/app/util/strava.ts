@@ -10,6 +10,7 @@ type AuthToken = {
 // Defined in .env
 const CLIENT_ID = globalThis.STRAVA_CLIENT_ID;
 const CLIENT_SECRET = globalThis.STRAVA_CLIENT_SECRET;
+const WEBHOOK_TOKEN = globalThis.STRAVA_WEBHOOK_TOKEN;
 
 const REQUIRED_SCOPES = [
     'profile:read_all',
@@ -163,4 +164,26 @@ export async function getGear(session) {
 
     const { bikes, shoes } = await response.json();
     return { bikes, shoes };
+}
+
+export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
+    const response = await fetch('https://www.strava.com/api/v3/push_subscriptions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            callback_url: callbackUrl,
+            verify_token: WEBHOOK_TOKEN
+        }),
+    });
+
+    if (response.status !== 200) {
+        console.error('Failed to create webhook:', response);
+        throw 'D:';
+    }
+}
+
+export function validateWebhookPayload(urlParams: SearchParams): bool {
+    return urlParams.get('hub.verify_token') === WEBHOOK_TOKEN;
 }
