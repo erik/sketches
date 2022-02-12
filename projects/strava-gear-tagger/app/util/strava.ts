@@ -1,7 +1,7 @@
+import { redirect } from "remix";
 import { getSession, commitSession } from "~/sessions.server";
 
 type AuthToken = {
-    athleteId: number;
     accessToken: string;
     refreshToken: string;
     expiresAt: Date;
@@ -74,7 +74,13 @@ export function getLoginURL(redirectURL: string): string {
         `&scope=${REQUIRED_SCOPES.join(",")}`;
 }
 
-export async function exchangeCodeForToken(code: string): AuthToken {
+export async function exchangeCodeForToken(code: string, grantedScopes: List<string>) {
+    if (REQUIRED_SCOPES.some(s => !grantedScopes.includes(s))) {
+        console.error('Missing required scope', grantedScopes);
+        // TODO: Flash error
+        throw redirect("/", 301);
+    }
+
     const response = await fetch('https://www.strava.com/oauth/token', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -88,7 +94,8 @@ export async function exchangeCodeForToken(code: string): AuthToken {
 
     if (response.status !== 200) {
         console.error('Auth failed!', response.statusText)
-        throw 'TODO HANDLE ME'
+        // TODO: Flash error
+        throw redirect("/", 301);
     }
 
     const {
@@ -99,10 +106,12 @@ export async function exchangeCodeForToken(code: string): AuthToken {
     } = await response.json();
 
     return {
-        accessToken: access_token,
-        refreshToken: refresh_token,
-        expiresAt: new Date(expires_at * 1000),
         athleteId: id,
+        token: {
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            expiresAt: new Date(expires_at * 1000),
+        }
     };
 }
 
@@ -140,26 +149,17 @@ export async function refreshToken(tok: AuthToken): AuthToken {
     };
 }
 
-export async function getGear(session) {
-    let tok = JSON.parse(session.get('token'));
-
-    if (new Date(tok.expiresAt) <= new Date()) {
-        tok = refreshToken(tok);
-        session.set("token", JSON.stringify(tok));
-        // TODO: Do I need to set cookie here?
-        await commitSession(session);
-    }
-
+export async function getGear(token) {
     const response = await fetch('https://www.strava.com/api/v3/athlete', {
         headers: {
             'Accept': 'application/json',
-            'Authorization': `Bearer ${tok.accessToken}`,
+            'Authorization': `Bearer ${token.accessToken}`,
         }
     });
 
     if (response.status !== 200) {
         console.error('Failed to fetch gear:', response);
-        throw 'D:';
+        throw redirect("/", 301);
     }
 
     const { bikes, shoes } = await response.json();
@@ -180,7 +180,7 @@ export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
 
     if (response.status !== 200) {
         console.error('Failed to create webhook:', response);
-        throw 'D:';
+        throw redirect("/", 301);
     }
 }
 

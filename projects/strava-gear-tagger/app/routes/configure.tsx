@@ -2,46 +2,30 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useSubmit,
   useTransition,
+  Form,
 } from "remix";
 
-import { getSession, commitSession } from "~/sessions.server";
-import { getGearMapping, setGearMapping } from "~/storage.server";
+import { getSession, commitSession, getAthleteOrLogin } from "~/sessions.server";
+import * as store from "~/storage.server";
 import * as strava from "~/util/strava";
 
-function loginLink() {
-  return strava.getLoginURL(
-    'http://localhost:8787/auth/exchange_token'
-  );
-}
-
-
 export async function loader({ request }) {
-  const session = await getSession(
-    request.headers.get("Cookie")
-  );
-
-  console.log('got session:', session.data)
-
-  if (!session.has("token")) {
-    return redirect("/");
-  }
-
-  const tok = JSON.parse(session.get('token'));
+  const session = await getSession(request.headers.get("Cookie"));
+  const athleteId = getAthleteOrLogin(session);
+  const token = await store.getStravaCredentials(athleteId);
 
   return {
-    gear: await strava.getGear(session),
-    gearMapping: await getGearMapping(tok.athleteId),
-    session,
+    athleteId,
+    availableGear: await strava.getGear(token),
+    activityGearMapping: await store.getGearMapping(athleteId),
   };
 }
 
 export async function action({ request }) {
-  const session = await getSession(
-    request.headers.get("Cookie")
-  );
-
-  const tok = JSON.parse(session.get('token'));
+  const session = await getSession(request.headers.get("Cookie"));
+  const athleteId = getAthleteOrLogin(session);
 
   const form = await request.formData();
   const activityMap = {};
@@ -49,61 +33,72 @@ export async function action({ request }) {
     v !== '' && (activityMap[k] = v);
   }
 
-  console.log('got', activityMap);
-  await setGearMapping(tok.athleteId, activityMap);
-
+  await store.setGearMapping(athleteId, activityMap);
   return redirect('/configure');
 }
 
-function mapGearSelections(activityTypes, gear, currentMapping) {
-  const mapping = activityTypes.map(t => (
-    <div key={t}>
-      <label
-        htmlFor={`mapping-${t}`}>
-        {t}
-      </label>
+function activityTypeGearInput(activityType, availableGear, currentMapping) {
+  return (
+    <div key={activityType}>
+      <label htmlFor={`mapping-${activityType}`}>{activityType}</label>
       <div>
         <select
-          name={t}
-          defaultValue={currentMapping[t] || ""}
-          id={`mapping-${t}`}>
+          name={activityType}
+          defaultValue={currentMapping}
+          id={`mapping-${activityType}`}>
           <option value="">---</option>
-          { gear.map(it => <option key={it.id} value={it.id}>{it.name}</option>) }
+          { availableGear.map(it => <option key={it.id} value={it.id}>{it.name}</option>) }
         </select>
       </div>
     </div>
-  ));
-
-  return <div>{mapping}</div>;
+  );
 }
 
 export default function Configure() {
-  const { gear, gearMapping } = useLoaderData();
-  const transition = useTransition();
-  const actionData = useActionData();
+  const {
+    availableGear,
+    activityGearMapping,
+  } = useLoaderData();
 
-  // TODO: use Form (capital F)
+  const submit = useSubmit();
+  const transition = useTransition();
+
+  function saveChange(event) {
+    submit(event.currentTarget, { replace: true });
+  }
+
+  const bikeInputs = strava.BIKE_ACTIVITY_TYPES.map(t => {
+    return activityTypeGearInput(t, availableGear.bikes, activityGearMapping[t]);
+  });
+
+  const shoeInputs = strava.SHOE_ACTIVITY_TYPES.map(t => {
+    return activityTypeGearInput(t, availableGear.shoes, activityGearMapping[t]);
+  });
+
+  // TODO: Fix save
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", lineHeight: "1.4" }}>
+    <div>
       <h1>Configuration</h1>
 
-      <pre>{JSON.stringify(gearMapping)}</pre>
-
-      <form method="post">
+      <Form method="post" onChange={saveChange}>
         <h2>Rides</h2>
-        {mapGearSelections(strava.BIKE_ACTIVITY_TYPES, gear.bikes, gearMapping)}
+        {bikeInputs}
 
         <h2>Runs</h2>
-        {mapGearSelections(strava.SHOE_ACTIVITY_TYPES, gear.shoes, gearMapping)}
+        {shoeInputs}
+      </Form>
 
-        <button type="submit">
-          Configure
-        </button>
-      </form>
+      <p style={{
+           opacity: transition.state === 'submitting' ? 1 : 0,
+           transition: 'opacity 5s linear 0s',
+         }}>
+        Saved!
+      </p>
 
       <h2>Debug</h2>
       <details>
-        <pre>{JSON.stringify(gear, null, 2)}</pre>
+        <pre>{JSON.stringify(availableGear, null, 2)}</pre>
+        <pre>{JSON.stringify(activityGearMapping, null, 2)}</pre>
       </details>
     </div>
   );

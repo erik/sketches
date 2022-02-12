@@ -1,9 +1,10 @@
 import {
     createCookie,
-    createCloudflareKVSessionStorage
+    createCookieSessionStorage,
+    redirect,
 } from "remix";
 
-const { getSession, commitSession, destroySession } = createCloudflareKVSessionStorage({
+const { getSession, commitSession, destroySession } = createCookieSessionStorage({
     kv: KV_SESSION,
     cookie: {
         name: "__session",
@@ -13,5 +14,13 @@ const { getSession, commitSession, destroySession } = createCloudflareKVSessionS
         path: "/",
     },
 });
+
+export function getAthleteOrLogin(session): string {
+    if (!session.has("athlete_id")) {
+        throw redirect("/", 301);
+    }
+
+    return session.get('athlete_id');
+}
 
 export { getSession, commitSession, destroySession };

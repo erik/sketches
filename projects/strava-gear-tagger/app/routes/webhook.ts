@@ -1,4 +1,8 @@
-import type { LoaderFunction } from "remix";
+import type {
+  json,
+  ActionFunction,
+  LoaderFunction,
+} from "remix";
 
 import { getSession, commitSession } from "~/sessions.server";
 import * as strava from "~/util/strava";
@@ -11,18 +15,41 @@ export const loader: LoaderFunction = async ({
   const validated = strava.validateWebhookPayload(params);
 
   if (params.get('hub.mode') !== 'subscribe' || !validated) {
-    // TODO: 4xx
     console.log('Ignoring bogus Strava request', params);
-    return 'bah!';
+    return json({ msg: 'Webhook not accepted' }, { status: 401 });
   }
 
-  // TODO: Your callback address must respond within two seconds to
-  // the GET request from Strava’s subscription service. The response
-  // should indicate status code 200 and should echo the hub.challenge
-  // field in the response body as application/json content type: {
-  // “hub.challenge”:”15f7d1a91c1f40f8a748fd134752feb3” }
-  return params.get('hub.challenge');
+  return json({
+    'hub.challenge': params.get('hub.challenge')
+  });
+};
+
+export const action: ActionFunction = async ({
+  request
+}) => {
+  if (request.method !== "POST") {
+    throw json("Method Not Allowed", { status: 405 });
+  }
+
+  const payload = await request.json();
+  return await handleWebhookPayload(payload);
 };
 
 
-// TODO: webhook post
+async function handleWebhookPayload(payload) {
+  console.log("Received webhook payload", payload);
+
+  const athleteId = payload['owner_id'];
+  // TODO: fetch credentials.
+//   {
+//     "aspect_type": "update",
+//     "event_time": 1516126040,
+//     "object_id": 1360128428,
+//     "object_type": "activity",
+//     "owner_id": 134815,
+//     "subscription_id": 120475,
+//     "updates": {
+//         "title": "Messy"
+//     }
+// }
+}

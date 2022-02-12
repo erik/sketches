@@ -1,6 +1,6 @@
 import { redirect, useLoaderData } from "remix";
 
-import { getSession, commitSession } from "~/sessions.server";
+import { getSession, commitSession, getAthleteOrLogin } from "~/sessions.server";
 import * as strava from "~/util/strava";
 
 function loginLink() {
@@ -10,14 +10,12 @@ function loginLink() {
 }
 
 export async function loader({ request }) {
-  const session = await getSession(
-    request.headers.get("Cookie")
-  );
+  const session = await getSession(request.headers.get("Cookie"));
 
-  console.log('got session:', session.data)
+  console.log('received session', session.data)
 
-  if (session.has("token")) {
-    return redirect("configure");
+  if (session.has("athlete_id")) {
+    throw redirect("/configure", 301);
   }
 
   return { session };

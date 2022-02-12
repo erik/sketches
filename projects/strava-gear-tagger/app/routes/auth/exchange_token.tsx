@@ -1,24 +1,30 @@
 import { redirect } from "remix";
 import type { LoaderFunction } from "remix";
 
+import * as store from "~/storage.server";
 import { getSession, commitSession } from "~/sessions.server";
 import * as strava from "~/util/strava";
 
 export const loader: LoaderFunction = async ({
   request
 }) => {
-  const code = new URL(request.url).searchParams.get('code');
-  // TODO: handle failure
-  const token = await strava.exchangeCodeForToken(code);
+  const params = new URL(request.url).searchParams;
+  const code = params.get('code');
+  const grantedScopes = params.get('scope').split(',');
 
-  const session = await getSession(
-    request.headers.get("Cookie")
-  );
+  const {
+    athleteId,
+    token,
+  } = await strava.exchangeCodeForToken(code, grantedScopes);
 
-  session.set("token", JSON.stringify(token));
-  const cookie = await commitSession(session);
+  await store.setStravaCredentials(athleteId, token);
+
+  const session = await getSession(request.headers.get("Cookie"));
+  session.set("athlete_id", athleteId);
 
   return redirect("/", {
-    headers: {"Set-Cookie": cookie}
+    headers: {
+      "Set-Cookie": await commitSession(session)
+    }
   });
 };
