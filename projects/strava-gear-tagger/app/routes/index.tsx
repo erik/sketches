@@ -5,6 +5,7 @@ import * as strava from "~/util/strava";
 
 function loginLink() {
   return strava.getLoginURL(
+    // TODO: Grab base URL from request
     'http://localhost:8787/auth/exchange_token'
   );
 }

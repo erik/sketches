@@ -149,7 +149,7 @@ export async function refreshToken(tok: AuthToken): AuthToken {
     };
 }
 
-export async function getGear(token) {
+export async function getGear(token: AuthToken) {
     const response = await fetch('https://www.strava.com/api/v3/athlete', {
         headers: {
             'Accept': 'application/json',
@@ -165,6 +165,39 @@ export async function getGear(token) {
     const { bikes, shoes } = await response.json();
     return { bikes, shoes };
 }
+
+export async function getActivityDetails(token: AuthToken, activityId: string) {
+    const response = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+        headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${token.accessToken}`,
+        }
+    });
+
+    if (response.status !== 200) {
+        console.error('Failed to fetch activity:', response);
+        throw ':(';
+    }
+
+    return await response.json();
+}
+
+export async function updateActivityGear(token: AuthToken, activityId: string, gearId: string) {
+    const response = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token.accessToken}`,
+        },
+        body: JSON.stringify({gear_id: gearId}),
+    });
+
+    if (response.status !== 200) {
+        console.error('Failed to update activity', response, await response.json());
+        throw ':(';
+    }
+}
+
 
 export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
     const response = await fetch('https://www.strava.com/api/v3/push_subscriptions', {
