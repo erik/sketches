@@ -9,7 +9,7 @@
     "postinstall": "remix setup cloudflare-workers",
     "build:worker": "esbuild --define:process.env.NODE_ENV='\"production\"' --minify --bundle --sourcemap --outdir=dist ./worker",
     "dev:worker": "esbuild --define:process.env.NODE_ENV='\"development\"' --bundle --sourcemap --outdir=dist ./worker",
-    "start": "miniflare --kv KV_STRAVA_OAUTH --kv KV_GEAR_MAP --kv KV_SESSION --build-command \"npm run dev:worker\" --watch",
+    "start": "miniflare --kv KV_STRAVA_OAUTH --kv KV_GEAR_MAP --build-command \"npm run dev:worker\" --watch",
     "deploy": "npm run build && wrangler publish"
   },
   "dependencies": {

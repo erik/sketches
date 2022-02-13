@@ -9,8 +9,8 @@ export const loader: LoaderFunction = async ({
   request
 }) => {
   const params = new URL(request.url).searchParams;
-  const code = params.get('code');
-  const grantedScopes = params.get('scope').split(',');
+  const code = params.get('code') ?? 'missing';
+  const grantedScopes = params.get('scope')?.split(',') ?? [];
 
   const {
     athleteId,

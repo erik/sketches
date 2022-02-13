@@ -74,7 +74,7 @@ export function getLoginURL(redirectURL: string): string {
         `&scope=${REQUIRED_SCOPES.join(",")}`;
 }
 
-export async function exchangeCodeForToken(code: string, grantedScopes: List<string>) {
+export async function exchangeCodeForToken(code: string, grantedScopes: string[]) {
     if (REQUIRED_SCOPES.some(s => !grantedScopes.includes(s))) {
         console.error('Missing required scope', grantedScopes);
         // TODO: Flash error
@@ -115,7 +115,7 @@ export async function exchangeCodeForToken(code: string, grantedScopes: List<str
     };
 }
 
-export async function refreshToken(tok: AuthToken): AuthToken {
+export async function refreshToken(tok: AuthToken): Promise<AuthToken> {
     console.log('Token needs refresh', tok);
 
     const response = await fetch('https://www.strava.com/api/v3/oauth/token', {
@@ -145,7 +145,6 @@ export async function refreshToken(tok: AuthToken): AuthToken {
         accessToken: access_token,
         refreshToken: refresh_token,
         expiresAt: new Date(expires_at * 1000),
-        athleteId: tok.athleteId,
     };
 }
 
@@ -217,6 +216,6 @@ export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
     }
 }
 
-export function validateWebhookPayload(urlParams: SearchParams): bool {
+export function validateWebhookPayload(urlParams: URLSearchParams): boolean {
     return urlParams.get('hub.verify_token') === WEBHOOK_TOKEN;
 }

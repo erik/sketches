@@ -5,12 +5,11 @@ import {
 } from "remix";
 
 const { getSession, commitSession, destroySession } = createCookieSessionStorage({
-    kv: KV_SESSION,
     cookie: {
         name: "__session",
-        secrets: ["TODO CHANGE ME"],
+        secrets: [COOKIE_SECRET],
         // secure: true,
-        sameSite: "Lax",
+        sameSite: "lax",
         path: "/",
     },
 });
