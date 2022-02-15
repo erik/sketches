@@ -4,7 +4,7 @@ Set default bike or shoes on Strava activities depending on type.
 
 e.g.
 
-- Use my trainer for all virual rides
+- Use my trainer for all virtual rides
 - Use hiking boots by default for all hikes
 - Use running shoes for all runs
 
