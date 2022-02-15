@@ -1,34 +1,50 @@
-# Welcome to Remix!
+# strava-gear-tagger
 
-- [Remix Docs](https://remix.run/docs)
+Set default bike or shoes on Strava activities depending on type.
+
+e.g.
+
+- Use my trainer for all virual rides
+- Use hiking boots by default for all hikes
+- Use running shoes for all runs
+
+Save those precious 5 seconds.
 
 ## Development
 
-You will be running two processes during development:
+``` sh
+# Dev server
+npm run dev
 
-- The Miniflare server (miniflare is a local environment for Cloudflare Workers)
-- The Remix development server
-
-```sh
-# in one tab, start the remix dev server
-$ npm run dev
-
-# in another, start the miniflare server
-$ npm start
+# Miniflare (local CloudFlare Workers impl)
+npm start
 ```
 
-Open up [http://127.0.0.1:8787](http://127.0.0.1:8787) and you should be ready to go!
-
-If you'd rather run everything in a single tab, you can look at [concurrently](https://npm.im/concurrently) or similar tools to run both processes in one tab.
+Server will be running on http://127.0.0.1:8787
 
 ## Deployment
 
-Use [wrangler](https://developers.cloudflare.com/workers/cli-wrangler) to build and deploy your application to Cloudflare Workers. If you don't have it yet, follow [the installation guide](https://developers.cloudflare.com/workers/cli-wrangler/install-update) to get it setup. Be sure to [authenticate the CLI](https://developers.cloudflare.com/workers/cli-wrangler/authentication) as well.
+First modify `wrangler.toml` so it doesn't point to my resources.
 
-If you don't already have an account, then [create a cloudflare account here](https://dash.cloudflare.com/sign-up) and after verifying your email address with Cloudflare, go to your dashboard and set up your free custom Cloudflare Workers subdomain.
-
-Once that's done, you should be able to deploy your app:
-
-```sh
+``` sh
+# Deploy the worker
 npm run deploy
+
+# Create the secrets
+wrangler secret put STRAVA_CLIENT_ID
+wrangler secret put STRAVA_CLIENT_SECRET
+wrangler secret put STRAVA_WEBHOOK_TOKEN
+wrangler secret put STRAVA_COOKIE_SECRET
+
+# Create the webhook
+curl -X POST https://www.strava.com/api/v3/push_subscriptions \
+     -F 'client_id=FOO' \
+     -F 'client_secret=BAR' \
+     -F 'callback_url=https://BAZ.workers.dev/webhook' \
+     -F 'verify_token=QUUX'
+
+# Ensure the webhook was registered
+curl -G https://www.strava.com/api/v3/push_subscriptions \
+     -d client_id=FOO \
+     -d client_secret=BAR
 ```
