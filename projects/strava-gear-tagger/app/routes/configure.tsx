@@ -34,7 +34,10 @@ export async function action({ request }) {
   }
 
   await store.setGearMapping(athleteId, activityMap);
-  return redirect('/configure');
+
+  return {
+    updatedAt: new Date(),
+  }
 }
 
 function activityTypeGearInput(activityType, availableGear, currentMapping) {
@@ -62,6 +65,8 @@ export default function Configure() {
 
   const submit = useSubmit();
   const transition = useTransition();
+  const { updatedAt = null } = useActionData() || {};
+
 
   function saveChange(event) {
     submit(event.currentTarget, { replace: true });
@@ -75,7 +80,14 @@ export default function Configure() {
     return activityTypeGearInput(t, availableGear.shoes, activityGearMapping[t]);
   });
 
-  // TODO: Fix save
+  // TODO: toLocaleString() does not work as expected with SSR
+  const saveIndicator = (transition.state === 'submitting')
+        ? <span>Saving...</span>
+        : (updatedAt !== null)
+        ? <span>Saved at <em>{updatedAt.toLocaleString()}</em></span>
+        : null
+        ;
+
   return (
     <div>
       <h1>Configuration</h1>
@@ -88,18 +100,9 @@ export default function Configure() {
         {shoeInputs}
       </Form>
 
-      <p style={{
-           opacity: transition.state === 'submitting' ? 1 : 0,
-           transition: 'opacity 5s linear 0s',
-         }}>
-        Saved!
+      <p>
+        {saveIndicator}
       </p>
-
-      <h2>Debug</h2>
-      <details>
-        <pre>{JSON.stringify(availableGear, null, 2)}</pre>
-        <pre>{JSON.stringify(activityGearMapping, null, 2)}</pre>
-      </details>
     </div>
   );
 }
