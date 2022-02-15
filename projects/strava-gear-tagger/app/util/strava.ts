@@ -1,4 +1,6 @@
 import { redirect } from "remix";
+
+import { secrets } from "~/env.server";
 import { getSession, commitSession } from "~/sessions.server";
 
 type AuthToken = {
@@ -6,11 +8,6 @@ type AuthToken = {
     refreshToken: string;
     expiresAt: Date;
 };
-
-// Defined in .env
-const CLIENT_ID = globalThis.STRAVA_CLIENT_ID;
-const CLIENT_SECRET = globalThis.STRAVA_CLIENT_SECRET;
-const WEBHOOK_TOKEN = globalThis.STRAVA_WEBHOOK_TOKEN;
 
 const REQUIRED_SCOPES = [
     'profile:read_all',
@@ -67,7 +64,7 @@ const UNKNOWN_ACTIVITY_TYPES = [
 
 export function getLoginURL(redirectURL: string): string {
     return 'https://www.strava.com/oauth/authorize' +
-        `?client_id=${CLIENT_ID}` +
+        `?client_id=${secrets.STRAVA_CLIENT_ID}` +
         '&response_type=code' +
         `&redirect_uri=${redirectURL}` +
         '&approval_prompt=force' +
@@ -86,8 +83,8 @@ export async function exchangeCodeForToken(code: string, grantedScopes: string[]
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             code,
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+            client_id: secrets.STRAVA_CLIENT_ID,
+            client_secret: secrets.STRAVA_CLIENT_SECRET,
             grant_type: 'authorization_code',
         }),
     });
@@ -123,8 +120,8 @@ export async function refreshToken(tok: AuthToken): Promise<AuthToken> {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             refresh_token: tok.refreshToken,
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+            client_id: secrets.STRAVA_CLIENT_ID,
+            client_secret: secrets.STRAVA_CLIENT_SECRET,
             grant_type: 'refresh_token',
         }),
     });
@@ -203,10 +200,10 @@ export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+            client_id: secrets.STRAVA_CLIENT_ID,
+            client_secret: secrets.STRAVA_CLIENT_SECRET,
             callback_url: callbackUrl,
-            verify_token: WEBHOOK_TOKEN
+            verify_token: secrets.STRAVA_WEBHOOK_TOKEN
         }),
     });
 
@@ -217,5 +214,5 @@ export async function registerWebhook(tok: AuthToken, callbackUrl: string) {
 }
 
 export function validateWebhookPayload(urlParams: URLSearchParams): boolean {
-    return urlParams.get('hub.verify_token') === WEBHOOK_TOKEN;
+    return urlParams.get('hub.verify_token') === secrets.STRAVA_WEBHOOK_TOKEN;
 }

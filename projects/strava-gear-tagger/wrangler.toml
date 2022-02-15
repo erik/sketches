@@ -7,7 +7,6 @@ route = ""
 workers_dev = true
 compatibility_date = "2022-02-15"
 
-vars = {}
 kv_namespaces = [
   { binding = "KV_STRAVA_OAUTH", id = "49576d3e182a46afa8a3b9a41bac8649", preview_id = "49576d3e182a46afa8a3b9a41bac8649" },
   { binding = "KV_GEAR_MAP", id = "8a36921656ba436d9fa65e01c004c5f7", preview_id = "8a36921656ba436d9fa65e01c004c5f7" },

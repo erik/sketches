@@ -4,10 +4,14 @@ import {
     redirect,
 } from "remix";
 
+import { secrets } from "~/env.server.ts";
+
 const { getSession, commitSession, destroySession } = createCookieSessionStorage({
     cookie: {
         name: "__session",
-        secrets: [COOKIE_SECRET],
+        secrets: [
+            secrets.COOKIE_SECRET,
+        ],
         // secure: true,
         sameSite: "lax",
         path: "/",
