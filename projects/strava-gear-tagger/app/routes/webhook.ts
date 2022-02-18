@@ -65,14 +65,21 @@ async function handleWebhookPayload(payload) {
 
   const activityId = payload['object_id'];
   const activity = await strava.getActivityDetails(token, activityId);
+  console.log('Fetched activity', activity)
+
+  const {
+    activityMapping,
+    modifierMapping,
+  } = gearMapping;
 
   if (activity.gear_id !== null) {
     console.log('Activity already has associated gear, skipping');
     throw json({msg: 'ignored.'}, { status: 200 });
   }
 
-  const mappedGearId = gearMapping[activity.type];
-  if (mappedGearId == null) {
+  const modifier = strava.BIKE_ACTIVITY_MODIFIERS.find(m => activity[m] == true);
+  const mappedGearId = modifierMapping[modifier] || activityMapping[activity.type];
+  if (typeof mappedGearId === 'undefined') {
     console.log('No gear mapped for type=', activity.type);
     throw json({msg: 'ignored.'}, { status: 200 });
   }

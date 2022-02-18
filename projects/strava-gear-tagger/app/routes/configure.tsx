@@ -18,8 +18,8 @@ export async function loader({ request }) {
 
   return {
     athleteId,
+    gearMapping: await store.getGearMapping(athleteId),
     availableGear: await strava.getGear(token),
-    activityGearMapping: await store.getGearMapping(athleteId),
   };
 }
 
@@ -28,27 +28,42 @@ export async function action({ request }) {
   const athleteId = getAthleteOrLogin(session);
 
   const form = await request.formData();
-  const activityMap = {};
+
+  const activityMapping = { };
+  const modifierMapping = { trainer: null, commute: null };
+
   for (const [k, v] of form) {
-    v !== '' && (activityMap[k] = v);
+    if (v === '') {
+      continue;
+    } else if (k in modifierMapping) {
+      modifierMapping[k] = v;
+    } else {
+      activityMapping[k] = v;
+    }
   }
 
-  await store.setGearMapping(athleteId, activityMap);
+  const gearMapping = {
+    activityMapping,
+    modifierMapping,
+  };
+
+  await store.setGearMapping(athleteId, gearMapping);
 
   return {
+    gearMapping,
     updatedAt: new Date(),
   }
 }
 
-function activityTypeGearInput(activityType, availableGear, currentMapping) {
+function gearInput(type, availableGear, currentMapping) {
   return (
-    <div key={activityType}>
-      <label htmlFor={`mapping-${activityType}`}>{activityType}</label>
+    <div key={type}>
+      <label htmlFor={`mapping-${type}`}>{type}</label>
       <div>
         <select
-          name={activityType}
+          name={type}
           defaultValue={currentMapping}
-          id={`mapping-${activityType}`}>
+          id={`mapping-${type}`}>
           <option value="">---</option>
           { availableGear.map(it => <option key={it.id} value={it.id}>{it.name}</option>) }
         </select>
@@ -60,7 +75,7 @@ function activityTypeGearInput(activityType, availableGear, currentMapping) {
 export default function Configure() {
   const {
     availableGear,
-    activityGearMapping,
+    gearMapping,
   } = useLoaderData();
 
   const submit = useSubmit();
@@ -73,11 +88,15 @@ export default function Configure() {
   }
 
   const bikeInputs = strava.BIKE_ACTIVITY_TYPES.map(t => {
-    return activityTypeGearInput(t, availableGear.bikes, activityGearMapping[t]);
+    return gearInput(t, availableGear.bikes, gearMapping?.activityMapping[t]);
+  });
+
+  const bikeModifierInputs = strava.BIKE_ACTIVITY_MODIFIERS.map(m => {
+    return gearInput(m, availableGear.bikes, gearMapping?.modifierMapping[m]);
   });
 
   const shoeInputs = strava.SHOE_ACTIVITY_TYPES.map(t => {
-    return activityTypeGearInput(t, availableGear.shoes, activityGearMapping[t]);
+    return gearInput(t, availableGear.shoes, gearMapping?.activityMapping[t]);
   });
 
   // TODO: toLocaleString() does not work as expected with SSR
@@ -93,10 +112,14 @@ export default function Configure() {
       <h1>Configuration</h1>
 
       <Form method="post" onChange={saveChange}>
-        <h2>Rides</h2>
+        <h2>Bike Activities</h2>
         {bikeInputs}
 
-        <h2>Runs</h2>
+        <h3>Bike Activity Modifiers</h3>
+        <em>Takes precedence.</em>
+        {bikeModifierInputs}
+
+        <h2>Shoe Activities</h2>
         {shoeInputs}
       </Form>
 

@@ -26,7 +26,7 @@ export async function setStravaCredentials(athleteId: string, token) {
 
 export async function getGearMapping(athleteId: string) {
     const map = await KV_GEAR_MAP.get(`${athleteId}`);
-    return map ? JSON.parse(map) : {};
+    return map ? JSON.parse(map) : null;
 }
 
 export async function setGearMapping(athleteId: string, gearMap) {

@@ -15,6 +15,11 @@ const REQUIRED_SCOPES = [
     'activity:write',
 ];
 
+export const BIKE_ACTIVITY_MODIFIERS = [
+    "trainer",
+    "commute",
+];
+
 export const BIKE_ACTIVITY_TYPES = [
     'EBikeRide',
     'Handcycle',
