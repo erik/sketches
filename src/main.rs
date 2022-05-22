@@ -24,6 +24,29 @@ struct Graph {
     node_data: HashMap<NodeId, NodeData>,
 }
 
+fn is_way_routeable(tags: &Tags) -> bool {
+    if tags.contains("route", "ferry") {
+        return true;
+    }
+
+    if let Some(access) = tags.get("access") {
+        match access.as_str() {
+            "yes" | "permissive" | "delivery" | "designated" | "destination" | "agricultural"
+            | "forestry" | "public" => (),
+            &_ => return false,
+        }
+    }
+
+    if let Some(highway) = tags.get("highway") {
+        return match highway.as_str() {
+            "bus_guideway" | "raceway" | "proposed" | "conveying" => false,
+            &_ => true,
+        };
+    }
+
+    return false;
+}
+
 // TODO: Simplify edges to only include juntions.
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<Graph, std::io::Error> {
@@ -50,11 +73,7 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
             match obj {
                 // On the first pass gather all valid ways, and the nodes associated.
                 OsmObj::Way(ref way) if pass == 0 => {
-                    // TODO: What else is significant here?
-                    let is_routable =
-                        way.tags.contains_key("highway") || way.tags.contains("route", "ferry");
-
-                    if is_routable {
+                    if is_way_routeable(&way.tags) {
                         let way_id = way_counter;
                         way_counter += 1;
 
