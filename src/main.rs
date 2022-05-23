@@ -9,6 +9,9 @@ use petgraph::csr::Csr;
 
 type WayId = u32;
 type NodeId = u32;
+type EdgeId = u32;
+
+type Coordinate = (f32, f32);
 
 #[derive(Debug)]
 struct NodeData {
@@ -16,6 +19,19 @@ struct NodeData {
     lon: f64,
     // TODO: Extract only tags we care about
     tags: Option<Tags>,
+}
+
+#[derive(Debug)]
+struct EdgeData {
+    // meters
+    //
+    // TODO: Maybe store multiples of meters so we can fit in a u16 -
+    // need to check max realistic edge length.
+    dist: u32,
+    tags: Option<Tags>,
+    // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
+    // TODO: Alternatively - polyline, without ASCII representation
+    geometry: Vec<Coordinate>,
 }
 
 struct Graph {
@@ -47,8 +63,6 @@ fn is_way_routeable(tags: &Tags) -> bool {
     return false;
 }
 
-type Coordinate = (f32, f32);
-
 fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, NodeId>
 where
     R: std::io::Read + std::io::Seek,
@@ -61,16 +75,20 @@ where
     for obj in reader.par_iter() {
         let obj = obj.unwrap();
 
+        // TODO: Should we consider barrier nodes? Anything else that
+        // we'd want to include if not in a way?
         if let OsmObj::Way(ref way) = obj {
             if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                 continue;
             }
 
             for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                let should_retain = i == 0 || i == way.nodes.len() - 1;
+
                 is_routing_node
                     .entry(osm_node_id)
                     .and_modify(|it| *it = true)
-                    .or_insert(i == 0 || i == way.nodes.len() - 1);
+                    .or_insert(should_retain);
             }
         }
     }
@@ -92,62 +110,97 @@ where
         .collect();
 }
 
+fn strip_tags(tags: &Tags) -> Option<Tags> {
+    let mut tags = tags.clone();
+
+    // Not exhaustive
+    let unused_tags = vec![
+        "created_by",
+        "source",
+        "ref",
+        "addr:housenumber",
+        "addr:street",
+        "addr:city",
+        "addr:postcode",
+    ];
+
+    for key in unused_tags.into_iter() {
+        tags.remove(key);
+    }
+
+    if tags.is_empty() {
+        return None;
+    }
+
+    Some(tags)
+}
+
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
-// TODO: Simplify edges to only include juntions.
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<Graph, std::io::Error> {
     let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
-    let mut node_data = HashMap::<NodeId, NodeData>::new();
-    let mut way_tags = HashMap::<WayId, Tags>::new();
-
-    let mut edges = HashSet::<(NodeId, NodeId)>::new();
-
     let node_id_mapping = construct_node_id_mapping(&mut pbf);
-
-    println!("Num routing nodes: {}", node_id_mapping.len());
 
     // Reset to start of file for next iteration.
     pbf.rewind().unwrap();
 
-    for obj in pbf.par_iter().map(Result::unwrap) {
+    // TODO: Can be a Vec<> using NodeId as the index.
+    let mut node_data = HashMap::<NodeId, NodeData>::new();
+    let mut edges = HashMap::<(NodeId, NodeId), EdgeData>::new();
+
+    for obj in pbf.par_iter() {
+        let obj = obj.unwrap();
         match obj {
             OsmObj::Way(ref way) => {
                 if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                     continue;
                 }
 
+                // TODO: Calculate distance using geometry nodes
+                // TODO: Simplify geometry nodes and store
                 let routing_nodes = way
                     .nodes
                     .iter()
                     .filter_map(|osm_node_id| node_id_mapping.get(osm_node_id));
 
-                let mut prev_node = None;
-                for &node in routing_nodes {
-                    if let Some(prev) = prev_node {
-                        edges.insert((prev, node));
+                let mut prev_id = None;
+                for &node_id in routing_nodes {
+                    if let Some(prev) = prev_id {
+                        let key = (prev, node_id);
+                        // TODO: Duplicate edges are possible! How do we handle this?
+                        //   https://www.openstreetmap.org/way/1060404609
+                        //   https://www.openstreetmap.org/way/1060404608
+                        //
+                        // For now, just go with whatever we see first...
+                        if !edges.contains_key(&key) {
+                            // Skip...
+                            edges.insert(
+                                key,
+                                // TODO: populate
+                                EdgeData {
+                                    dist: 0,
+                                    tags: strip_tags(&way.tags),
+                                    geometry: vec![],
+                                },
+                            );
+                        }
                     }
 
-                    prev_node = Some(node);
+                    prev_id = Some(node_id);
                 }
             }
+
+            // TODO: We need to read nodes before ways (for lat, lng). Move this to the first pass.
             OsmObj::Node(ref node) => {
-                let osm_node_id = node.id;
-
-                if let Some(&node_id) = node_id_mapping.get(&osm_node_id) {
-                    let tags = if node.tags.is_empty() {
-                        None
-                    } else {
-                        Some(node.tags.clone())
-                    };
-
+                if let Some(&node_id) = node_id_mapping.get(&node.id) {
                     node_data.insert(
                         node_id,
                         NodeData {
                             lat: node.lat(),
                             lon: node.lon(),
-                            tags,
+                            tags: strip_tags(&node.tags),
                         },
                     );
                 }
@@ -158,7 +211,7 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
         }
     }
 
-    let mut edges = edges.iter().collect::<Vec<_>>();
+    let mut edges = edges.keys().collect::<Vec<_>>();
     edges.sort();
 
     let csr = Csr::from_sorted_edges(&edges).unwrap();
