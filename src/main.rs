@@ -5,7 +5,7 @@ use osmpbfreader::{
     OsmObj, OsmPbfReader, Tags,
 };
 use petgraph::csr::Csr;
-use petgraph::prelude::*;
+// use petgraph::prelude::*;
 
 type WayId = u32;
 type NodeId = u32;
@@ -47,83 +47,114 @@ fn is_way_routeable(tags: &Tags) -> bool {
     return false;
 }
 
+type Coordinate = (f32, f32);
+
+fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, NodeId>
+where
+    R: std::io::Read + std::io::Seek,
+{
+    // A node is used for routing if it:
+    // - is the first or last node of a way
+    // - is shared by multiple ways (i.e. a junction)
+    let mut is_routing_node = HashMap::<OsmNodeId, bool>::new();
+
+    for obj in reader.par_iter() {
+        let obj = obj.unwrap();
+
+        if let OsmObj::Way(ref way) = obj {
+            if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                continue;
+            }
+
+            for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                is_routing_node
+                    .entry(osm_node_id)
+                    .and_modify(|it| *it = true)
+                    .or_insert(i == 0 || i == way.nodes.len() - 1);
+            }
+        }
+    }
+
+    let mut next_id = 0;
+
+    // Assign new IDs without any gaps
+    return is_routing_node
+        .iter()
+        .filter_map(|(&osm_id, &is_routing)| {
+            if is_routing {
+                let id = next_id;
+                next_id += 1;
+                Some((osm_id, id))
+            } else {
+                None
+            }
+        })
+        .collect();
+}
+
+// TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
 // TODO: Simplify edges to only include juntions.
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<Graph, std::io::Error> {
     let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
-    let mut node_counter = 0;
-    let mut way_counter = 0;
-
-    // TODO: Add Vec<WayId> as well so we can merge tags.
-    // I think??
-    let mut referenced_node_ids = HashMap::<OsmNodeId, NodeId>::new();
-
     let mut node_data = HashMap::<NodeId, NodeData>::new();
     let mut way_tags = HashMap::<WayId, Tags>::new();
 
     let mut edges = HashSet::<(NodeId, NodeId)>::new();
 
-    for pass in 0..=1 {
-        pbf.rewind().unwrap();
+    let node_id_mapping = construct_node_id_mapping(&mut pbf);
 
-        // TODO: When would this fail?
-        for obj in pbf.par_iter().map(Result::unwrap) {
-            match obj {
-                // On the first pass gather all valid ways, and the nodes associated.
-                OsmObj::Way(ref way) if pass == 0 => {
-                    if is_way_routeable(&way.tags) {
-                        let way_id = way_counter;
-                        way_counter += 1;
+    println!("Num routing nodes: {}", node_id_mapping.len());
 
-                        let mut prev_id = None;
-                        for osm_node_id in way.nodes.iter() {
-                            let node_id = match referenced_node_ids.get(osm_node_id) {
-                                Some(id) => *id,
-                                None => {
-                                    let node_id = node_counter;
-                                    referenced_node_ids.insert(*osm_node_id, node_id);
-                                    node_counter += 1;
-                                    node_id
-                                }
-                            };
+    // Reset to start of file for next iteration.
+    pbf.rewind().unwrap();
 
-                            if let Some(prev_id) = prev_id {
-                                // TODO: or maybe attach way_id here?
-                                edges.insert((prev_id, node_id));
-                            }
-                            prev_id = Some(node_id);
-                        }
-
-                        way_tags.insert(way_id, way.tags.clone());
-                    }
+    for obj in pbf.par_iter().map(Result::unwrap) {
+        match obj {
+            OsmObj::Way(ref way) => {
+                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                    continue;
                 }
 
-                // TODO: Which nodes do we care about individually? Barriers?
-                // Only gather nodes in the second pass.
-                OsmObj::Node(ref node) if pass != 0 => {
-                    if let Some(node_id) = referenced_node_ids.get(&node.id) {
-                        let tags = if node.tags.is_empty() {
-                            None
-                        } else {
-                            Some(node.tags.clone())
-                        };
+                let routing_nodes = way
+                    .nodes
+                    .iter()
+                    .filter_map(|osm_node_id| node_id_mapping.get(osm_node_id));
 
-                        node_data.insert(
-                            *node_id,
-                            NodeData {
-                                lat: node.lat(),
-                                lon: node.lon(),
-                                tags,
-                            },
-                        );
+                let mut prev_node = None;
+                for &node in routing_nodes {
+                    if let Some(prev) = prev_node {
+                        edges.insert((prev, node));
                     }
-                }
 
-                // TODO: Support relations
-                _ => (),
+                    prev_node = Some(node);
+                }
             }
+            OsmObj::Node(ref node) => {
+                let osm_node_id = node.id;
+
+                if let Some(&node_id) = node_id_mapping.get(&osm_node_id) {
+                    let tags = if node.tags.is_empty() {
+                        None
+                    } else {
+                        Some(node.tags.clone())
+                    };
+
+                    node_data.insert(
+                        node_id,
+                        NodeData {
+                            lat: node.lat(),
+                            lon: node.lon(),
+                            tags,
+                        },
+                    );
+                }
+            }
+
+            // TODO: handle relations
+            OsmObj::Relation(_) => {}
         }
     }
 
