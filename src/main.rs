@@ -11,12 +11,15 @@ type WayId = u32;
 type NodeId = u32;
 type EdgeId = u32;
 
-type Coordinate = (f32, f32);
+#[derive(Debug, Copy, Clone)]
+struct Coordinate {
+    lat: f32,
+    lon: f32,
+}
 
 #[derive(Debug)]
 struct NodeData {
-    lat: f64,
-    lon: f64,
+    coord: Coordinate,
     // TODO: Extract only tags we care about
     tags: Option<Tags>,
 }
@@ -25,8 +28,7 @@ struct NodeData {
 struct EdgeData {
     // meters
     //
-    // TODO: Maybe store multiples of meters so we can fit in a u16 -
-    // need to check max realistic edge length.
+    // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
     tags: Option<Tags>,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
@@ -38,6 +40,28 @@ struct Graph {
     csr: Csr<NodeId, ()>,
     // TODO: Can be vec
     node_data: HashMap<NodeId, NodeData>,
+}
+
+impl Coordinate {
+    #[inline(always)]
+    fn to_radians(&self) -> (f32, f32) {
+        (self.lat.to_radians(), self.lon.to_radians())
+    }
+
+    // Haversine, returns meters
+    // TODO: unchecked
+    fn dist_to(&self, other: &Coordinate) -> u32 {
+        let (lat1, lon1) = self.to_radians();
+        let (lat2, lon2) = other.to_radians();
+
+        let dt_lon = lon2 - lon1;
+        let dt_lat = lat2 - lat1;
+
+        let a = (dt_lat / 2.0_f32).sin().powi(2)
+            + lat1.cos() * lat2.cos() * (dt_lon / 2.0_f32).sin().powi(2);
+        let c = 2.0_f32 * a.sqrt().asin();
+        return (6367_000_f32 * c) as u32;
+    }
 }
 
 fn is_way_routeable(tags: &Tags) -> bool {
@@ -63,49 +87,89 @@ fn is_way_routeable(tags: &Tags) -> bool {
     return false;
 }
 
-fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, NodeId>
+enum FirstPassNode {
+    Routing(NodeId, Coordinate),
+    Geometry(Coordinate),
+}
+
+impl FirstPassNode {
+    fn coord<'a>(&'a self) -> &'a Coordinate {
+        match self {
+            FirstPassNode::Routing(_, coord) => coord,
+            FirstPassNode::Geometry(coord) => coord,
+        }
+    }
+}
+
+fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, FirstPassNode>
 where
     R: std::io::Read + std::io::Seek,
 {
     // A node is used for routing if it:
     // - is the first or last node of a way
     // - is shared by multiple ways (i.e. a junction)
+    //
+    // TODO: Could be a bitvector.
     let mut is_routing_node = HashMap::<OsmNodeId, bool>::new();
+    let mut node_coords = HashMap::<OsmNodeId, Coordinate>::new();
 
     for obj in reader.par_iter() {
         let obj = obj.unwrap();
 
         // TODO: Should we consider barrier nodes? Anything else that
         // we'd want to include if not in a way?
-        if let OsmObj::Way(ref way) = obj {
-            if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                continue;
+        match obj {
+            OsmObj::Way(ref way) => {
+                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                    continue;
+                }
+
+                for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                    let should_retain = i == 0 || i == way.nodes.len() - 1;
+
+                    is_routing_node
+                        .entry(osm_node_id)
+                        .and_modify(|it| *it = true)
+                        .or_insert(should_retain);
+                }
             }
 
-            for (i, &osm_node_id) in way.nodes.iter().enumerate() {
-                let should_retain = i == 0 || i == way.nodes.len() - 1;
-
-                is_routing_node
-                    .entry(osm_node_id)
-                    .and_modify(|it| *it = true)
-                    .or_insert(should_retain);
+            // TODO: Can we avoid storing EVERY node? This is quite slow
+            // TODO: Would 3 passes be faster?
+            OsmObj::Node(ref node) => {
+                node_coords.insert(
+                    node.id,
+                    Coordinate {
+                        lat: node.lat() as f32,
+                        lon: node.lon() as f32,
+                    },
+                );
             }
+
+            OsmObj::Relation(_) => {}
         }
     }
 
     let mut next_id = 0;
 
-    // Assign new IDs without any gaps
+    // TODO: Could store as sorted Vec<> and use binary search rather
+    // than constructing hashmap.
+    //
+    //Assign new IDs without any gaps
     return is_routing_node
         .iter()
-        .filter_map(|(&osm_id, &is_routing)| {
-            if is_routing {
+        .filter_map(|(osm_id, &is_routing)| {
+            let coord = *node_coords.get(osm_id)?;
+
+            let node = if is_routing {
                 let id = next_id;
                 next_id += 1;
-                Some((osm_id, id))
+                FirstPassNode::Routing(id, coord)
             } else {
-                None
-            }
+                FirstPassNode::Geometry(coord)
+            };
+
+            Some((*osm_id, node))
         })
         .collect();
 }
@@ -122,6 +186,9 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
         "addr:street",
         "addr:city",
         "addr:postcode",
+        "fixme",
+        "comment",
+        "note",
     ];
 
     for key in unused_tags.into_iter() {
@@ -138,7 +205,7 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<Graph, std::io::Error> {
-    let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
+    let f = std::fs::File::open("./data/california.osm.pbf").unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
     let node_id_mapping = construct_node_id_mapping(&mut pbf);
@@ -152,24 +219,29 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
 
     for obj in pbf.par_iter() {
         let obj = obj.unwrap();
-        match obj {
-            OsmObj::Way(ref way) => {
-                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                    continue;
+        if let OsmObj::Way(ref way) = obj {
+            if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                continue;
+            }
+
+            let mut accumulated_dist = 0_u32;
+            let mut prev_coord: Option<Coordinate> = None;
+            let mut prev_node_id: Option<NodeId> = None;
+
+            for osm_node_id in way.nodes.iter() {
+                let node = node_id_mapping
+                    .get(osm_node_id)
+                    .expect("Missing node info from way");
+
+                if let Some(prev_coord) = prev_coord {
+                    accumulated_dist += prev_coord.dist_to(node.coord());
                 }
+                prev_coord = Some(*node.coord());
 
-                // TODO: Calculate distance using geometry nodes
-                // TODO: Simplify geometry nodes and store
-                let routing_nodes = way
-                    .nodes
-                    .iter()
-                    .filter_map(|osm_node_id| node_id_mapping.get(osm_node_id));
-
-                let mut prev_id = None;
-                for &node_id in routing_nodes {
-                    if let Some(prev) = prev_id {
-                        let key = (prev, node_id);
-                        // TODO: Duplicate edges are possible! How do we handle this?
+                if let FirstPassNode::Routing(node_id, _) = node {
+                    if let Some(prev_id) = prev_node_id {
+                        let key = (prev_id, *node_id);
+                        // TODO: Duplicate edges are possible! How do we handle this in CSR?
                         //   https://www.openstreetmap.org/way/1060404609
                         //   https://www.openstreetmap.org/way/1060404608
                         //
@@ -180,7 +252,7 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
                                 key,
                                 // TODO: populate
                                 EdgeData {
-                                    dist: 0,
+                                    dist: accumulated_dist,
                                     tags: strip_tags(&way.tags),
                                     geometry: vec![],
                                 },
@@ -188,26 +260,9 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
                         }
                     }
 
-                    prev_id = Some(node_id);
+                    prev_node_id = Some(*node_id);
                 }
             }
-
-            // TODO: We need to read nodes before ways (for lat, lng). Move this to the first pass.
-            OsmObj::Node(ref node) => {
-                if let Some(&node_id) = node_id_mapping.get(&node.id) {
-                    node_data.insert(
-                        node_id,
-                        NodeData {
-                            lat: node.lat(),
-                            lon: node.lon(),
-                            tags: strip_tags(&node.tags),
-                        },
-                    );
-                }
-            }
-
-            // TODO: handle relations
-            OsmObj::Relation(_) => {}
         }
     }
 
