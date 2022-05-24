@@ -5,7 +5,6 @@ use osmpbfreader::{
     OsmObj, OsmPbfReader, Tags,
 };
 use petgraph::csr::Csr;
-// use petgraph::prelude::*;
 
 type WayId = u32;
 type NodeId = u32;
@@ -88,17 +87,8 @@ fn is_way_routeable(tags: &Tags) -> bool {
 }
 
 enum FirstPassNode {
-    Routing(NodeId, Coordinate),
-    Geometry(Coordinate),
-}
-
-impl FirstPassNode {
-    fn coord<'a>(&'a self) -> &'a Coordinate {
-        match self {
-            FirstPassNode::Routing(_, coord) => coord,
-            FirstPassNode::Geometry(coord) => coord,
-        }
-    }
+    Routing(NodeId),
+    Geometry,
 }
 
 fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, FirstPassNode>
@@ -111,42 +101,25 @@ where
     //
     // TODO: Could be a bitvector.
     let mut is_routing_node = HashMap::<OsmNodeId, bool>::new();
-    let mut node_coords = HashMap::<OsmNodeId, Coordinate>::new();
 
     for obj in reader.par_iter() {
         let obj = obj.unwrap();
 
         // TODO: Should we consider barrier nodes? Anything else that
         // we'd want to include if not in a way?
-        match obj {
-            OsmObj::Way(ref way) => {
-                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                    continue;
-                }
-
-                for (i, &osm_node_id) in way.nodes.iter().enumerate() {
-                    let should_retain = i == 0 || i == way.nodes.len() - 1;
-
-                    is_routing_node
-                        .entry(osm_node_id)
-                        .and_modify(|it| *it = true)
-                        .or_insert(should_retain);
-                }
+        if let OsmObj::Way(ref way) = obj {
+            if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                continue;
             }
 
-            // TODO: Can we avoid storing EVERY node? This is quite slow
-            // TODO: Would 3 passes be faster?
-            OsmObj::Node(ref node) => {
-                node_coords.insert(
-                    node.id,
-                    Coordinate {
-                        lat: node.lat() as f32,
-                        lon: node.lon() as f32,
-                    },
-                );
-            }
+            for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                let should_retain = i == 0 || i == way.nodes.len() - 1;
 
-            OsmObj::Relation(_) => {}
+                is_routing_node
+                    .entry(osm_node_id)
+                    .and_modify(|it| *it = true)
+                    .or_insert(should_retain);
+            }
         }
     }
 
@@ -158,18 +131,16 @@ where
     //Assign new IDs without any gaps
     return is_routing_node
         .iter()
-        .filter_map(|(osm_id, &is_routing)| {
-            let coord = *node_coords.get(osm_id)?;
-
+        .map(|(&osm_id, &is_routing)| {
             let node = if is_routing {
                 let id = next_id;
                 next_id += 1;
-                FirstPassNode::Routing(id, coord)
+                FirstPassNode::Routing(id)
             } else {
-                FirstPassNode::Geometry(coord)
+                FirstPassNode::Geometry
             };
 
-            Some((*osm_id, node))
+            (osm_id, node)
         })
         .collect();
 }
@@ -205,21 +176,38 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<Graph, std::io::Error> {
-    let f = std::fs::File::open("./data/california.osm.pbf").unwrap();
+    let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
     let node_id_mapping = construct_node_id_mapping(&mut pbf);
+    let mut seen_way = false;
 
     // Reset to start of file for next iteration.
     pbf.rewind().unwrap();
 
     // TODO: Can be a Vec<> using NodeId as the index.
+    let mut node_geom = HashMap::<OsmNodeId, Coordinate>::with_capacity(node_id_mapping.len());
     let mut node_data = HashMap::<NodeId, NodeData>::new();
     let mut edges = HashMap::<(NodeId, NodeId), EdgeData>::new();
 
     for obj in pbf.par_iter() {
         let obj = obj.unwrap();
+        if let OsmObj::Node(ref node) = obj {
+            assert!(seen_way == false, "input files MUST be sorted!");
+
+            if let Some(node_id) = node_id_mapping.get(&node.id) {
+                let coord = Coordinate {
+                    lat: node.lat() as f32,
+                    lon: node.lon() as f32,
+                };
+
+                // TODO: Populate node data as well
+                node_geom.insert(node.id, coord);
+            }
+        }
+
         if let OsmObj::Way(ref way) = obj {
+            seen_way = true;
             if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                 continue;
             }
@@ -233,12 +221,13 @@ fn construct_graph() -> Result<Graph, std::io::Error> {
                     .get(osm_node_id)
                     .expect("Missing node info from way");
 
+                let coord = node_geom.get(osm_node_id).expect("missing node geometry");
                 if let Some(prev_coord) = prev_coord {
-                    accumulated_dist += prev_coord.dist_to(node.coord());
+                    accumulated_dist += prev_coord.dist_to(coord);
                 }
-                prev_coord = Some(*node.coord());
+                prev_coord = Some(*coord);
 
-                if let FirstPassNode::Routing(node_id, _) = node {
+                if let FirstPassNode::Routing(node_id) = node {
                     if let Some(prev_id) = prev_node_id {
                         let key = (prev_id, *node_id);
                         // TODO: Duplicate edges are possible! How do we handle this in CSR?
