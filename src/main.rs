@@ -1,13 +1,7 @@
 use std::collections::HashMap;
 
-use osmpbfreader::{
-    objects::{NodeId as OsmNodeId, WayId as OsmWayId},
-    OsmObj, OsmPbfReader, Tags,
-};
-use petgraph::{algo::astar, csr::Csr, visit::EdgeRef};
-
-type NodeId = u32;
-type EdgeId = (NodeId, NodeId);
+use osmpbfreader::{objects::NodeId as OsmNodeId, OsmObj, OsmPbfReader, Tags};
+use petgraph::{algo::astar, graph::Graph, graph::NodeIndex};
 
 #[derive(Debug, Copy, Clone)]
 struct Coordinate {
@@ -22,7 +16,7 @@ struct NodeData {
     tags: Option<Tags>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EdgeData {
     // meters
     //
@@ -35,31 +29,25 @@ struct EdgeData {
 }
 
 struct OsmGraph {
-    csr: Csr<NodeId, ()>,
-    // TODO: Can be vec
-    node_data: HashMap<NodeId, NodeData>,
-    edge_data: HashMap<EdgeId, EdgeData>,
+    // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
+    inner: Graph<NodeData, EdgeData>,
 }
 
 impl Coordinate {
-    #[inline(always)]
-    fn to_radians(&self) -> (f32, f32) {
-        (self.lat.to_radians(), self.lon.to_radians())
-    }
-
     // Haversine, returns meters
     // TODO: unchecked
     fn dist_to(&self, other: &Coordinate) -> u32 {
-        let (lat1, lon1) = self.to_radians();
-        let (lat2, lon2) = other.to_radians();
+        let (lat1, lat2) = (self.lat.to_radians(), other.lat.to_radians());
 
-        let dt_lon = lon2 - lon1;
+        let dt_lon = (self.lon - other.lon).to_radians();
         let dt_lat = lat2 - lat1;
 
-        let a = (dt_lat / 2.0_f32).sin().powi(2)
-            + lat1.cos() * lat2.cos() * (dt_lon / 2.0_f32).sin().powi(2);
-        let c = 2.0_f32 * a.sqrt().asin();
-        return (6367_000_f32 * c) as u32;
+        let a = (dt_lat / 2.0_f32).sin();
+        let b = (dt_lon / 2.0_f32).sin();
+        let c = lat1.cos() * lat2.cos();
+        let d = (a * a) + ((b * b) * c);
+        let e = d.sqrt().asin();
+        return (2_f32 * 6_372_800_f32 * e) as u32;
     }
 }
 
@@ -86,12 +74,12 @@ fn is_way_routeable(tags: &Tags) -> bool {
     return false;
 }
 
-enum FirstPassNode {
-    Routing(NodeId),
+enum NodeKind {
+    Routing,
     Geometry,
 }
 
-fn construct_node_id_mapping<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, FirstPassNode>
+fn construct_node_kind_map<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, NodeKind>
 where
     R: std::io::Read + std::io::Seek,
 {
@@ -123,24 +111,16 @@ where
         }
     }
 
-    let mut next_id = 0;
-
-    // TODO: Could store as sorted Vec<> and use binary search rather
-    // than constructing hashmap.
-    //
-    //Assign new IDs without any gaps
     return is_routing_node
         .iter()
         .map(|(&osm_id, &is_routing)| {
-            let node = if is_routing {
-                let id = next_id;
-                next_id += 1;
-                FirstPassNode::Routing(id)
+            let kind = if is_routing {
+                NodeKind::Routing
             } else {
-                FirstPassNode::Geometry
+                NodeKind::Geometry
             };
 
-            (osm_id, node)
+            (osm_id, kind)
         })
         .collect();
 }
@@ -173,22 +153,25 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
     Some(tags)
 }
 
+enum Pass2Node {
+    Routing(NodeIndex<u32>, Coordinate),
+    Geometry(Coordinate),
+}
+
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
 // TODO: Attach metadata to each edge
 fn construct_graph() -> Result<OsmGraph, std::io::Error> {
     let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
-    let node_id_mapping = construct_node_id_mapping(&mut pbf);
+    let node_kind = construct_node_kind_map(&mut pbf);
 
     // Reset to start of file for next iteration.
     pbf.rewind().unwrap();
 
-    // TODO: Can be a Vec<> using NodeId as the index.
-    let mut node_geom = HashMap::<OsmNodeId, Coordinate>::with_capacity(node_id_mapping.len());
-    let mut node_data = HashMap::<NodeId, NodeData>::new();
+    let mut node_map = HashMap::<OsmNodeId, Pass2Node>::with_capacity(node_kind.len());
 
-    let mut edge_data = HashMap::<(NodeId, NodeId), EdgeData>::new();
+    let mut graph = Graph::<NodeData, EdgeData>::new();
 
     let mut seen_way = false;
     for obj in pbf.par_iter() {
@@ -199,24 +182,25 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
             OsmObj::Node(ref osm_node) => {
                 assert!(seen_way == false, "input files MUST be sorted!");
 
-                if let Some(node) = node_id_mapping.get(&osm_node.id) {
+                if let Some(node) = node_kind.get(&osm_node.id) {
                     let coord = Coordinate {
                         lat: osm_node.lat() as f32,
                         lon: osm_node.lon() as f32,
                     };
 
-                    // TODO: Remove deduplication
-                    node_geom.insert(osm_node.id, coord);
-
-                    if let FirstPassNode::Routing(id) = node {
-                        node_data.insert(
-                            *id,
-                            NodeData {
+                    let n = match node {
+                        NodeKind::Geometry => Pass2Node::Geometry(coord),
+                        NodeKind::Routing => {
+                            let id = graph.add_node(NodeData {
                                 coord,
                                 tags: strip_tags(&osm_node.tags),
-                            },
-                        );
-                    }
+                            });
+
+                            Pass2Node::Routing(id, coord)
+                        }
+                    };
+
+                    node_map.insert(osm_node.id, n);
                 }
             }
 
@@ -228,33 +212,32 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
 
                 let mut accumulated_dist = 0_u32;
                 let mut prev_coord: Option<Coordinate> = None;
-                let mut prev_node_id: Option<NodeId> = None;
+                let mut prev_node_id: Option<NodeIndex> = None;
 
                 for osm_node_id in way.nodes.iter() {
-                    let node = node_id_mapping
+                    let node = node_map
                         .get(osm_node_id)
                         .expect("Missing node info from way");
 
-                    let coord = node_geom.get(osm_node_id).expect("missing node geometry");
+                    let coord = match node {
+                        Pass2Node::Routing(_, coord) => coord,
+                        Pass2Node::Geometry(coord) => coord,
+                    };
+
                     if let Some(prev_coord) = prev_coord {
                         accumulated_dist += prev_coord.dist_to(coord);
                     }
                     prev_coord = Some(*coord);
 
-                    if let FirstPassNode::Routing(node_id) = node {
+                    if let Pass2Node::Routing(node_id, _) = node {
                         if let Some(prev_id) = prev_node_id {
-                            let key = (prev_id, *node_id);
-                            // TODO: Duplicate edges are possible! How do we handle this in CSR?
-                            //   https://www.openstreetmap.org/way/1060404609
-                            //   https://www.openstreetmap.org/way/1060404608
-                            //
-                            // For now, just go with whatever we see first...
-                            if edge_data.contains_key(&key) {
-                                continue;
-                            }
+                            // Duplicate edges are possible!
+                            // - https://www.openstreetmap.org/way/1060404609
+                            // - https://www.openstreetmap.org/way/1060404608
 
-                            edge_data.insert(
-                                key,
+                            graph.add_edge(
+                                *node_id,
+                                prev_id,
                                 EdgeData {
                                     dist: accumulated_dist,
                                     tags: strip_tags(&way.tags),
@@ -262,6 +245,8 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
                                     geometry: vec![],
                                 },
                             );
+
+                            accumulated_dist = 0;
                         }
 
                         prev_node_id = Some(*node_id);
@@ -270,39 +255,25 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
             }
         }
     }
-
-    let mut edges = edge_data.keys().collect::<Vec<_>>();
-    edges.sort();
-
-    let csr = Csr::from_sorted_edges(&edges).unwrap();
-
     println!(
-        "Created CSR graph: nodes={}, edges={}",
-        csr.node_count(),
-        csr.edge_count()
+        "Created graph: nodes={}, edges={}",
+        graph.node_count(),
+        graph.edge_count()
     );
 
-    Ok(OsmGraph {
-        csr,
-        node_data,
-        edge_data,
-    })
+    Ok(OsmGraph { inner: graph })
 }
 
 fn main() -> Result<(), std::io::Error> {
     let graph = construct_graph()?;
 
-    for from in 0..100 {
-        for to in 1..100 {
+    for from in 0..900 {
+        for to in 8000..10000 {
             let path = astar(
-                &graph.csr,
-                from,
-                |node_id| node_id == to,
-                |edge_ref| {
-                    let key = (edge_ref.source(), edge_ref.target());
-                    let edge = graph.edge_data.get(&key).expect("invalid edge");
-                    edge.dist
-                },
+                &graph.inner,
+                NodeIndex::new(from),
+                |node_id| node_id == NodeIndex::new(to),
+                |edge| edge.weight().dist,
                 |_node_id| {
                     // TODO: haversine(node, to) * distance multiple?
                     0
@@ -310,10 +281,16 @@ fn main() -> Result<(), std::io::Error> {
             );
 
             if let Some((cost, ref path)) = path {
-                println!("Path: {:?}", path);
+                println!("TotalDist={:?}, Path: {:?}", cost as f32 / 1000.0, path);
                 let geom = path
                     .iter()
-                    .map(|node_id| graph.node_data.get(&node_id).expect("invalid from_node_id"))
+                    .map(|node_id| {
+                        // TODO: How do we figure out which edge was taken in the case of parallel ones?
+                        graph
+                            .inner
+                            .node_weight(*node_id)
+                            .expect("invalid from_node_id")
+                    })
                     .map(|node| [node.coord.lon, node.coord.lat])
                     .collect::<Vec<_>>();
 
