@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 osmpbfreader = "0.15.2"
 petgraph = "0.6.0"
+rand = "*"

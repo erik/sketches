@@ -1,7 +1,13 @@
 use std::collections::HashMap;
 
 use osmpbfreader::{objects::NodeId as OsmNodeId, OsmObj, OsmPbfReader, Tags};
-use petgraph::{algo::astar, graph::Graph, graph::NodeIndex};
+use petgraph::{
+    algo::astar,
+    graph::NodeIndex,
+    graph::{EdgeReference, Graph},
+    Undirected,
+};
+use rand::Rng;
 
 #[derive(Debug, Copy, Clone)]
 struct Coordinate {
@@ -30,7 +36,7 @@ struct EdgeData {
 
 struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
-    inner: Graph<NodeData, EdgeData>,
+    inner: Graph<NodeData, EdgeData, Undirected>,
 }
 
 impl Coordinate {
@@ -171,7 +177,7 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
 
     let mut node_map = HashMap::<OsmNodeId, Pass2Node>::with_capacity(node_kind.len());
 
-    let mut graph = Graph::<NodeData, EdgeData>::new();
+    let mut graph = Graph::<NodeData, EdgeData, _>::new_undirected();
 
     let mut seen_way = false;
     for obj in pbf.par_iter() {
@@ -264,50 +270,88 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
     Ok(OsmGraph { inner: graph })
 }
 
+const INACCESSIBLE: u32 = u32::MAX;
+
+impl OsmGraph {
+    fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
+        let edge_data = edge.weight();
+        let tags = edge_data.tags.clone().unwrap();
+
+        let mut multiple = if let Some(highway) = tags.get("highway") {
+            match highway.as_str() {
+                "motorway" | "motorway_link" => INACCESSIBLE,
+                "trunk" | "trunk_link" => 10,
+                "primary" | "primary_link" => 5,
+                "path" | "steps" | "track" => 0,
+                _ => 1,
+            }
+        } else {
+            return INACCESSIBLE;
+        };
+
+        let max_multiple = 1000;
+        if multiple > max_multiple {
+            return INACCESSIBLE;
+        }
+
+        edge_data.dist * (1 + multiple)
+    }
+
+    // TODO: Build lat,lng -> NodeIndex lookup so we don't need to pass node index values.
+    fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<Coordinate>> {
+        let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
+
+        let path = astar(
+            &self.inner,
+            from,
+            |node_id| node_id == to,
+            |e| self.score_edge(e),
+            |node_id| {
+                self.inner
+                    .node_weight(node_id)
+                    .map(|n| n.coord.dist_to(&dest_node.coord))
+                    .unwrap_or(0)
+            },
+        );
+
+        path.map(|(cost, path)| {
+            println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
+
+            path.iter()
+                .map(|node_id| {
+                    // TODO: How do we figure out which edge was taken in the case of parallel ones?
+                    self.inner
+                        .node_weight(*node_id)
+                        .expect("invalid from_node_id")
+                        .coord
+                })
+                .collect()
+        })
+    }
+}
+
 fn main() -> Result<(), std::io::Error> {
+    // TODO: save/load graph so it doesn't need to be constructed
+    // every time.
     let graph = construct_graph()?;
 
-    for from in 0..900 {
-        for to in 8000..10000 {
-            let path = astar(
-                &graph.inner,
-                NodeIndex::new(from),
-                |node_id| node_id == NodeIndex::new(to),
-                |edge| edge.weight().dist,
-                |_node_id| {
-                    // TODO: haversine(node, to) * distance multiple?
-                    0
-                },
-            );
+    // let mut rng = rand::thread_rng();
+    loop {
+        // let node_range = 0..graph.inner.node_count();
+        // let from = NodeIndex::new(rng.gen_range(node_range.clone()));
+        // let to = NodeIndex::new(rng.gen_range(node_range));
+        let from = NodeIndex::new(5948);
+        let to = NodeIndex::new(2998);
 
-            if let Some((cost, ref path)) = path {
-                println!("TotalDist={:?}, Path: {:?}", cost as f32 / 1000.0, path);
-                let geom = path
-                    .iter()
-                    .map(|node_id| {
-                        // TODO: How do we figure out which edge was taken in the case of parallel ones?
-                        graph
-                            .inner
-                            .node_weight(*node_id)
-                            .expect("invalid from_node_id")
-                    })
-                    .map(|node| [node.coord.lon, node.coord.lat])
-                    .collect::<Vec<_>>();
+        if let Some(path) = graph.find_route(from, to) {
+            let geom = path
+                .iter()
+                .map(|coord| [coord.lon, coord.lat])
+                .collect::<Vec<_>>();
 
-                println!(
-                    "
-{{ \"type\": \"Feature\",
-  \"geometry\": {{
-    \"type\": \"LineString\",
-    \"coordinates\": {:?}
-  }},
-  \"properties\": {{}}
-}}",
-                    geom
-                );
+            println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
 
-                return Ok(());
-            }
+            break;
         }
     }
 
