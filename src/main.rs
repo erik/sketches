@@ -59,27 +59,63 @@ impl Coordinate {
     }
 }
 
+const WAY_PERMITTED_ACCESS_VALUES: &[&str] = &[
+    "yes",
+    "permissive",
+    "delivery",
+    "designated",
+    "destination",
+    "agricultural",
+    "forestry",
+    "public",
+];
+const WAY_UNROUTABLE_HIGHWAY_VALUES: &[&str] =
+    &["bus_guideway", "raceway", "proposed", "construction"];
+
+/// Return if the OSM Way has tags that are relevant to routability
+///
+/// Reference: https://wiki.openstreetmap.org/wiki/OSM_tags_for_routing
 fn is_way_routeable(tags: &Tags) -> bool {
     if tags.contains("route", "ferry") {
         return true;
     }
 
-    if let Some(access) = tags.get("access") {
-        match access.as_str() {
-            "yes" | "permissive" | "delivery" | "designated" | "destination" | "agricultural"
-            | "forestry" | "public" => (),
-            &_ => return false,
-        }
+    match tags.get("access") {
+        Some(val) if !WAY_PERMITTED_ACCESS_VALUES.contains(&val.as_str()) => return false,
+        Some(_) => {}
+        None => {}
     }
 
-    if let Some(highway) = tags.get("highway") {
-        return match highway.as_str() {
-            "bus_guideway" | "raceway" | "proposed" | "conveying" => false,
-            &_ => true,
-        };
+    match tags.get("highway") {
+        Some(val) if WAY_UNROUTABLE_HIGHWAY_VALUES.contains(&val.as_str()) => return false,
+        Some(_) => return true,
+        None => {}
+    };
+
+    // If we don't have a highway=*, we need to at least have a junction
+    return tags.contains_key("junction");
+}
+
+const NODE_HIGHWAY_ROUTABLE_VALUES: &[&str] = &[
+    "crossing",
+    "mini_roundabout",
+    "motorway_junction",
+    "stop",
+    "traffic_signals",
+    "turning_circle",
+    "turning_loop",
+];
+
+const NODE_ROUTEABLE_TAGS: &[&str] = &["ford", "bicycle", "access", "barrier", "junction"];
+
+fn is_node_used_for_routing(tags: &Tags) -> bool {
+    match tags.get("highway") {
+        Some(val) if NODE_HIGHWAY_ROUTABLE_VALUES.contains(&val.as_str()) => return true,
+        Some(_) => {}
+        None => {}
     }
 
-    return false;
+    return NODE_ROUTEABLE_TAGS.iter().any(|&t| tags.contains_key(t));
 }
 
 enum NodeKind {
@@ -96,41 +132,47 @@ where
     // - is shared by multiple ways (i.e. a junction)
     //
     // TODO: Could be a bitvector.
-    let mut is_routing_node = HashMap::<OsmNodeId, bool>::new();
+    let mut node_kind_mapping = HashMap::<OsmNodeId, NodeKind>::new();
 
     for obj in reader.par_iter() {
         let obj = obj.unwrap();
 
-        // TODO: Should we consider barrier nodes? Anything else that
-        // we'd want to include if not in a way?
-        if let OsmObj::Way(ref way) = obj {
-            if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                continue;
+        match obj {
+            OsmObj::Node(ref node) => {
+                if is_node_used_for_routing(&node.tags) {
+                    node_kind_mapping.insert(node.id, NodeKind::Routing);
+                }
             }
 
-            for (i, &osm_node_id) in way.nodes.iter().enumerate() {
-                let should_retain = i == 0 || i == way.nodes.len() - 1;
+            OsmObj::Way(ref way) => {
+                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
+                    continue;
+                }
 
-                is_routing_node
-                    .entry(osm_node_id)
-                    .and_modify(|it| *it = true)
-                    .or_insert(should_retain);
+                for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                    let is_first_or_last = i == 0 || i == way.nodes.len() - 1;
+
+                    node_kind_mapping
+                        .entry(osm_node_id)
+                        .and_modify(|it| {
+                            // If there's an existing entry, it's a either a
+                            // junction or already a routing node.
+                            *it = NodeKind::Routing
+                        })
+                        .or_insert(if is_first_or_last {
+                            NodeKind::Routing
+                        } else {
+                            NodeKind::Geometry
+                        });
+                }
             }
+
+            // TODO: Is this needed?
+            OsmObj::Relation(_) => {}
         }
     }
 
-    return is_routing_node
-        .iter()
-        .map(|(&osm_id, &is_routing)| {
-            let kind = if is_routing {
-                NodeKind::Routing
-            } else {
-                NodeKind::Geometry
-            };
-
-            (osm_id, kind)
-        })
-        .collect();
+    return node_kind_mapping;
 }
 
 fn strip_tags(tags: &Tags) -> Option<Tags> {
