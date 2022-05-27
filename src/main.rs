@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::path::Path;
+use std::time::Instant;
 
 use osmpbfreader::{objects::NodeId as OsmNodeId, OsmObj, OsmPbfReader, Tags};
 use petgraph::{
@@ -166,8 +168,8 @@ enum Pass2Node {
 
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
 // TODO: Attach metadata to each edge
-fn construct_graph() -> Result<OsmGraph, std::io::Error> {
-    let f = std::fs::File::open("./data/andorra.osm.pbf").unwrap();
+fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
+    let f = std::fs::File::open(path).unwrap();
     let mut pbf = OsmPbfReader::new(f);
 
     let node_kind = construct_node_kind_map(&mut pbf);
@@ -270,7 +272,12 @@ fn construct_graph() -> Result<OsmGraph, std::io::Error> {
     Ok(OsmGraph { inner: graph })
 }
 
-const INACCESSIBLE: u32 = u32::MAX;
+// TODO: Seems that this can get the A-star impl in petgraph stuck if
+// we use u32::MAX. (maybe an overflow?)
+//
+// Need some way of signaling "no, NEVER take this edge, I know
+// there's an edge but I lied."
+const INACCESSIBLE: u32 = 5_000_000;
 
 impl OsmGraph {
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
@@ -330,30 +337,75 @@ impl OsmGraph {
     }
 }
 
+struct Timer {
+    started_at: Instant,
+    last_marker_at: Instant,
+}
+
+impl Timer {
+    fn new() -> Timer {
+        let now = Instant::now();
+        Timer {
+            started_at: now,
+            last_marker_at: now,
+        }
+    }
+
+    fn elapsed(&mut self, msg: &str) {
+        let now = Instant::now();
+        let elapsed = now - self.last_marker_at;
+        let total_elapsed = now - self.started_at;
+        self.last_marker_at = now;
+
+        println!(
+            "====================== {:30} dt={:.8} ms, tot={:.8} ms",
+            msg,
+            elapsed.as_millis(),
+            total_elapsed.as_millis()
+        );
+    }
+
+    fn reset(&mut self) {
+        self.last_marker_at = Instant::now();
+    }
+}
+
 fn main() -> Result<(), std::io::Error> {
+    let mut timer = Timer::new();
+
+    // TODO: Real argument parsing
+    let args: Vec<String> = std::env::args().collect();
+    let osm_path = match args.get(1) {
+        Some(path) => path.as_str(),
+        None => "./data/andorra.osm.pbf",
+    };
+
     // TODO: save/load graph so it doesn't need to be constructed
     // every time.
-    let graph = construct_graph()?;
+    let graph = construct_graph(Path::new(&osm_path))?;
+    timer.elapsed("build graph");
 
-    // let mut rng = rand::thread_rng();
-    loop {
-        // let node_range = 0..graph.inner.node_count();
-        // let from = NodeIndex::new(rng.gen_range(node_range.clone()));
-        // let to = NodeIndex::new(rng.gen_range(node_range));
-        let from = NodeIndex::new(5948);
-        let to = NodeIndex::new(2998);
+    let mut rng = rand::thread_rng();
+    for _ in 0..3 {
+        let node_range = 0..graph.inner.node_count();
+        let from = NodeIndex::new(rng.gen_range(node_range.clone()));
+        let to = NodeIndex::new(rng.gen_range(node_range));
 
-        if let Some(path) = graph.find_route(from, to) {
+        timer.reset();
+        let route = graph.find_route(from, to);
+        timer.elapsed("find route");
+
+        if let Some(path) = route {
             let geom = path
                 .iter()
                 .map(|coord| [coord.lon, coord.lat])
                 .collect::<Vec<_>>();
 
             println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
-
-            break;
         }
     }
+
+    timer.elapsed("complete");
 
     Ok(())
 }
