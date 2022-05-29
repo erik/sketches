@@ -1,8 +1,12 @@
 use std::collections::HashMap;
+use std::convert::From;
 use std::path::Path;
 use std::time::Instant;
 
-use osmpbfreader::{objects::NodeId as OsmNodeId, OsmObj, OsmPbfReader, Tags};
+use osmpbfreader::{
+    objects::{Node as OsmNode, NodeId as OsmNodeId},
+    OsmObj, OsmPbfReader, Tags,
+};
 use petgraph::{
     algo::astar,
     graph::NodeIndex,
@@ -11,15 +15,16 @@ use petgraph::{
 };
 use rand::Rng;
 
+/// In radians
 #[derive(Debug, Copy, Clone)]
-struct Coordinate {
+struct Point {
     lat: f32,
     lon: f32,
 }
 
 #[derive(Debug)]
 struct NodeData {
-    coord: Coordinate,
+    point: Point,
     // TODO: Extract only tags we care about
     tags: Option<Tags>,
 }
@@ -27,13 +32,13 @@ struct NodeData {
 #[derive(Debug, Clone)]
 struct EdgeData {
     // meters
-    //
     // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
     tags: Option<Tags>,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
-    geometry: Vec<Coordinate>,
+    // TODO: Simplify geometry before storing
+    geometry: Vec<Point>,
 }
 
 struct OsmGraph {
@@ -41,34 +46,35 @@ struct OsmGraph {
     inner: Graph<NodeData, EdgeData, Undirected>,
 }
 
-impl Coordinate {
+impl Point {
     // Haversine, returns meters
     // TODO: unchecked
-    fn dist_to(&self, other: &Coordinate) -> u32 {
-        let (lat1, lat2) = (self.lat.to_radians(), other.lat.to_radians());
-
-        let dt_lon = (self.lon - other.lon).to_radians();
-        let dt_lat = lat2 - lat1;
+    fn dist_to(&self, other: &Point) -> u32 {
+        let dt_lon = self.lon - other.lon;
+        let dt_lat = self.lat - other.lat;
 
         let a = (dt_lat / 2.0_f32).sin();
         let b = (dt_lon / 2.0_f32).sin();
-        let c = lat1.cos() * lat2.cos();
+        let c = self.lat.cos() * other.lat.cos();
         let d = (a * a) + ((b * b) * c);
         let e = d.sqrt().asin();
-        return (2_f32 * 6_372_800_f32 * e) as u32;
+        (2_f32 * 6_372_800_f32 * e) as u32
     }
 }
 
-const WAY_PERMITTED_ACCESS_VALUES: &[&str] = &[
-    "yes",
-    "permissive",
-    "delivery",
-    "designated",
-    "destination",
-    "agricultural",
-    "forestry",
-    "public",
-];
+impl From<&OsmNode> for Point {
+    fn from(node: &OsmNode) -> Point {
+        let (lat, lon) = (node.lat() as f32, node.lon() as f32);
+
+        return Point {
+            lat: lat.to_radians(),
+            lon: lon.to_radians(),
+        };
+    }
+}
+
+const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
+    &["yes", "permissive", "designated", "destination", "public"];
 const WAY_UNROUTABLE_HIGHWAY_VALUES: &[&str] =
     &["bus_guideway", "raceway", "proposed", "construction"];
 
@@ -93,7 +99,7 @@ fn is_way_routeable(tags: &Tags) -> bool {
     };
 
     // If we don't have a highway=*, we need to at least have a junction
-    return tags.contains_key("junction");
+    tags.contains_key("junction")
 }
 
 const NODE_HIGHWAY_ROUTABLE_VALUES: &[&str] = &[
@@ -180,16 +186,16 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
 
     // Not exhaustive
     let unused_tags = vec![
-        "created_by",
-        "source",
-        "ref",
-        "addr:housenumber",
-        "addr:street",
         "addr:city",
+        "addr:housenumber",
         "addr:postcode",
-        "fixme",
+        "addr:street",
         "comment",
+        "created_by",
+        "fixme",
         "note",
+        "ref",
+        "source",
     ];
 
     for key in unused_tags.into_iter() {
@@ -204,8 +210,8 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
 }
 
 enum Pass2Node {
-    Routing(NodeIndex<u32>, Coordinate),
-    Geometry(Coordinate),
+    Routing(NodeIndex<u32>, Point),
+    Geometry(Point),
 }
 
 // TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
@@ -230,23 +236,20 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
             OsmObj::Relation(_) => {}
 
             OsmObj::Node(ref osm_node) => {
-                assert!(seen_way == false, "input files MUST be sorted!");
+                assert!(!seen_way, "input files MUST be sorted!");
 
                 if let Some(node) = node_kind.get(&osm_node.id) {
-                    let coord = Coordinate {
-                        lat: osm_node.lat() as f32,
-                        lon: osm_node.lon() as f32,
-                    };
+                    let point = Point::from(osm_node);
 
                     let n = match node {
-                        NodeKind::Geometry => Pass2Node::Geometry(coord),
+                        NodeKind::Geometry => Pass2Node::Geometry(point),
                         NodeKind::Routing => {
                             let id = graph.add_node(NodeData {
-                                coord,
+                                point,
                                 tags: strip_tags(&osm_node.tags),
                             });
 
-                            Pass2Node::Routing(id, coord)
+                            Pass2Node::Routing(id, point)
                         }
                     };
 
@@ -261,7 +264,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                 }
 
                 let mut accumulated_dist = 0_u32;
-                let mut prev_coord: Option<Coordinate> = None;
+                let mut prev_point: Option<Point> = None;
                 let mut prev_node_id: Option<NodeIndex> = None;
 
                 for osm_node_id in way.nodes.iter() {
@@ -269,15 +272,15 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                         .get(osm_node_id)
                         .expect("Missing node info from way");
 
-                    let coord = match node {
-                        Pass2Node::Routing(_, coord) => coord,
-                        Pass2Node::Geometry(coord) => coord,
+                    let point = match node {
+                        Pass2Node::Routing(_, p) => p,
+                        Pass2Node::Geometry(p) => p,
                     };
 
-                    if let Some(prev_coord) = prev_coord {
-                        accumulated_dist += prev_coord.dist_to(coord);
+                    if let Some(prev_point) = prev_point {
+                        accumulated_dist += prev_point.dist_to(point);
                     }
-                    prev_coord = Some(*coord);
+                    prev_point = Some(*point);
 
                     if let Pass2Node::Routing(node_id, _) = node {
                         if let Some(prev_id) = prev_node_id {
@@ -326,7 +329,7 @@ impl OsmGraph {
         let edge_data = edge.weight();
         let tags = edge_data.tags.clone().unwrap();
 
-        let mut multiple = if let Some(highway) = tags.get("highway") {
+        let multiple = if let Some(highway) = tags.get("highway") {
             match highway.as_str() {
                 "motorway" | "motorway_link" => INACCESSIBLE,
                 "trunk" | "trunk_link" => 10,
@@ -347,7 +350,7 @@ impl OsmGraph {
     }
 
     // TODO: Build lat,lng -> NodeIndex lookup so we don't need to pass node index values.
-    fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<Coordinate>> {
+    fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<Point>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
         let path = astar(
@@ -358,7 +361,7 @@ impl OsmGraph {
             |node_id| {
                 self.inner
                     .node_weight(node_id)
-                    .map(|n| n.coord.dist_to(&dest_node.coord))
+                    .map(|n| n.point.dist_to(&dest_node.point))
                     .unwrap_or(0)
             },
         );
@@ -372,7 +375,7 @@ impl OsmGraph {
                     self.inner
                         .node_weight(*node_id)
                         .expect("invalid from_node_id")
-                        .coord
+                        .point
                 })
                 .collect()
         })
@@ -438,10 +441,7 @@ fn main() -> Result<(), std::io::Error> {
         timer.elapsed("find route");
 
         if let Some(path) = route {
-            let geom = path
-                .iter()
-                .map(|coord| [coord.lon, coord.lat])
-                .collect::<Vec<_>>();
+            let geom = path.iter().map(|pt| [pt.lon, pt.lat]).collect::<Vec<_>>();
 
             println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
         }
