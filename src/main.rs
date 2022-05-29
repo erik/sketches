@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::convert::From;
 use std::path::Path;
@@ -15,6 +17,9 @@ use petgraph::{
 };
 use rand::Rng;
 
+mod tags;
+use tags::{EdgeTags, NodeTags};
+
 /// In radians
 #[derive(Debug, Copy, Clone)]
 struct Point {
@@ -25,8 +30,7 @@ struct Point {
 #[derive(Debug)]
 struct NodeData {
     point: Point,
-    // TODO: Extract only tags we care about
-    tags: Option<Tags>,
+    tags: NodeTags,
 }
 
 #[derive(Debug, Clone)]
@@ -34,7 +38,7 @@ struct EdgeData {
     // meters
     // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
-    tags: Option<Tags>,
+    tags: EdgeTags,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
     // TODO: Simplify geometry before storing
@@ -43,6 +47,7 @@ struct EdgeData {
 
 struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
+    // TODO: Use a directed graph so we can represent one ways etc.
     inner: Graph<NodeData, EdgeData, Undirected>,
 }
 
@@ -59,6 +64,11 @@ impl Point {
         let d = (a * a) + ((b * b) * c);
         let e = d.sqrt().asin();
         (2_f32 * 6_372_800_f32 * e) as u32
+    }
+
+    // TODO: Clumsy typing for geojson
+    fn to_degrees(&self) -> [f32; 2] {
+        [self.lon.to_degrees(), self.lat.to_degrees()]
     }
 }
 
@@ -86,6 +96,7 @@ fn is_way_routeable(tags: &Tags) -> bool {
         return true;
     }
 
+    // TODO: What about something like access=no + bicycle=yes?
     match tags.get("access") {
         Some(val) if !WAY_PERMITTED_ACCESS_VALUES.contains(&val.as_str()) => return false,
         Some(_) => {}
@@ -102,7 +113,7 @@ fn is_way_routeable(tags: &Tags) -> bool {
     tags.contains_key("junction")
 }
 
-const NODE_HIGHWAY_ROUTABLE_VALUES: &[&str] = &[
+const NODE_HIGHWAY_ROUTING_VALUES: &[&str] = &[
     "crossing",
     "mini_roundabout",
     "motorway_junction",
@@ -112,16 +123,16 @@ const NODE_HIGHWAY_ROUTABLE_VALUES: &[&str] = &[
     "turning_loop",
 ];
 
-const NODE_ROUTEABLE_TAGS: &[&str] = &["ford", "bicycle", "access", "barrier", "junction"];
+const NODE_ROUTING_TAGS: &[&str] = &["ford", "bicycle", "access", "barrier", "junction"];
 
 fn is_node_used_for_routing(tags: &Tags) -> bool {
     match tags.get("highway") {
-        Some(val) if NODE_HIGHWAY_ROUTABLE_VALUES.contains(&val.as_str()) => return true,
+        Some(val) if NODE_HIGHWAY_ROUTING_VALUES.contains(&val.as_str()) => return true,
         Some(_) => {}
         None => {}
     }
 
-    return NODE_ROUTEABLE_TAGS.iter().any(|&t| tags.contains_key(t));
+    return NODE_ROUTING_TAGS.iter().any(|&t| tags.contains_key(t));
 }
 
 enum NodeKind {
@@ -139,6 +150,10 @@ where
     //
     // TODO: Could be a bitvector.
     let mut node_kind_mapping = HashMap::<OsmNodeId, NodeKind>::new();
+    let mut keys = std::collections::HashSet::<_>::new();
+    let mut vals = std::collections::HashSet::<_>::new();
+    let mut node_tags = 0;
+    let mut way_tags = 0;
 
     for obj in reader.par_iter() {
         let obj = obj.unwrap();
@@ -148,9 +163,20 @@ where
                 if is_node_used_for_routing(&node.tags) {
                     node_kind_mapping.insert(node.id, NodeKind::Routing);
                 }
+
+                for (k, v) in node.tags.iter() {
+                    node_tags += 1;
+                    keys.insert(k.clone());
+                    vals.insert(v.clone());
+                }
             }
 
             OsmObj::Way(ref way) => {
+                for (k, v) in way.tags.iter() {
+                    way_tags += 1;
+                    keys.insert(k.clone());
+                    vals.insert(v.clone());
+                }
                 if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                     continue;
                 }
@@ -160,11 +186,9 @@ where
 
                     node_kind_mapping
                         .entry(osm_node_id)
-                        .and_modify(|it| {
-                            // If there's an existing entry, it's a either a
-                            // junction or already a routing node.
-                            *it = NodeKind::Routing
-                        })
+                        // If there's an existing entry, it's a either a
+                        // junction or already a routing node.
+                        .and_modify(|it| *it = NodeKind::Routing)
                         .or_insert(if is_first_or_last {
                             NodeKind::Routing
                         } else {
@@ -178,10 +202,18 @@ where
         }
     }
 
-    return node_kind_mapping;
+    println!(
+        "Data Size: nodes={:?} ways={:?} keys={:?}, vals={:?}",
+        node_tags,
+        way_tags,
+        keys.len(),
+        vals.len()
+    );
+
+    node_kind_mapping
 }
 
-fn strip_tags(tags: &Tags) -> Option<Tags> {
+fn strip_tags(tags: &Tags) -> Tags {
     let mut tags = tags.clone();
 
     // Not exhaustive
@@ -196,17 +228,15 @@ fn strip_tags(tags: &Tags) -> Option<Tags> {
         "note",
         "ref",
         "source",
+        // TODO: remove
+        "name",
     ];
 
     for key in unused_tags.into_iter() {
         tags.remove(key);
     }
 
-    if tags.is_empty() {
-        return None;
-    }
-
-    Some(tags)
+    tags
 }
 
 enum Pass2Node {
@@ -214,8 +244,7 @@ enum Pass2Node {
     Geometry(Point),
 }
 
-// TODO: we can avoid hashmaps and the ID assignment counters by using a bitmap
-// TODO: Attach metadata to each edge
+// TODO: Extract out some kind of helper functions, too big.
 fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     let f = std::fs::File::open(path).unwrap();
     let mut pbf = OsmPbfReader::new(f);
@@ -238,23 +267,23 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
             OsmObj::Node(ref osm_node) => {
                 assert!(!seen_way, "input files MUST be sorted!");
 
-                if let Some(node) = node_kind.get(&osm_node.id) {
-                    let point = Point::from(osm_node);
+                node_kind
+                    .get(&osm_node.id)
+                    .map(|kind| {
+                        let point = Point::from(osm_node);
+                        match kind {
+                            NodeKind::Geometry => Pass2Node::Geometry(point),
+                            NodeKind::Routing => {
+                                let id = graph.add_node(NodeData {
+                                    point,
+                                    tags: NodeTags::from(strip_tags(&osm_node.tags)),
+                                });
 
-                    let n = match node {
-                        NodeKind::Geometry => Pass2Node::Geometry(point),
-                        NodeKind::Routing => {
-                            let id = graph.add_node(NodeData {
-                                point,
-                                tags: strip_tags(&osm_node.tags),
-                            });
-
-                            Pass2Node::Routing(id, point)
+                                Pass2Node::Routing(id, point)
+                            }
                         }
-                    };
-
-                    node_map.insert(osm_node.id, n);
-                }
+                    })
+                    .and_then(|node| node_map.insert(osm_node.id, node));
             }
 
             OsmObj::Way(ref way) => {
@@ -293,7 +322,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                                 prev_id,
                                 EdgeData {
                                     dist: accumulated_dist,
-                                    tags: strip_tags(&way.tags),
+                                    tags: EdgeTags::from(strip_tags(&way.tags)),
                                     // TODO: populate
                                     geometry: vec![],
                                 },
@@ -327,18 +356,22 @@ const INACCESSIBLE: u32 = 5_000_000;
 impl OsmGraph {
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
         let edge_data = edge.weight();
-        let tags = edge_data.tags.clone().unwrap();
 
-        let multiple = if let Some(highway) = tags.get("highway") {
-            match highway.as_str() {
-                "motorway" | "motorway_link" => INACCESSIBLE,
-                "trunk" | "trunk_link" => 10,
-                "primary" | "primary_link" => 5,
-                "path" | "steps" | "track" => 0,
-                _ => 1,
-            }
-        } else {
-            return INACCESSIBLE;
+        use tags::HighwayKind::*;
+        let mut multiple = match edge_data.tags.highway {
+            Motorway | MotorwayLink => INACCESSIBLE,
+            Trunk | TrunkLink => 10,
+            Primary | PrimaryLink => 5,
+            Path | Steps | Track => 0,
+            _ => 1,
+        };
+
+        use tags::SurfaceKind::*;
+        multiple += match edge_data.tags.surface {
+            Unpaved(_) => 0,
+            Paved(_) => 10,
+            Cobblestone(_) => 20,
+            tags::SurfaceKind::Unknown => 10,
         };
 
         let max_multiple = 1000;
@@ -441,7 +474,7 @@ fn main() -> Result<(), std::io::Error> {
         timer.elapsed("find route");
 
         if let Some(path) = route {
-            let geom = path.iter().map(|pt| [pt.lon, pt.lat]).collect::<Vec<_>>();
+            let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
 
             println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
         }
