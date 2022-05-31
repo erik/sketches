@@ -17,6 +17,7 @@ use petgraph::{
 };
 use rand::Rng;
 
+mod index;
 mod tags;
 use tags::{EdgeTags, NodeTags};
 
