@@ -76,7 +76,7 @@ impl From<&OsmNode> for Point {
 impl Coordinate for Point {
     // Haversine, returns meters
     // TODO: unchecked
-    fn dist_to(&self, other: &Self) -> u32 {
+    fn dist_to(&self, other: &Self) -> f32 {
         let dt_lon = self.lon - other.lon;
         let dt_lat = self.lat - other.lat;
 
@@ -85,7 +85,8 @@ impl Coordinate for Point {
         let c = self.lat.cos() * other.lat.cos();
         let d = (a * a) + ((b * b) * c);
         let e = d.sqrt().asin();
-        (2_f32 * 6_372_800_f32 * e) as u32
+
+        2_f32 * 6_372_800_f32 * e
     }
 }
 
@@ -298,7 +299,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                     continue;
                 }
 
-                let mut accumulated_dist = 0_u32;
+                let mut accumulated_dist = 0.0;
                 let mut prev_point: Option<Point> = None;
                 let mut prev_node_id: Option<NodeIndex> = None;
 
@@ -327,14 +328,14 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                                 *node_id,
                                 prev_id,
                                 EdgeData {
-                                    dist: accumulated_dist,
+                                    dist: accumulated_dist as u32,
                                     tags: EdgeTags::from(strip_tags(&way.tags)),
                                     // TODO: populate
                                     geometry: vec![],
                                 },
                             );
 
-                            accumulated_dist = 0;
+                            accumulated_dist = 0.0;
                         }
 
                         prev_node_id = Some(*node_id);
@@ -408,7 +409,7 @@ impl OsmGraph {
             |node_id| {
                 self.inner
                     .node_weight(node_id)
-                    .map(|n| n.point.dist_to(&dest_node.point))
+                    .map(|n| n.point.dist_to(&dest_node.point) as u32)
                     .unwrap_or(0)
             },
         );
@@ -486,32 +487,36 @@ fn main() -> Result<(), std::io::Error> {
         let node = &graph.inner[node_idx];
         timer.reset();
 
-        let nearest = graph.index.find_nearest(&node.point);
+        let nearest = graph.index.find_nearest_within(&node.point, 100.0);
         timer.elapsed("nearest point");
 
         println!(
-            "EQ?: {}, node: {:?}, nearest: {:?}",
-            Some(node_idx) == nearest,
+            "EQ?: {}, got {:?} exp {:?} /// node: {:?}, nearest: {:?}",
+            node_idx == nearest.unwrap(),
+            nearest.unwrap(),
+            node_idx,
             node,
             nearest.map(|ix| &graph.inner[ix])
         );
     }
 
-    // for _ in 0..3 {
-    //     let node_range = 0..graph.inner.node_count();
-    //     let from = NodeIndex::new(rng.gen_range(node_range.clone()));
-    //     let to = NodeIndex::new(rng.gen_range(node_range));
+    panic!("abort");
 
-    //     timer.reset();
-    //     let route = graph.find_route(from, to);
-    //     timer.elapsed("find route");
+    for _ in 0..3 {
+        let node_range = 0..graph.inner.node_count();
+        let from = NodeIndex::new(rng.gen_range(node_range.clone()));
+        let to = NodeIndex::new(rng.gen_range(node_range));
 
-    //     if let Some(path) = route {
-    //         let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
+        timer.reset();
+        let route = graph.find_route(from, to);
+        timer.elapsed("find route");
 
-    //         println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
-    //     }
-    // }
+        if let Some(path) = route {
+            let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
+
+            println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
+        }
+    }
 
     timer.elapsed("complete");
 
