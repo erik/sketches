@@ -1,47 +1,38 @@
-#[derive(Clone, Debug)]
-struct Positioned {
-    x: u32,
-}
-
-impl Positioned {
-    fn dist_to(&self, other: &Positioned) -> u32 {
-        if self.x > other.x {
-            self.x - other.x
-        } else {
-            other.x - self.x
-        }
-    }
+pub trait Coordinate {
+    fn dist_to(&self, other: &Self) -> u32;
 }
 
 // Implemented using a Vantage Point tree
 #[derive(Debug)]
-struct LocationIndex {
-    nodes: Vec<Positioned>,
+pub struct SpatialIndex<Coord, Ix> {
+    tree: Vec<(Coord, Ix)>,
 }
 
-const MAX_POINTS_PER_LEAF_NODE: usize = 2;
+const MAX_POINTS_PER_LEAF_NODE: usize = 8;
 
-type PositionWithDist = (u32, Positioned);
-
-impl LocationIndex {
-    fn build(points: Vec<Positioned>) -> LocationIndex {
+impl<Coord, Ix> SpatialIndex<Coord, Ix>
+where
+    Ix: Copy + std::fmt::Debug,
+    Coord: Coordinate + Copy + std::fmt::Debug,
+{
+    pub fn build(points: Vec<(Coord, Ix)>) -> SpatialIndex<Coord, Ix> {
         assert!(points.len() > 0, "empty data");
 
-        let initial_pivot = &points[0].clone();
+        let initial_pivot = &points[0].0.clone();
 
         let mut points_with_dist: Vec<_> = points
             .into_iter()
-            .map(|pt| (pt.dist_to(initial_pivot), pt))
+            .map(|(pt, ix)| (pt.dist_to(initial_pivot), (pt, ix)))
             .collect();
 
-        Self::build_inner(&mut points_with_dist[..]);
+        Self::build_inner(&mut points_with_dist[1..]);
 
-        LocationIndex {
-            nodes: points_with_dist.into_iter().map(|(_, p)| p).collect(),
-        }
+        let tree = points_with_dist.into_iter().map(|(_, p)| p).collect();
+
+        SpatialIndex { tree }
     }
 
-    fn build_inner(data: &mut [PositionWithDist]) {
+    fn build_inner(data: &mut [(u32, (Coord, Ix))]) {
         if data.len() <= MAX_POINTS_PER_LEAF_NODE {
             return;
         }
@@ -53,70 +44,61 @@ impl LocationIndex {
         //
         // The rest of the data is partitioned into buckets of "less
         // than pivot" and "greater than pivot"
-        let (before, (_, pivot), after) =
+        let (left, pivot, right) =
             data.select_nth_unstable_by(pivot_idx, |(a, _), (b, _)| a.cmp(b));
 
-        Self::build_inner(before);
+        // Inside
+        Self::build_inner(left);
 
-        for (dist, point) in &mut after[..] {
-            *dist = point.dist_to(pivot);
+        for (dist, (point, _ix)) in &mut right[..] {
+            *dist = point.dist_to(&pivot.1 .0);
         }
 
-        Self::build_inner(after);
+        // Outside
+        Self::build_inner(right);
     }
 
-    fn find_nearest(&self, point: &Positioned) -> Option<&Positioned> {
-        let mut nearest = None;
-        self.find_nearest_inner(point, 0, self.nodes.len(), &mut nearest);
+    pub fn find_nearest(&self, point: &Coord) -> Option<Ix> {
+        let mut nearest_so_far = (u32::MAX, None);
+        Self::find_nearest_inner(&self.tree, point, &mut nearest_so_far);
 
         // TODO: Check dist within bounds
-        if let Some((_dist, index)) = nearest {
-            return Some(&self.nodes[index]);
-        }
-
-        None
+        return nearest_so_far.1.map(|index| index);
     }
 
     fn find_nearest_inner(
-        &self,
-        query_point: &Positioned,
-        start: usize,
-        end: usize,
-        nearest: &mut Option<(u32, usize)>,
+        tree: &[(Coord, Ix)],
+        query_point: &Coord,
+        nearest_so_far: &mut (u32, Option<Ix>),
     ) {
-        if end - start <= MAX_POINTS_PER_LEAF_NODE {
-            for i in start..end {
-                println!("examining: {:?}", self.nodes[i]);
-                let dist = query_point.dist_to(&self.nodes[i]);
+        if tree.len() <= MAX_POINTS_PER_LEAF_NODE {
+            println!("leaf: {:?}", tree);
+            for &(point, index) in &tree[..] {
+                let dist = query_point.dist_to(&point);
 
-                match nearest {
-                    None => *nearest = Some((dist, i)),
-                    Some((cur_dist, _)) if dist < *cur_dist => *nearest = Some((dist, i)),
-                    _ => {}
+                if dist < nearest_so_far.0 {
+                    *nearest_so_far = (dist, Some(index));
                 }
             }
         } else {
-            let pivot = &self.nodes[start];
-            let mid_point = start + (end - start) / 2;
+            let (pivot, _ix) = &tree[0];
+
+            let mid_point = tree.len() / 2;
 
             let dist_to_query = pivot.dist_to(query_point);
-            let dist_to_boundary = pivot.dist_to(&self.nodes[mid_point]);
+            let dist_to_boundary = pivot.dist_to(&tree[mid_point].0);
 
             if dist_to_query >= dist_to_boundary {
-                self.find_nearest_inner(query_point, mid_point, end, nearest);
+                Self::find_nearest_inner(&tree[mid_point..], query_point, nearest_so_far);
 
-                let cur_best = nearest.map(|(d, _)| d).unwrap_or(u32::MAX);
-                if dist_to_query - dist_to_boundary < cur_best {
-                    self.find_nearest_inner(query_point, start, mid_point, nearest);
+                if dist_to_query - dist_to_boundary < nearest_so_far.0 {
+                    Self::find_nearest_inner(&tree[..mid_point], query_point, nearest_so_far);
                 }
-            }
+            } else {
+                Self::find_nearest_inner(&tree[..mid_point], query_point, nearest_so_far);
 
-            if dist_to_query < dist_to_boundary {
-                self.find_nearest_inner(query_point, start, mid_point, nearest);
-
-                let cur_best = nearest.map(|(d, _)| d).unwrap_or(u32::MAX);
-                if dist_to_boundary - dist_to_query < cur_best {
-                    self.find_nearest_inner(query_point, mid_point, end, nearest);
+                if dist_to_boundary - dist_to_query < nearest_so_far.0 {
+                    Self::find_nearest_inner(&tree[mid_point..], query_point, nearest_so_far);
                 }
             }
         }
@@ -127,21 +109,74 @@ impl LocationIndex {
 mod test {
     use super::*;
 
+    impl Coordinate for f32 {
+        fn dist_to(&self, other: &Self) -> u32 {
+            (self - other).abs() as u32
+        }
+    }
+
+    impl Coordinate for (f32, f32) {
+        fn dist_to(&self, other: &Self) -> u32 {
+            let a = self.0 - other.0;
+            let b = self.1 - other.1;
+
+            (a * a + b * b).sqrt() as u32
+        }
+    }
+
+    // #[test]
+    // fn construct_tree() {
+    //     let input = vec![1.0, 5.0, 2.0, 3.0, 9.0, 100.0, 2.0, 50.0]
+    //         .iter()
+    //         .enumerate()
+    //         .map(|(ix, x)| (*x, ix))
+    //         .collect();
+    //     let index = SpatialIndex::build(input);
+
+    //     println!("index = {:?}", index);
+
+    //     let neighbor = index.find_nearest(&76.0);
+    //     assert_eq!(neighbor.unwrap(), 0);
+
+    //     let neighbor = index.find_nearest(&6.0);
+    //     assert_eq!(neighbor.unwrap(), 0);
+    // }
+
     #[test]
-    fn construct_tree() {
-        let input = vec![1u32, 5, 2, 3, 9, 100, 2, 50]
-            .into_iter()
-            .map(|x| Positioned { x })
-            .collect::<Vec<_>>();
+    fn construct_2d_index() {
+        let input = vec![
+            (0.0, 100.0),
+            (0.0, 0.0),
+            (1000.0, 1000.0),
+            (1000.0, 200.0),
+            (1000.0, 500.0),
+            (50.0, 50.0),
+            (1000.0, 900.0),
+            (1000.0, 700.0),
+            (1000.0, 800.0),
+            (80.0, 80.0),
+            (1000.0, 600.0),
+            (1000.0, 100.0),
+            (1000.0, 300.0),
+            (100.0, 100.0),
+            (1000.0, 400.0),
+        ];
 
-        let index = LocationIndex::build(input);
+        let index = SpatialIndex::build(input.iter().enumerate().map(|(ix, x)| (*x, ix)).collect());
 
-        println!("index = {:?}", index);
+        for x in &input[..] {
+            println!("find nearest to {:?}", x);
+            let nearest_ix = index.find_nearest(x);
 
-        let neighbor = index.find_nearest(&Positioned { x: 76 });
-        assert_eq!(neighbor.unwrap().x, 100);
+            assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), *x);
+            println!("\n\n\n\n\n");
+        }
+        for x in &input[..] {
+            println!("find nearest to {:?}", x);
+            let nearest_ix = index.find_nearest(&(x.0 - 10.0, x.1 + 10.0));
 
-        let neighbor = index.find_nearest(&Positioned { x: 6 });
-        assert_eq!(neighbor.unwrap().x, 5);
+            assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), *x);
+            println!("\n\n\n\n\n");
+        }
     }
 }

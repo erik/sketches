@@ -19,10 +19,12 @@ use rand::Rng;
 
 mod index;
 mod tags;
+
+use index::{Coordinate, SpatialIndex};
 use tags::{EdgeTags, NodeTags};
 
 /// In radians
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct Point {
     lat: f32,
     lon: f32,
@@ -50,23 +52,10 @@ struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
     // TODO: Use a directed graph so we can represent one ways etc.
     inner: Graph<NodeData, EdgeData, Undirected>,
+    index: SpatialIndex<Point, NodeIndex>,
 }
 
 impl Point {
-    // Haversine, returns meters
-    // TODO: unchecked
-    fn dist_to(&self, other: &Point) -> u32 {
-        let dt_lon = self.lon - other.lon;
-        let dt_lat = self.lat - other.lat;
-
-        let a = (dt_lat / 2.0_f32).sin();
-        let b = (dt_lon / 2.0_f32).sin();
-        let c = self.lat.cos() * other.lat.cos();
-        let d = (a * a) + ((b * b) * c);
-        let e = d.sqrt().asin();
-        (2_f32 * 6_372_800_f32 * e) as u32
-    }
-
     // TODO: Clumsy typing for geojson
     fn to_degrees(&self) -> [f32; 2] {
         [self.lon.to_degrees(), self.lat.to_degrees()]
@@ -81,6 +70,22 @@ impl From<&OsmNode> for Point {
             lat: lat.to_radians(),
             lon: lon.to_radians(),
         };
+    }
+}
+
+impl Coordinate for Point {
+    // Haversine, returns meters
+    // TODO: unchecked
+    fn dist_to(&self, other: &Self) -> u32 {
+        let dt_lon = self.lon - other.lon;
+        let dt_lat = self.lat - other.lat;
+
+        let a = (dt_lat / 2.0_f32).sin();
+        let b = (dt_lon / 2.0_f32).sin();
+        let c = self.lat.cos() * other.lat.cos();
+        let d = (a * a) + ((b * b) * c);
+        let e = d.sqrt().asin();
+        (2_f32 * 6_372_800_f32 * e) as u32
     }
 }
 
@@ -344,7 +349,15 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         graph.edge_count()
     );
 
-    Ok(OsmGraph { inner: graph })
+    let node_coordinates = graph
+        .node_indices()
+        .map(|ix| (graph[ix].point, ix))
+        .collect();
+
+    Ok(OsmGraph {
+        inner: graph,
+        index: SpatialIndex::build(node_coordinates),
+    })
 }
 
 // TODO: Seems that this can get the A-star impl in petgraph stuck if
@@ -465,21 +478,40 @@ fn main() -> Result<(), std::io::Error> {
     timer.elapsed("build graph");
 
     let mut rng = rand::thread_rng();
-    for _ in 0..3 {
+
+    for _ in 0..10 {
         let node_range = 0..graph.inner.node_count();
-        let from = NodeIndex::new(rng.gen_range(node_range.clone()));
-        let to = NodeIndex::new(rng.gen_range(node_range));
+        let node_idx = NodeIndex::new(rng.gen_range(node_range));
 
+        let node = &graph.inner[node_idx];
         timer.reset();
-        let route = graph.find_route(from, to);
-        timer.elapsed("find route");
 
-        if let Some(path) = route {
-            let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
+        let nearest = graph.index.find_nearest(&node.point);
+        timer.elapsed("nearest point");
 
-            println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
-        }
+        println!(
+            "EQ?: {}, node: {:?}, nearest: {:?}",
+            Some(node_idx) == nearest,
+            node,
+            nearest.map(|ix| &graph.inner[ix])
+        );
     }
+
+    // for _ in 0..3 {
+    //     let node_range = 0..graph.inner.node_count();
+    //     let from = NodeIndex::new(rng.gen_range(node_range.clone()));
+    //     let to = NodeIndex::new(rng.gen_range(node_range));
+
+    //     timer.reset();
+    //     let route = graph.find_route(from, to);
+    //     timer.elapsed("find route");
+
+    //     if let Some(path) = route {
+    //         let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
+
+    //         println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
+    //     }
+    // }
 
     timer.elapsed("complete");
 
