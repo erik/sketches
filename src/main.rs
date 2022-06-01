@@ -480,28 +480,6 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut rng = rand::thread_rng();
 
-    for _ in 0..10 {
-        let node_range = 0..graph.inner.node_count();
-        let node_idx = NodeIndex::new(rng.gen_range(node_range));
-
-        let node = &graph.inner[node_idx];
-        timer.reset();
-
-        let nearest = graph.index.find_nearest_within(&node.point, 100.0);
-        timer.elapsed("nearest point");
-
-        println!(
-            "EQ?: {}, got {:?} exp {:?} /// node: {:?}, nearest: {:?}",
-            node_idx == nearest.unwrap(),
-            nearest.unwrap(),
-            node_idx,
-            node,
-            nearest.map(|ix| &graph.inner[ix])
-        );
-    }
-
-    panic!("abort");
-
     for _ in 0..3 {
         let node_range = 0..graph.inner.node_count();
         let from = NodeIndex::new(rng.gen_range(node_range.clone()));

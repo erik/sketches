@@ -1,8 +1,11 @@
+use std::fmt::Debug;
+
 pub trait Coordinate {
     fn dist_to(&self, other: &Self) -> f32;
 }
 
 // Implemented using a Vantage Point tree
+// TODO: Fix this - sometimes get nearest(x) != x
 #[derive(Debug)]
 pub struct SpatialIndex<Coord, Ix> {
     tree: Vec<(Coord, Ix)>,
@@ -12,8 +15,8 @@ const MAX_POINTS_PER_LEAF_NODE: usize = 8;
 
 impl<Coord, Ix> SpatialIndex<Coord, Ix>
 where
-    Ix: Copy,
-    Coord: Coordinate + Copy,
+    Ix: Copy + Debug,
+    Coord: Coordinate + Copy + Debug,
 {
     pub fn build(points: Vec<(Coord, Ix)>) -> SpatialIndex<Coord, Ix> {
         assert!(points.len() > 0, "empty data");
@@ -46,17 +49,19 @@ where
         // than pivot" and "greater than pivot"
         //
         // TODO: Why pivot_idx - 1?
-        let (within_vp, (vp_dist, new_vp), outside_vp) =
-            data.select_nth_unstable_by(pivot_idx - 1, |(a, _), (b, _)| a.partial_cmp(b).unwrap());
+        let _ = data[1..]
+            .select_nth_unstable_by(pivot_idx - 1, |(a, _), (b, _)| a.partial_cmp(b).unwrap());
 
-        Self::build_inner(within_vp);
-
-        *vp_dist = 0.0;
-        for (dist, (point, _ix)) in &mut outside_vp[..] {
+        // TODO: avoid clone
+        let new_vp = &data[pivot_idx].1.clone();
+        for (dist, (point, _ix)) in &mut data[pivot_idx + 1..] {
             *dist = point.dist_to(&new_vp.0);
         }
 
-        Self::build_inner(outside_vp);
+        // Left children: inside current vantage point
+        Self::build_inner(&mut data[..pivot_idx]);
+        // Right children: outside vantage point
+        Self::build_inner(&mut data[pivot_idx..]);
     }
 
     pub fn find_nearest_within(&self, point: &Coord, radius: f32) -> Option<Ix> {
@@ -106,69 +111,60 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use rand::{prelude::*, rngs::mock::StepRng, Rng};
 
-    impl Coordinate for f32 {
-        fn dist_to(&self, other: &Self) -> u32 {
-            (self - other).abs() as u32
+    impl Coordinate for i32 {
+        fn dist_to(&self, other: &Self) -> f32 {
+            (self - other).abs() as f32
         }
     }
 
-    impl Coordinate for (f32, f32) {
-        fn dist_to(&self, other: &Self) -> u32 {
+    impl Coordinate for (i32, i32) {
+        fn dist_to(&self, other: &Self) -> f32 {
             let a = self.0 - other.0;
             let b = self.1 - other.1;
 
-            (a * a + b * b).sqrt() as u32
+            ((a * a + b * b) as f32).sqrt()
         }
     }
 
     #[test]
-    fn construct_tree() {
-        let input = vec![0.0, 1.0, 3.0, 5.0, 8.0, 13.0, 21.0, 35.0, 56.0, 91.0, 147.0]
-            .iter()
-            .enumerate()
-            .map(|(ix, x)| (*x, ix))
-            .collect();
-        let index = SpatialIndex::build(input);
+    fn construct_1d_index() {
+        let mut rng = StepRng::new(0, 3);
+
+        let mut input: [i32; 30] = rng.gen();
+        input.shuffle(&mut rng);
+        for i in &mut input {
+            *i *= rng.gen::<i32>();
+        }
+
+        let with_index = input.iter().enumerate().map(|(ix, x)| (*x, ix)).collect();
+        let index = SpatialIndex::build(with_index);
 
         println!("index = {:?}", index);
 
-        let neighbor = index.find_nearest_within(&0.0, u32::MAX);
-        assert_eq!(neighbor.unwrap(), 0);
+        for x in &input {
+            let neighbor = index.find_nearest_within(x, 10.0);
+            assert_eq!(neighbor.map(|i| input[i]), Some(*x));
+        }
     }
 
     #[test]
     fn construct_2d_index() {
-        let input = vec![
-            (0.0, 100.0),
-            (0.0, 0.0),
-            (1000.0, 1000.0),
-            (1000.0, 200.0),
-            (1000.0, 500.0),
-            (50.0, 50.0),
-            (1000.0, 900.0),
-            (1000.0, 700.0),
-            (1000.0, 800.0),
-            (80.0, 80.0),
-            (1000.0, 600.0),
-            (1000.0, 100.0),
-            (1000.0, 300.0),
-            (100.0, 100.0),
-        ];
+        let mut rng = StepRng::new(0, 111);
+
+        let mut input: [(i32, i32); 31] = rng.gen();
+        input.shuffle(&mut rng);
+
+        println!("input {:?}", input);
 
         let index = SpatialIndex::build(input.iter().enumerate().map(|(ix, x)| (*x, ix)).collect());
 
         for x in &input[..] {
             println!("find nearest to {:?}", x);
-            let nearest_ix = index.find_nearest_within(x, 10);
+            let nearest_ix = index.find_nearest_within(x, 1000.0);
 
             assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), *x);
-        }
-        for x in &input[..] {
-            let nearest_ix = index.find_nearest_within(&(x.0 - 1.0, x.1 + 1.0), 10);
-
-            assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), *x);
-            println!("\n\n\n\n\n");
         }
     }
 }
