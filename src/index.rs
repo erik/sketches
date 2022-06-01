@@ -52,8 +52,7 @@ where
         let _ = data[1..]
             .select_nth_unstable_by(pivot_idx - 1, |(a, _), (b, _)| a.partial_cmp(b).unwrap());
 
-        // TODO: avoid clone
-        let new_vp = &data[pivot_idx].1.clone();
+        let new_vp = data[pivot_idx].1;
         for (dist, (point, _ix)) in &mut data[pivot_idx + 1..] {
             *dist = point.dist_to(&new_vp.0);
         }
