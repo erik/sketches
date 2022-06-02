@@ -58,7 +58,7 @@ where
     C: Euclidean<f32> + Copy + Debug,
 {
     pub fn build(points: Vec<IndexedCoordinate<I, C>>) -> SpatialIndex<I, C> {
-        assert!(points.len() > 0, "empty data");
+        assert!(!points.is_empty(), "empty data");
 
         // For simplicity: use the first element of the list as our
         // first vantage point.
@@ -104,7 +104,8 @@ where
     pub fn find_nearest_within(&self, point: C, radius: f32) -> Option<I> {
         let mut nearest_so_far = (radius, None);
         Self::find_nearest_inner(&self.tree, point, &mut nearest_so_far);
-        return nearest_so_far.1;
+
+        nearest_so_far.1
     }
 
     fn find_nearest_inner(

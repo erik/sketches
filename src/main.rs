@@ -72,7 +72,7 @@ impl LatLng {
     }
 
     // TODO: Clumsy typing for geojson
-    fn to_degrees(&self) -> [f32; 2] {
+    fn to_degrees(self) -> [f32; 2] {
         [self.lon.to_degrees(), self.lat.to_degrees()]
     }
 }
@@ -81,10 +81,10 @@ impl From<&OsmNode> for LatLng {
     fn from(node: &OsmNode) -> LatLng {
         let (lat, lon) = (node.lat() as f32, node.lon() as f32);
 
-        return LatLng {
+        LatLng {
             lat: lat.to_radians(),
             lon: lon.to_radians(),
-        };
+        }
     }
 }
 
