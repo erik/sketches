@@ -20,7 +20,7 @@ use rand::Rng;
 mod index;
 mod tags;
 
-use crate::index::{Point2D, SpatialIndex};
+use crate::index::{IndexedCoordinate, Point2D, SpatialIndex};
 use crate::tags::{EdgeTags, NodeTags};
 
 /// In radians
@@ -52,7 +52,7 @@ struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
     // TODO: Use a directed graph so we can represent one ways etc.
     inner: Graph<NodeData, EdgeData, Undirected>,
-    index: SpatialIndex<Point2D, NodeIndex>,
+    index: SpatialIndex<NodeIndex, Point2D>,
 }
 
 impl LatLng {
@@ -356,7 +356,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
 
     let node_coordinates: Vec<_> = graph
         .node_indices()
-        .map(|ix| (graph[ix].point, ix))
+        .map(|ix| IndexedCoordinate::new(ix, graph[ix].point.into()))
         .collect();
 
     Ok(OsmGraph {

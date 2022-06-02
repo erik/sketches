@@ -1,11 +1,24 @@
 use std::fmt::Debug;
 
+pub type Point1D = f32;
+pub type Point2D = (f32, f32);
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedCoordinate<I, C> {
+    index: I,
+    coord: C,
+}
+
+// Implemented using a Vantage Point tree
+// TODO: Fix this - sometimes get nearest(x) != x
+#[derive(Debug)]
+pub struct SpatialIndex<I, C> {
+    tree: Vec<IndexedCoordinate<I, C>>,
+}
+
 pub trait Euclidean<Dist> {
     fn distance(self, other: Self) -> Dist;
 }
-
-pub type Point1D = f32;
-pub type Point2D = (f32, f32);
 
 impl Euclidean<f32> for Point1D {
     fn distance(self, other: Self) -> f32 {
@@ -22,50 +35,45 @@ impl Euclidean<f32> for Point2D {
     }
 }
 
-struct IndexedCoordinate<C, I> {
-    index: I,
-    coord: C,
+impl<D, I, C> Euclidean<D> for IndexedCoordinate<I, C>
+where
+    C: Euclidean<D>,
+{
+    fn distance(self, other: Self) -> D {
+        self.coord.distance(other.coord)
+    }
 }
 
-// Implemented using a Vantage Point tree
-// TODO: Fix this - sometimes get nearest(x) != x
-#[derive(Debug)]
-pub struct SpatialIndex<C, I> {
-    tree: Vec<(C, I)>,
+impl<I, C> IndexedCoordinate<I, C> {
+    pub fn new(index: I, coord: C) -> Self {
+        IndexedCoordinate { index, coord }
+    }
 }
 
 const MAX_POINTS_PER_LEAF_NODE: usize = 8;
 
-impl<C, I> SpatialIndex<C, I>
+impl<I, C> SpatialIndex<I, C>
 where
     I: Copy + Debug,
     C: Euclidean<f32> + Copy + Debug,
 {
-    pub fn build<T>(points: Vec<(T, I)>) -> SpatialIndex<C, I>
-    where
-        T: Into<C> + Copy,
-    {
+    pub fn build(points: Vec<IndexedCoordinate<I, C>>) -> SpatialIndex<I, C> {
         assert!(points.len() > 0, "empty data");
 
         // For simplicity: use the first element of the list as our
         // first vantage point.
-        let vp: C = points[0].0.into();
-        let mut points_with_dist: Vec<_> = points
-            .into_iter()
-            .map(|(pt, ix)| {
-                let coord = pt.into();
-                (vp.distance(coord), (coord, ix))
-            })
-            .collect();
+        let vp = points[0];
+        let mut points_with_dist: Vec<_> =
+            points.into_iter().map(|pt| (vp.distance(pt), pt)).collect();
 
         Self::build_inner(&mut points_with_dist[..]);
 
-        let tree = points_with_dist.into_iter().map(|(_, p)| p).collect();
+        let tree = points_with_dist.into_iter().map(|(_, pt)| pt).collect();
 
         SpatialIndex { tree }
     }
 
-    fn build_inner(data: &mut [(f32, (C, I))]) {
+    fn build_inner(data: &mut [(f32, IndexedCoordinate<I, C>)]) {
         if data.len() <= MAX_POINTS_PER_LEAF_NODE {
             return;
         }
@@ -82,9 +90,9 @@ where
         let _ = data[1..]
             .select_nth_unstable_by(pivot_idx - 1, |(a, _), (b, _)| a.partial_cmp(b).unwrap());
 
-        let new_vp = data[pivot_idx].1;
-        for (dist, (point, _ix)) in &mut data[pivot_idx + 1..] {
-            *dist = point.distance(new_vp.0);
+        let (_, vp) = data[pivot_idx];
+        for (dist, coord) in &mut data[pivot_idx + 1..] {
+            *dist = vp.distance(*coord);
         }
 
         // Left children: inside current vantage point
@@ -93,28 +101,32 @@ where
         Self::build_inner(&mut data[pivot_idx..]);
     }
 
-    pub fn find_nearest_within(&self, point: &C, radius: f32) -> Option<I> {
+    pub fn find_nearest_within(&self, point: C, radius: f32) -> Option<I> {
         let mut nearest_so_far = (radius, None);
-        Self::find_nearest_inner(&self.tree, *point, &mut nearest_so_far);
-        return nearest_so_far.1.map(|index| index);
+        Self::find_nearest_inner(&self.tree, point, &mut nearest_so_far);
+        return nearest_so_far.1;
     }
 
-    fn find_nearest_inner(tree: &[(C, I)], query_point: C, nearest_so_far: &mut (f32, Option<I>)) {
+    fn find_nearest_inner(
+        tree: &[IndexedCoordinate<I, C>],
+        query_point: C,
+        nearest_so_far: &mut (f32, Option<I>),
+    ) {
         if tree.len() <= MAX_POINTS_PER_LEAF_NODE {
-            for &(point, index) in &tree[..] {
-                let dist = query_point.distance(point);
+            for &pt in &tree[..] {
+                let dist = query_point.distance(pt.coord);
 
                 if dist < nearest_so_far.0 {
-                    *nearest_so_far = (dist, Some(index));
+                    *nearest_so_far = (dist, Some(pt.index));
                 }
             }
         } else {
-            let (vantage_point, _ix) = &tree[0];
+            let vantage_point = tree[0];
 
             let pivot_idx = tree.len() / 2;
 
-            let dist_to_query = vantage_point.distance(query_point);
-            let dist_to_boundary = vantage_point.distance(tree[pivot_idx].0);
+            let dist_to_query = vantage_point.coord.distance(query_point);
+            let dist_to_boundary = vantage_point.distance(tree[pivot_idx]);
 
             if dist_to_query >= dist_to_boundary {
                 Self::find_nearest_inner(&tree[pivot_idx..], query_point, nearest_so_far);
@@ -147,15 +159,20 @@ mod test {
         for i in &mut input {
             *i *= rng.gen::<i32>() as f32;
         }
+        println!("input {:?}", input);
 
-        let with_index = input.iter().enumerate().map(|(ix, x)| (*x, ix)).collect();
+        let with_index = input
+            .iter()
+            .enumerate()
+            .map(|(i, x)| IndexedCoordinate::new(i, *x))
+            .collect();
         let index = SpatialIndex::build(with_index);
 
         println!("index = {:?}", index);
 
-        for x in &input {
+        for &x in &input {
             let neighbor = index.find_nearest_within(x, 10.0);
-            assert_eq!(neighbor.map(|i| input[i]), Some(*x));
+            assert_eq!(neighbor.map(|i| input[i]), Some(x));
         }
     }
 
@@ -168,13 +185,18 @@ mod test {
 
         println!("input {:?}", input);
 
-        let index = SpatialIndex::build(input.iter().enumerate().map(|(ix, x)| (*x, ix)).collect());
+        let with_index = input
+            .iter()
+            .enumerate()
+            .map(|(i, x)| IndexedCoordinate::new(i, *x))
+            .collect();
+        let index = SpatialIndex::build(with_index);
 
-        for x in &input[..] {
+        for &x in &input[..] {
             println!("find nearest to {:?}", x);
-            let nearest_ix = index.find_nearest_within(x, 1000.0);
+            let nearest_ix = index.find_nearest_within(x, 10.0);
 
-            assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), *x);
+            assert_eq!(nearest_ix.map(|ix| input[ix]).unwrap(), x);
         }
     }
 }
