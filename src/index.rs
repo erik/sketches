@@ -16,17 +16,17 @@ pub struct SpatialIndex<I, C> {
     tree: Vec<IndexedCoordinate<I, C>>,
 }
 
-pub trait Euclidean<Dist> {
-    fn distance(self, other: Self) -> Dist;
+pub trait Euclidean {
+    fn distance(self, other: Self) -> f32;
 }
 
-impl Euclidean<f32> for Point1D {
+impl Euclidean for Point1D {
     fn distance(self, other: Self) -> f32 {
         (self - other).abs()
     }
 }
 
-impl Euclidean<f32> for Point2D {
+impl Euclidean for Point2D {
     fn distance(self, other: Self) -> f32 {
         let dx = self.0 - other.0;
         let dy = self.1 - other.1;
@@ -35,11 +35,8 @@ impl Euclidean<f32> for Point2D {
     }
 }
 
-impl<D, I, C> Euclidean<D> for IndexedCoordinate<I, C>
-where
-    C: Euclidean<D>,
-{
-    fn distance(self, other: Self) -> D {
+impl<I, C: Euclidean> Euclidean for IndexedCoordinate<I, C> {
+    fn distance(self, other: Self) -> f32 {
         self.coord.distance(other.coord)
     }
 }
@@ -55,20 +52,20 @@ const MAX_POINTS_PER_LEAF_NODE: usize = 8;
 impl<I, C> SpatialIndex<I, C>
 where
     I: Copy + Debug,
-    C: Euclidean<f32> + Copy + Debug,
+    C: Euclidean + Copy + Debug,
 {
-    pub fn build(points: Vec<IndexedCoordinate<I, C>>) -> SpatialIndex<I, C> {
+    pub fn build(points: &[IndexedCoordinate<I, C>]) -> SpatialIndex<I, C> {
         assert!(!points.is_empty(), "empty data");
 
         // For simplicity: use the first element of the list as our
-        // first vantage point.
+        // first vantage point, and calculate the distance from it to
+        // every other point.
         let vp = points[0];
-        let mut points_with_dist: Vec<_> =
-            points.into_iter().map(|pt| (vp.distance(pt), pt)).collect();
+        let mut dist_from_vp: Vec<_> = points.iter().map(|&pt| (vp.distance(pt), pt)).collect();
 
-        Self::build_inner(&mut points_with_dist[..]);
+        Self::build_inner(&mut dist_from_vp);
 
-        let tree = points_with_dist.into_iter().map(|(_, pt)| pt).collect();
+        let tree = dist_from_vp.into_iter().map(|(_dist, pt)| pt).collect();
 
         SpatialIndex { tree }
     }
@@ -162,12 +159,12 @@ mod test {
         }
         println!("input {:?}", input);
 
-        let with_index = input
+        let mut with_index: Vec<_> = input
             .iter()
             .enumerate()
             .map(|(i, x)| IndexedCoordinate::new(i, *x))
             .collect();
-        let index = SpatialIndex::build(with_index);
+        let index = SpatialIndex::build(&mut with_index);
 
         println!("index = {:?}", index);
 
@@ -186,12 +183,12 @@ mod test {
 
         println!("input {:?}", input);
 
-        let with_index = input
+        let mut with_index: Vec<_> = input
             .iter()
             .enumerate()
             .map(|(i, x)| IndexedCoordinate::new(i, *x))
             .collect();
-        let index = SpatialIndex::build(with_index);
+        let index = SpatialIndex::build(&mut with_index);
 
         for &x in &input[..] {
             println!("find nearest to {:?}", x);

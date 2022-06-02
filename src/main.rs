@@ -361,7 +361,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
 
     Ok(OsmGraph {
         inner: graph,
-        index: SpatialIndex::build(node_coordinates),
+        index: SpatialIndex::build(&node_coordinates),
     })
 }
 
