@@ -20,19 +20,19 @@ use rand::Rng;
 mod index;
 mod tags;
 
-use index::{Coordinate, SpatialIndex};
-use tags::{EdgeTags, NodeTags};
+use crate::index::{Point2D, SpatialIndex};
+use crate::tags::{EdgeTags, NodeTags};
 
 /// In radians
 #[derive(Debug, Copy, Clone, PartialEq)]
-struct Point {
+struct LatLng {
     lat: f32,
     lon: f32,
 }
 
 #[derive(Debug)]
 struct NodeData {
-    point: Point,
+    point: LatLng,
     tags: NodeTags,
 }
 
@@ -45,35 +45,17 @@ struct EdgeData {
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
     // TODO: Simplify geometry before storing
-    geometry: Vec<Point>,
+    geometry: Vec<LatLng>,
 }
 
 struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
     // TODO: Use a directed graph so we can represent one ways etc.
     inner: Graph<NodeData, EdgeData, Undirected>,
-    index: SpatialIndex<Point, NodeIndex>,
+    index: SpatialIndex<Point2D, NodeIndex>,
 }
 
-impl Point {
-    // TODO: Clumsy typing for geojson
-    fn to_degrees(&self) -> [f32; 2] {
-        [self.lon.to_degrees(), self.lat.to_degrees()]
-    }
-}
-
-impl From<&OsmNode> for Point {
-    fn from(node: &OsmNode) -> Point {
-        let (lat, lon) = (node.lat() as f32, node.lon() as f32);
-
-        return Point {
-            lat: lat.to_radians(),
-            lon: lon.to_radians(),
-        };
-    }
-}
-
-impl Coordinate for Point {
+impl LatLng {
     // Haversine, returns meters
     // TODO: unchecked
     fn dist_to(&self, other: &Self) -> f32 {
@@ -87,6 +69,28 @@ impl Coordinate for Point {
         let e = d.sqrt().asin();
 
         2_f32 * 6_372_800_f32 * e
+    }
+
+    // TODO: Clumsy typing for geojson
+    fn to_degrees(&self) -> [f32; 2] {
+        [self.lon.to_degrees(), self.lat.to_degrees()]
+    }
+}
+
+impl From<&OsmNode> for LatLng {
+    fn from(node: &OsmNode) -> LatLng {
+        let (lat, lon) = (node.lat() as f32, node.lon() as f32);
+
+        return LatLng {
+            lat: lat.to_radians(),
+            lon: lon.to_radians(),
+        };
+    }
+}
+
+impl From<LatLng> for (f32, f32) {
+    fn from(pt: LatLng) -> (f32, f32) {
+        (pt.lat, pt.lon)
     }
 }
 
@@ -247,8 +251,8 @@ fn strip_tags(tags: &Tags) -> Tags {
 }
 
 enum Pass2Node {
-    Routing(NodeIndex<u32>, Point),
-    Geometry(Point),
+    Routing(NodeIndex<u32>, LatLng),
+    Geometry(LatLng),
 }
 
 // TODO: Extract out some kind of helper functions, too big.
@@ -277,7 +281,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                 node_kind
                     .get(&osm_node.id)
                     .map(|kind| {
-                        let point = Point::from(osm_node);
+                        let point = LatLng::from(osm_node);
                         match kind {
                             NodeKind::Geometry => Pass2Node::Geometry(point),
                             NodeKind::Routing => {
@@ -300,7 +304,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                 }
 
                 let mut accumulated_dist = 0.0;
-                let mut prev_point: Option<Point> = None;
+                let mut prev_point: Option<LatLng> = None;
                 let mut prev_node_id: Option<NodeIndex> = None;
 
                 for osm_node_id in way.nodes.iter() {
@@ -350,7 +354,7 @@ fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         graph.edge_count()
     );
 
-    let node_coordinates = graph
+    let node_coordinates: Vec<_> = graph
         .node_indices()
         .map(|ix| (graph[ix].point, ix))
         .collect();
@@ -398,7 +402,7 @@ impl OsmGraph {
     }
 
     // TODO: Build lat,lng -> NodeIndex lookup so we don't need to pass node index values.
-    fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<Point>> {
+    fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
         let path = astar(
