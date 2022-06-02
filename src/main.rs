@@ -7,10 +7,9 @@ mod tags;
 use std::path::Path;
 use std::time::Instant;
 
-use petgraph::graph::NodeIndex;
-use rand::Rng;
+use rocket::State;
 
-use crate::graph::construct_graph;
+use crate::graph::{construct_graph, OsmGraph};
 
 struct Timer {
     started_at: Instant,
@@ -45,7 +44,21 @@ impl Timer {
     }
 }
 
-fn main() -> Result<(), std::io::Error> {
+#[rocket::get("/")]
+fn route_index(graph: &State<OsmGraph>) -> String {
+    format!("your graph has {:?} nodes\n", graph.inner.node_count())
+}
+
+#[rocket::launch]
+fn launch_server() -> _ {
+    let graph = load_graph().expect("graph loading failed");
+
+    rocket::build()
+        .manage(graph)
+        .mount("/", rocket::routes![route_index])
+}
+
+fn load_graph() -> Result<OsmGraph, std::io::Error> {
     let mut timer = Timer::new();
 
     // TODO: Real argument parsing
@@ -60,25 +73,5 @@ fn main() -> Result<(), std::io::Error> {
     let graph = construct_graph(Path::new(&osm_path))?;
     timer.elapsed("build graph");
 
-    let mut rng = rand::thread_rng();
-
-    for _ in 0..3 {
-        let node_range = 0..graph.inner.node_count();
-        let from = NodeIndex::new(rng.gen_range(node_range.clone()));
-        let to = NodeIndex::new(rng.gen_range(node_range));
-
-        timer.reset();
-        let route = graph.find_route(from, to);
-        timer.elapsed("find route");
-
-        if let Some(path) = route {
-            let geom = path.iter().map(|pt| pt.to_degrees()).collect::<Vec<_>>();
-
-            println!(" {{ \"type\": \"Feature\", \"geometry\": {{\"type\": \"LineString\", \"coordinates\": {:?}}}, \"properties\": {{}}}}", geom);
-        }
-    }
-
-    timer.elapsed("complete");
-
-    Ok(())
+    Ok(graph)
 }
