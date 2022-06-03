@@ -10,3 +10,6 @@ osmpbfreader = "0.15.2"
 petgraph = "0.6.0"
 rand = "0.8.5"
 rocket = { version = "0.5.0-rc.2", features = ["json"] }
+
+[profile.release]
+debug = true

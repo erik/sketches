@@ -150,36 +150,32 @@ where
     //
     // TODO: Could be a bitvector.
     let mut node_kind_mapping = HashMap::<OsmNodeId, NodeKind>::new();
-    let mut keys = std::collections::HashSet::<_>::new();
-    let mut vals = std::collections::HashSet::<_>::new();
-    let mut node_tags = 0;
-    let mut way_tags = 0;
+    let mut processed_nodes = 0;
+    let mut processed_ways = 0;
 
-    for obj in reader.par_iter() {
+    for (i, obj) in reader.par_iter().enumerate() {
         let obj = obj.unwrap();
+
+        if i % 1_000_000 == 0 {
+            print!(
+                "\r[PASS 1]: objects={:?} nodes={:?} ways={:?}",
+                i, processed_nodes, processed_ways,
+            );
+        }
 
         match obj {
             OsmObj::Node(ref node) => {
                 if is_node_used_for_routing(&node.tags) {
                     node_kind_mapping.insert(node.id, NodeKind::Routing);
-                }
-
-                for (k, v) in node.tags.iter() {
-                    node_tags += 1;
-                    keys.insert(k.clone());
-                    vals.insert(v.clone());
+                    processed_nodes += 1;
                 }
             }
 
             OsmObj::Way(ref way) => {
-                for (k, v) in way.tags.iter() {
-                    way_tags += 1;
-                    keys.insert(k.clone());
-                    vals.insert(v.clone());
-                }
                 if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                     continue;
                 }
+                processed_ways += 1;
 
                 for (i, &osm_node_id) in way.nodes.iter().enumerate() {
                     let is_first_or_last = i == 0 || i == way.nodes.len() - 1;
@@ -203,11 +199,8 @@ where
     }
 
     println!(
-        "Data Size: nodes={:?} ways={:?} keys={:?}, vals={:?}",
-        node_tags,
-        way_tags,
-        keys.len(),
-        vals.len()
+        "[PASS 1] complete: nodes={:?} ways={:?}",
+        processed_nodes, processed_ways,
     );
 
     node_kind_mapping
@@ -255,21 +248,31 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     pbf.rewind().unwrap();
 
     let mut node_map = HashMap::<OsmNodeId, Pass2Node>::with_capacity(node_kind.len());
-
     let mut graph = Graph::<NodeData, EdgeData, _>::new_undirected();
 
-    let mut seen_way = false;
-    for obj in pbf.par_iter() {
+    let mut processed_nodes = 0;
+    let mut processed_ways = 0;
+    for (i, obj) in pbf.par_iter().enumerate() {
         let obj = obj.unwrap();
+
+        if i % 100_000 == 0 {
+            print!(
+                "\r[PASS 2]: objects={:?} nodes={:?} ways={:?}",
+                i, processed_nodes, processed_ways,
+            );
+        }
+
         match obj {
             OsmObj::Relation(_) => {}
 
             OsmObj::Node(ref osm_node) => {
-                assert!(!seen_way, "input files MUST be sorted!");
+                assert!(processed_ways == 0, "input files MUST be sorted!");
 
                 node_kind
                     .get(&osm_node.id)
                     .map(|kind| {
+                        processed_nodes += 1;
+
                         let point = LatLng::from(osm_node);
                         match kind {
                             NodeKind::Geometry => Pass2Node::Geometry(point),
@@ -287,10 +290,11 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
             }
 
             OsmObj::Way(ref way) => {
-                seen_way = true;
                 if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
                     continue;
                 }
+
+                processed_ways += 1;
 
                 let mut accumulated_dist = 0.0;
                 let mut prev_point: Option<LatLng> = None;
@@ -338,7 +342,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         }
     }
     println!(
-        "Created graph: nodes={}, edges={}",
+        "[PASS 2] complete: nodes={}, edges={}",
         graph.node_count(),
         graph.edge_count()
     );
