@@ -20,8 +20,8 @@ use crate::tags::{EdgeTags, NodeTags};
 /// In radians
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LatLng {
-    lat: f32,
-    lon: f32,
+    pub lat: f32,
+    pub lon: f32,
 }
 
 #[derive(Debug)]
@@ -63,11 +63,6 @@ impl LatLng {
         let e = d.sqrt().asin();
 
         2_f32 * 6_372_800_f32 * e
-    }
-
-    // TODO: Clumsy typing for geojson
-    pub fn to_degrees(self) -> [f32; 2] {
-        [self.lon.to_degrees(), self.lat.to_degrees()]
     }
 }
 
@@ -395,11 +390,18 @@ impl OsmGraph {
         edge_data.dist * (1 + multiple)
     }
 
+    pub fn find_route(&self, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
+        let from = self.index.find_nearest_within(from.into(), 500.0)?;
+        let to = self.index.find_nearest_within(to.into(), 500.0)?;
+
+        self.find_route_from_nodes(from, to)
+    }
+
     // TODO: Build lat,lng -> NodeIndex lookup so we don't need to pass node index values.
-    pub fn find_route(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
+    fn find_route_from_nodes(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
-        let path = astar(
+        let (cost, path) = astar(
             &self.inner,
             from,
             |node_id| node_id == to,
@@ -410,20 +412,21 @@ impl OsmGraph {
                     .map(|n| n.point.dist_to(&dest_node.point) as u32)
                     .unwrap_or(0)
             },
-        );
+        )?;
 
-        path.map(|(cost, path)| {
-            println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
+        println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
 
-            path.iter()
-                .map(|node_id| {
-                    // TODO: How do we figure out which edge was taken in the case of parallel ones?
-                    self.inner
-                        .node_weight(*node_id)
-                        .expect("invalid from_node_id")
-                        .point
-                })
-                .collect()
-        })
+        let lat_lng = path
+            .into_iter()
+            .map(|node_id| {
+                // TODO: How do we figure out which edge was taken in the case of parallel ones?
+                self.inner
+                    .node_weight(node_id)
+                    .expect("invalid from_node_id")
+                    .point
+            })
+            .collect();
+
+        Some(lat_lng)
     }
 }

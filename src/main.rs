@@ -7,6 +7,7 @@ mod tags;
 use std::path::Path;
 use std::time::Instant;
 
+use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
 use crate::graph::{construct_graph, OsmGraph};
@@ -44,9 +45,63 @@ impl Timer {
     }
 }
 
-#[rocket::get("/")]
-fn route_index(graph: &State<OsmGraph>) -> String {
-    format!("your graph has {:?} nodes\n", graph.inner.node_count())
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(crate = "rocket::serde")]
+struct JsonLatLng {
+    lat: f32,
+    lon: f32,
+}
+
+impl Into<crate::graph::LatLng> for JsonLatLng {
+    fn into(self) -> crate::graph::LatLng {
+        crate::graph::LatLng {
+            lat: self.lat.to_radians(),
+            lon: self.lon.to_radians(),
+        }
+    }
+}
+impl Into<JsonLatLng> for crate::graph::LatLng {
+    fn into(self) -> JsonLatLng {
+        JsonLatLng {
+            lat: self.lat.to_degrees(),
+            lon: self.lon.to_degrees(),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(crate = "rocket::serde")]
+pub struct RouteRequest {
+    from: JsonLatLng,
+    to: JsonLatLng,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(crate = "rocket::serde")]
+pub struct RouteResponse {
+    route: Option<Vec<JsonLatLng>>,
+}
+
+mod routes {
+    use rocket::response::content::RawHtml;
+    use rocket::serde::json::Json;
+
+    use super::*;
+
+    #[rocket::get("/")]
+    pub fn index() -> RawHtml<&'static [u8]> {
+        RawHtml(include_bytes!("index.html"))
+    }
+
+    #[rocket::post("/route", format = "json", data = "<req>")]
+    pub fn route(graph: &State<OsmGraph>, req: Json<RouteRequest>) -> Json<RouteResponse> {
+        println!("Incoming routing request: {:?}", req.0);
+        let route = graph.find_route(req.0.from.into(), req.0.to.into());
+
+        Json(RouteResponse {
+            route: route.map(|points| points.into_iter().map(|pt| pt.into()).collect()),
+        })
+    }
 }
 
 #[rocket::launch]
@@ -55,7 +110,7 @@ fn launch_server() -> _ {
 
     rocket::build()
         .manage(graph)
-        .mount("/", rocket::routes![route_index])
+        .mount("/", rocket::routes![routes::index, routes::route])
 }
 
 fn load_graph() -> Result<OsmGraph, std::io::Error> {
