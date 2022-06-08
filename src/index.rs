@@ -31,7 +31,7 @@ impl Euclidean for Point2D {
         let dx = self.0 - other.0;
         let dy = self.1 - other.1;
 
-        (dx * dx + dy * dy).sqrt()
+        dx.hypot(dy)
     }
 }
 

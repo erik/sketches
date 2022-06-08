@@ -238,6 +238,51 @@ enum Pass2Node {
     Geometry(LatLng),
 }
 
+// Ramer-Douglas-Peucker line simplification
+// TODO: needs tests, not checked
+fn simplify(geo: &[LatLng], epsilon: f32) -> Vec<LatLng> {
+    let mut result = Vec::with_capacity(geo.len());
+    if geo.len() >= 2 {
+        result.push(geo[0]);
+        simplify_inner(geo, epsilon, &mut result);
+    }
+    result
+}
+
+// TODO: Probably shouldn't be working in radians here...
+fn simplify_inner(geo: &[LatLng], epsilon: f32, result: &mut Vec<LatLng>) {
+    if geo.len() < 2 {
+        return;
+    }
+
+    let (first, last) = (geo[0], geo[geo.len() - 1]);
+
+    let dy = last.lat - first.lat;
+    let dx = last.lon - first.lon;
+
+    let mut max_dist = 0.0;
+    let mut index = 0;
+
+    for i in 1..geo.len() - 1 {
+        let p = geo[i];
+        // Distance from `point` to line [first, last]
+        let d = (p.lon * dy - p.lat * dx) + (last.lon * first.lat - last.lat * first.lon);
+        let dist = d.abs() / dx.hypot(dy);
+
+        if dist > max_dist {
+            max_dist = dist;
+            index = i;
+        }
+    }
+
+    if max_dist > epsilon {
+        simplify_inner(&geo[..=index], epsilon, result);
+        simplify_inner(&geo[index..], epsilon, result);
+    } else {
+        result.push(last);
+    }
+}
+
 // TODO: Extract out some kind of helper functions, too big.
 pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     let f = std::fs::File::open(path).unwrap();
@@ -331,7 +376,8 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                                 EdgeData {
                                     dist: accumulated_dist as u32,
                                     tags: EdgeTags::from(strip_tags(&way.tags)),
-                                    geometry: way_geo.clone(), //simplify(&way_geo, 0.000001),
+                                    // Approx 1m precision at equator.
+                                    geometry: simplify(&way_geo, 1e-5),
                                 },
                             );
 
