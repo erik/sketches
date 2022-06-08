@@ -7,6 +7,7 @@ use osmpbfreader::{
     objects::{Node as OsmNode, NodeId as OsmNodeId},
     OsmObj, OsmPbfReader, Tags,
 };
+use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::{
     algo::astar,
     graph::NodeIndex,
@@ -199,7 +200,7 @@ where
     }
 
     println!(
-        "[PASS 1] complete: nodes={:?} ways={:?}",
+        "\n[PASS 1] complete: nodes={:?} ways={:?}",
         processed_nodes, processed_ways,
     );
 
@@ -255,7 +256,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     for (i, obj) in pbf.par_iter().enumerate() {
         let obj = obj.unwrap();
 
-        if i % 100_000 == 0 {
+        if i % 1_000_000 == 0 {
             print!(
                 "\r[PASS 2]: objects={:?} nodes={:?} ways={:?}",
                 i, processed_nodes, processed_ways,
@@ -297,6 +298,8 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                 processed_ways += 1;
 
                 let mut accumulated_dist = 0.0;
+                let mut way_geo = vec![];
+
                 let mut prev_point: Option<LatLng> = None;
                 let mut prev_node_id: Option<NodeIndex> = None;
 
@@ -306,14 +309,15 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                         .expect("Missing node info from way");
 
                     let point = match node {
-                        Pass2Node::Routing(_, p) => p,
-                        Pass2Node::Geometry(p) => p,
+                        Pass2Node::Routing(_, p) => *p,
+                        Pass2Node::Geometry(p) => *p,
                     };
 
+                    way_geo.push(point);
                     if let Some(prev_point) = prev_point {
-                        accumulated_dist += prev_point.dist_to(point);
+                        accumulated_dist += prev_point.dist_to(&point);
                     }
-                    prev_point = Some(*point);
+                    prev_point = Some(point);
 
                     if let Pass2Node::Routing(node_id, _) = node {
                         if let Some(prev_id) = prev_node_id {
@@ -327,11 +331,11 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                                 EdgeData {
                                     dist: accumulated_dist as u32,
                                     tags: EdgeTags::from(strip_tags(&way.tags)),
-                                    // TODO: populate
-                                    geometry: vec![],
+                                    geometry: way_geo.clone(), //simplify(&way_geo, 0.000001),
                                 },
                             );
 
+                            way_geo.clear();
                             accumulated_dist = 0.0;
                         }
 
@@ -342,7 +346,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         }
     }
     println!(
-        "[PASS 2] complete: nodes={}, edges={}",
+        "\n[PASS 2] complete: nodes={}, edges={}",
         graph.node_count(),
         graph.edge_count()
     );
@@ -420,17 +424,33 @@ impl OsmGraph {
 
         println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
 
-        let lat_lng = path
-            .into_iter()
-            .map(|node_id| {
-                // TODO: How do we figure out which edge was taken in the case of parallel ones?
-                self.inner
-                    .node_weight(node_id)
-                    .expect("invalid from_node_id")
-                    .point
-            })
-            .collect();
+        let path_geom = self.build_geometry(&path);
+        Some(path_geom)
+    }
 
-        Some(lat_lng)
+    fn build_geometry(&self, node_ids: &[NodeIndex]) -> Vec<LatLng> {
+        let mut geometry = Vec::with_capacity(node_ids.len());
+
+        for (i, &node_id) in node_ids[1..].iter().enumerate() {
+            let prev_node_id = node_ids[i];
+
+            // TODO: How do we figure out which edge was taken in the case of parallel ones?
+            // There's another function: edges_connecting, which might be relevant.
+            self.inner
+                .find_edge_undirected(prev_node_id, node_id)
+                .and_then(|(edge_idx, direction)| {
+                    let edge = self.inner.edge_weight(edge_idx)?;
+
+                    match direction {
+                        Incoming => geometry.extend(&edge.geometry),
+                        Outgoing => geometry.extend(edge.geometry.iter().rev()),
+                    };
+
+                    Some(())
+                })
+                .expect("no edge between given nodes");
+        }
+
+        geometry
     }
 }
