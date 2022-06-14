@@ -39,7 +39,6 @@ pub struct EdgeData {
     tags: EdgeTags,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
-    // TODO: Simplify geometry before storing
     geometry: Vec<LatLng>,
 }
 
