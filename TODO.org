@@ -1,0 +1,33 @@
+* Customizability
+- Preprocessing: which ways to consider
+- Routing profiles: language, runtime evaluation
+
+
+* Completeness / correctness
+- Ingest DEM (SRTM) data for elevation consideration
+- Turn restrictions
+- One way streets etc. (directed graph)
+- Route from offset along edge rather than vertex to vertex
+
+
+* "real-world" stuff
+- Split out pre-processing OSM data from web server by ser/de graph
+  rather than regenerating.
+- Split world into 5x5 degree tiles (a la Brouter) so that the entire
+  graph need not be in memory
+- Turn costs
+- "Baking" routing profiles into preprocessed data for faster search
+  (and reduced flexibility)
+
+
+* Fantasy land / Performance
+- Landmark A* (would this work with tiling?)
+- Compact graph representation (bitvectors, etc.)
+- Bidirectional A*
+- Just in time compilation for dynamic routing profile evaluation
+
+
+* Research References
+- Customizable Route Planning in Road Networks
+  https://www.microsoft.com/en-us/research/wp-content/uploads/2013/01/crp_web_130724.pdf
+- Route Planning in Transportation Networks https://arxiv.org/pdf/1504.05140.pdf
