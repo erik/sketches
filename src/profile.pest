@@ -1,0 +1,87 @@
+WHITESPACE = _{ " " }
+COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
+
+invalid      = @{ "invalid" }
+bool         = @{ "true" | "false" }
+number       = @{ ASCII_DIGIT+ }
+string       = ${ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ ( "\\\"" | (!"\"" ~ ANY) )* }
+
+ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" }
+ident        = @{ ident_char+ }
+
+top_level = _{
+       SOI
+     ~ NEWLINE*
+     ~ (stmt ~ NEWLINE+)+
+     ~ EOI
+}
+
+
+stmt = _{
+      assignment
+    | block
+    | expr
+}
+
+assignment = {
+      ident
+    ~ "="
+    ~ expr
+}
+
+
+block = {
+      named_block
+    | when_block
+}
+
+named_block = {
+      ident
+    ~ "{"
+    ~ (NEWLINE* ~ stmt ~ (NEWLINE | ";") ~ NEWLINE*)+
+    ~ stmt?
+    ~ "}"
+}
+
+when_block = {
+      "when"
+    ~ "{"
+    ~ (NEWLINE* ~ when_clause ~ (NEWLINE | ";") ~ NEWLINE*)+
+    ~ when_clause?
+    ~ "}"
+}
+
+when_clause = {
+      (expr | "else")
+    ~ "=>"
+    ~ expr
+}
+
+expr = _{
+      bool
+    | number
+    | string
+    | tag_expr
+    | block
+    | invalid
+    | ident
+}
+
+tag_expr = {
+      "["
+    ~ tag_expr_clause
+    ~ (";" ~ tag_expr_clause)*
+    ~ "]"
+}
+
+tag_expr_clause = {
+      ident ~ "=" ~ tag_expr_pattern
+    | ident ~ "!=" ~ tag_expr_pattern
+    | "!" ~ ident
+    | ident
+}
+
+tag_expr_pattern = {
+      (ident | string) ~ ("|" ~ tag_expr_pattern)*
+}
