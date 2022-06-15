@@ -1,27 +1,31 @@
 WHITESPACE = _{ " " }
 COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
 
-invalid      = @{ "invalid" }
-bool         = @{ "true" | "false" }
-number       = @{ ASCII_DIGIT+ }
-string       = ${ "\"" ~ string_inner ~ "\"" }
-string_inner = @{ ( "\\\"" | (!"\"" ~ ANY) )* }
+terminator = _{ NEWLINE+ | ";" ~ NEWLINE* }
 
+bool         = @{ "true" | "false" }
+number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
 ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" }
 ident        = @{ ident_char+ }
 
 top_level = _{
        SOI
      ~ NEWLINE*
-     ~ (stmt ~ NEWLINE+)+
+     ~ profile
+     ~ NEWLINE*
      ~ EOI
 }
 
 
-stmt = _{
-      assignment
-    | block
-    | expr
+profile = {
+      "profile"
+    ~ string
+    ~ "{"
+    ~ NEWLINE*
+    ~ (block ~ terminator)+
+    ~ block?
+    ~ "}"
 }
 
 assignment = {
@@ -31,23 +35,35 @@ assignment = {
 }
 
 
-block = {
-      named_block
+block = _{
+      define_block
+    | named_block
     | when_block
+}
+
+define_block = {
+      "define"
+    ~ "{"
+    ~ NEWLINE*
+    ~ (assignment ~ terminator)+
+    ~ assignment?
+    ~ "}"
 }
 
 named_block = {
       ident
     ~ "{"
-    ~ (NEWLINE* ~ stmt ~ (NEWLINE | ";") ~ NEWLINE*)+
-    ~ stmt?
+    ~ NEWLINE*
+    ~ (expr ~ terminator)+
+    ~ expr?
     ~ "}"
 }
 
 when_block = {
       "when"
     ~ "{"
-    ~ (NEWLINE* ~ when_clause ~ (NEWLINE | ";") ~ NEWLINE*)+
+    ~ NEWLINE*
+    ~ (when_clause ~ terminator)+
     ~ when_clause?
     ~ "}"
 }
@@ -64,7 +80,6 @@ expr = _{
     | string
     | tag_expr
     | block
-    | invalid
     | ident
 }
 
