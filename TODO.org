@@ -25,9 +25,11 @@
 - Compact graph representation (bitvectors, etc.)
 - Bidirectional A*
 - Just in time compilation for dynamic routing profile evaluation
+- Segmentation of routing network into dynamically chosen pieces (rather than tiling)
 
 
 * Research References
-- Customizable Route Planning in Road Networks
-  https://www.microsoft.com/en-us/research/wp-content/uploads/2013/01/crp_web_130724.pdf
-- Route Planning in Transportation Networks https://arxiv.org/pdf/1504.05140.pdf
+- [[https://www.microsoft.com/en-us/research/wp-content/uploads/2013/01/crp_web_130724.pdf][Customizable Route Planning in Road Networks]]
+- [[https://arxiv.org/pdf/1504.05140.pdf][Route Planning in Transportation Networks]]
+- [[https://drops.dagstuhl.de/opus/volltexte/2015/5458/][Speedups for Multi-Criteria Urban Bicycle Routing]]
+- [[http://ieeexplore.ieee.org/document/7519077/][Practical Multicriteria Urban Bicycle Routing]]
