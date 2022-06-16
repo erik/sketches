@@ -1,8 +1,7 @@
-WHITESPACE = _{ " " }
+WHITESPACE = _{ " " | "\t" | ";" | "\n" }
 COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
 
-terminator = _{ NEWLINE+ | ";" ~ NEWLINE* }
-
+invalid      = @{ "invalid" }
 bool         = @{ "true" | "false" }
 number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
@@ -11,20 +10,33 @@ ident        = @{ ident_char+ }
 
 top_level = _{
        SOI
-     ~ NEWLINE*
      ~ profile
-     ~ NEWLINE*
      ~ EOI
 }
-
 
 profile = {
       "profile"
     ~ string
     ~ "{"
-    ~ NEWLINE*
-    ~ (block ~ terminator)+
-    ~ block?
+    ~ profile_stmt+
+    ~ "}"
+}
+
+profile_stmt = _{
+      define_block
+    | named_block
+}
+
+stmt = _ {
+      profile_stmt
+    | expr
+}
+
+// TODO: should we put assignments outside of blocks?
+define_block = {
+      "define"
+    ~ "{"
+    ~ assignment*
     ~ "}"
 }
 
@@ -34,68 +46,59 @@ assignment = {
     ~ expr
 }
 
-
-block = _{
-      define_block
-    | named_block
-    | when_block
-}
-
-define_block = {
-      "define"
-    ~ "{"
-    ~ NEWLINE*
-    ~ (assignment ~ terminator)+
-    ~ assignment?
-    ~ "}"
-}
-
 named_block = {
       ident
     ~ "{"
-    ~ NEWLINE*
-    ~ (expr ~ terminator)+
-    ~ expr?
+    ~ stmt*
     ~ "}"
 }
 
 when_block = {
       "when"
     ~ "{"
-    ~ NEWLINE*
-    ~ (when_clause ~ terminator)+
-    ~ when_clause?
+    ~ when_clause+
     ~ "}"
 }
 
 when_clause = {
-      (expr | "else")
+      (expr | else_)
     ~ "=>"
     ~ expr
 }
 
+else_ = @{ "else" }
+
 expr = _{
       bool
+    | invalid
     | number
     | string
     | tag_expr
-    | block
+    | when_block
+    | named_block
     | ident
 }
 
 tag_expr = {
       "["
-    ~ tag_expr_clause
-    ~ (";" ~ tag_expr_clause)*
+    ~ tag_expr_clause+
     ~ "]"
 }
 
-tag_expr_clause = {
-      ident ~ "=" ~ tag_expr_pattern
-    | ident ~ "!=" ~ tag_expr_pattern
-    | "!" ~ ident
-    | ident
+op_eq  = @{ "=" }
+op_neq = @{ "!=" }
+
+
+tag_expr_clause = _{
+      tag_expr_binary_clause
+    | tag_expr_exists_clause
+    | tag_expr_not_exists_clause
 }
+
+tag_expr_binary_op         = _{ op_eq | op_neq }
+tag_expr_binary_clause     = { ident ~ tag_expr_binary_op ~ tag_expr_pattern }
+tag_expr_exists_clause     = { ident }
+tag_expr_not_exists_clause = { "!" ~ ident }
 
 tag_expr_pattern = {
       (ident | string) ~ ("|" ~ tag_expr_pattern)*
