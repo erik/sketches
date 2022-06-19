@@ -1,6 +1,5 @@
 use pest::error::Error;
 use pest::Parser;
-use std::collections::HashMap;
 
 #[derive(Parser)]
 #[grammar = "profile.pest"]
@@ -26,12 +25,12 @@ pub enum Expression {
     WhenBlock(WhenBlock),
 }
 
-#[derive(Debug)]
-pub struct Scope(HashMap<String, Expression>);
+type Def = (String, Expression);
+type Definitions = Vec<Def>;
 
 #[derive(Debug)]
 pub struct NamedBlock {
-    scope: Option<Scope>,
+    defs: Definitions,
     name: String,
     body: Vec<Expression>,
 }
@@ -48,15 +47,11 @@ pub struct WhenClause {
 #[derive(Debug)]
 pub struct Profile {
     name: String,
-    globals: Scope,
+    global_defs: Definitions,
 
-    way_cost: NamedBlock,
-    node_cost: NamedBlock,
-}
-
-struct ProfileBuilder {
-    name: Option<String>,
-    globals: Scope,
+    node_penalty: Option<NamedBlock>,
+    way_penalty: Option<NamedBlock>,
+    cost_factor: Option<NamedBlock>,
 }
 
 fn parse(source: &str) -> Result<Profile, Error<Rule>> {
@@ -72,21 +67,23 @@ fn parse(source: &str) -> Result<Profile, Error<Rule>> {
 
 fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
     let profile_name = parse_as_str(pairs.next().unwrap());
-    let mut scope = None;
-    let mut node_cost = None;
-    let mut way_cost = None;
+    let mut defs = Definitions::new();
+    let mut node_penalty = None;
+    let mut way_penalty = None;
+    let mut cost_factor = None;
 
     for node in pairs {
         match node.as_rule() {
             Rule::define_block => {
-                scope = Some(parse_define_block(node.into_inner()));
+                defs = parse_define_block(node.into_inner());
             }
 
             Rule::named_block => {
                 let block = parse_named_block(node.into_inner());
                 match block.name.as_str() {
-                    "node" => node_cost = Some(block),
-                    "way" => way_cost = Some(block),
+                    "node-penalty" => node_penalty = Some(block),
+                    "way-penalty" => way_penalty = Some(block),
+                    "cost-factor" => cost_factor = Some(block),
                     name => panic!("unexpected block: {:?}", name),
                 }
             }
@@ -97,30 +94,32 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
 
     Profile {
         name: profile_name.into(),
-        globals: scope.unwrap(),
-        way_cost: way_cost.unwrap(),
-        node_cost: node_cost.unwrap(),
+        global_defs: defs,
+
+        node_penalty: node_penalty,
+        way_penalty: way_penalty,
+        cost_factor: cost_factor,
     }
 }
 
-fn parse_define_block(pairs: pest::iterators::Pairs<Rule>) -> Scope {
-    let mut scope = HashMap::new();
+fn parse_define_block(pairs: pest::iterators::Pairs<Rule>) -> Definitions {
+    let mut defs = Definitions::new();
 
     for node in pairs {
         match node.as_rule() {
             Rule::assignment => {
                 let mut assignment_node = node.into_inner();
-                let lhs = parse_as_str(assignment_node.next().unwrap());
-                let rhs = parse_expr(assignment_node.next().unwrap());
+                let name = parse_as_str(assignment_node.next().unwrap());
+                let value = parse_expr(assignment_node.next().unwrap());
 
-                scope.insert(lhs.into(), rhs);
+                defs.push((name.into(), value));
             }
 
             rule => panic!("unexpected node: {:?}", rule),
         }
     }
 
-    Scope(scope)
+    defs
 }
 
 fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expression {
@@ -162,17 +161,17 @@ fn parse_when_block(pairs: pest::iterators::Pairs<Rule>) -> WhenBlock {
 
 fn parse_named_block(mut pairs: pest::iterators::Pairs<Rule>) -> NamedBlock {
     let name = pairs.next().unwrap().as_str().into();
-    let mut scope = None;
+    let mut defs = Definitions::new();
     let mut body = vec![];
 
     for node in pairs {
         match node.as_rule() {
-            Rule::define_block => scope = Some(parse_define_block(node.into_inner())),
+            Rule::define_block => defs = parse_define_block(node.into_inner()),
             _ => body.push(parse_expr(node)),
         }
     }
 
-    NamedBlock { scope, name, body }
+    NamedBlock { defs, name, body }
 }
 
 fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
@@ -239,6 +238,19 @@ fn parse_as_str<'i>(pair: pest::iterators::Pair<'i, Rule>) -> &'i str {
     }
 }
 
+struct EvaluationContext<'a> {
+    profile: &'a Profile,
+}
+
+impl<'a> EvaluationContext<'a> {
+    fn score_node(&self) -> f32 {
+        0.0
+    }
+    fn score_way(&self) -> f32 {
+        0.0
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -281,6 +293,7 @@ profile "kitchen sink" {
 // Simple test profile
 profile "test" {
     define {
+        dismount?   = [bicycle=dismount]
         is-wet?     = false
         valley-mode = when {
             eq? { hills; 2 } => 80
@@ -292,12 +305,26 @@ profile "test" {
         bar         = [highway=path; access; access!=private]
     }
 
-    node {
-        sum { 1 2 }
+    node-penalty {
+        when {
+            [bicycle=no|private] => invalid
+            [bicycle=dismount]   => 2.0
+            else                 => 0
+        }
     }
 
-    way {
-        any? { true false }
+    way-penalty {
+        when {
+            [route=ferry] => invalid
+            else          => 0
+        }
+    }
+
+    cost-factor {
+        when {
+            unpaved? => 1.2
+            else     => 0
+        }
     }
 }
 "#;

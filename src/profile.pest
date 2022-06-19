@@ -100,6 +100,6 @@ tag_expr_binary_clause     = { ident ~ tag_expr_binary_op ~ tag_expr_pattern }
 tag_expr_exists_clause     = { ident }
 tag_expr_not_exists_clause = { "!" ~ ident }
 
-tag_expr_pattern = {
+tag_expr_pattern = _{
       (ident | string) ~ ("|" ~ tag_expr_pattern)*
 }
