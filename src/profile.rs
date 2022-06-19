@@ -23,6 +23,16 @@ pub enum Value {
     String(String),
 }
 
+impl Value {
+    fn is_truthy(&self) -> bool {
+        match self {
+            Value::Bool(false) => false,
+            Value::Invalid => false,
+            _ => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Expression {
     Literal(Value),
@@ -260,7 +270,7 @@ struct Scope {
     scope: HashMap<String, LazyValue>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum LazyValue {
     Evaluated(Value),
     Unevaluated(Expression),
@@ -290,18 +300,15 @@ impl Scope {
         self.scope.insert(k.into(), LazyValue::Unevaluated(v));
     }
 
-    fn get(&mut self, k: &str) -> Result<&LazyValue, EvalError> {
-        if let Some(val) = self.scope.get(k) {
-            return Ok(val);
-        }
-
-        Err(EvalError::Lookup(k.into()))
+    fn get(&mut self, k: &str) -> Option<&LazyValue> {
+        self.scope.get(k)
     }
 }
 
 #[derive(Debug, Clone)]
 enum EvalError {
     Lookup(String),
+    TagNotSupported,
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -317,6 +324,24 @@ impl<'a> EvaluationContext<'a> {
         self.scope_stack.last_mut().expect("empty stack")
     }
 
+    fn lookup(&mut self, key: &str) -> Result<Value, EvalError> {
+        let num_scopes = self.scope_stack.len();
+        for i in 1..=num_scopes {
+            if let Some(val) = self.scope_stack[num_scopes - i].get(key) {
+                return match val {
+                    LazyValue::Evaluated(val) => Ok(val.clone()),
+                    LazyValue::Unevaluated(expr) => {
+                        let expr = expr.clone();
+                        self.eval_expr(&expr)
+                    }
+                };
+            }
+        }
+
+        Err(EvalError::Lookup(key.into()))
+    }
+
+    // TODO: Some kind of scope guard would be nice, requires borrowing self mutably.
     fn push_scope(&mut self, definitions: &Definitions) {
         let cur_scope = self.scope_stack.last().expect("empty stack");
         let child = cur_scope.get_child(definitions);
@@ -324,7 +349,7 @@ impl<'a> EvaluationContext<'a> {
         self.scope_stack.push(child);
     }
 
-    fn pop_stack(&mut self) {
+    fn pop_scope(&mut self) {
         if self.scope_stack.len() == 1 {
             panic!("bug: trying to pop global scope");
         }
@@ -347,21 +372,71 @@ impl<'a> EvaluationContext<'a> {
         use Expression::*;
         let value = match expr {
             Literal(v) => v.clone(),
+            Ident(name) => self.lookup(name)?,
 
-            Ident(name) => match self.cur_scope().get(name)? {
-                LazyValue::Evaluated(val) => val.clone(),
-                LazyValue::Unevaluated(expr) => {
-                    let expr = expr.clone();
-                    self.eval_expr(&expr)?
-                }
-            },
-
-            NamedBlock(_) => todo!(),
+            NamedBlock(block) => self.eval_named_block(block)?,
             TagPattern(_) => todo!(),
-            WhenBlock(_) => todo!(),
+            WhenBlock(block) => self.eval_when_block(block)?,
         };
 
         Ok(value)
+    }
+
+    fn eval_when_block(&mut self, block: &WhenBlock) -> Result<Value, EvalError> {
+        for clause in block.0.iter() {
+            let cond = self.eval_expr(&clause.condition)?;
+            if cond.is_truthy() {
+                let value = self.eval_expr(&clause.value)?;
+                return Ok(value);
+            }
+        }
+
+        println!("WARN: no matching when clause, using INVALID");
+        Ok(Value::Invalid)
+    }
+
+    fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
+        self.push_scope(&block.defs);
+
+        let value = match block.name.as_str() {
+            "any?" | "none?" => {
+                let mut any = false;
+                let invert = block.name.as_str() == "none?";
+
+                for expr in block.body.iter() {
+                    let val = self.eval_expr(expr)?;
+                    if val.is_truthy() {
+                        any = true;
+                        break;
+                    }
+                }
+
+                let val = Value::Bool(if invert { !any } else { any });
+                Ok(val)
+            }
+
+            "all?" => {
+                let mut all = true;
+
+                for expr in block.body.iter() {
+                    let val = self.eval_expr(expr)?;
+                    if !val.is_truthy() {
+                        all = false;
+                        break;
+                    }
+                }
+
+                Ok(Value::Bool(all))
+            }
+
+            "eq?" => todo!(),
+            "sum" => todo!(),
+
+            name => Err(EvalError::Lookup(name.into())),
+        };
+
+        self.pop_scope();
+        return value;
     }
 
     fn score_node(&self) -> f32 {
@@ -461,6 +536,13 @@ profile "test" {
     define {
         a = 1
         b = a
+        c = false
+        d = any? { c; false }
+        e = any? { c; false; b }
+        f = when {
+           c            => "c"
+           any? { d e } => "d or e"
+        }
     }
 }
 "#;
@@ -474,5 +556,17 @@ profile "test" {
             .expect("lookup");
 
         assert_eq!(resolved, Value::Number(1.0));
+
+        let resolved = context
+            .eval_expr(&Expression::Ident("e".into()))
+            .expect("lookup");
+
+        assert_eq!(resolved, Value::Bool(true));
+
+        let resolved = context
+            .eval_expr(&Expression::Ident("f".into()))
+            .expect("lookup");
+
+        assert_eq!(resolved, Value::String("d or e".into()));
     }
 }
