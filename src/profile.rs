@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use pest::error::Error;
 use pest::Parser;
 
@@ -5,7 +7,7 @@ use pest::Parser;
 #[grammar = "profile.pest"]
 pub struct ProfileParser;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TagPattern {
     Exists { key: String },
     NotExists { key: String },
@@ -13,13 +15,18 @@ pub enum TagPattern {
     NoneOf { key: String, values: Vec<String> },
 }
 
-#[derive(Debug)]
-pub enum Expression {
-    Bool(bool),
-    Ident(String),
+#[derive(Debug, PartialEq, Clone)]
+pub enum Value {
     Invalid,
+    Bool(bool),
     Number(f32),
     String(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum Expression {
+    Literal(Value),
+    Ident(String),
     TagPattern(Vec<TagPattern>),
     NamedBlock(NamedBlock),
     WhenBlock(WhenBlock),
@@ -28,17 +35,17 @@ pub enum Expression {
 type Def = (String, Expression);
 type Definitions = Vec<Def>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NamedBlock {
     defs: Definitions,
     name: String,
     body: Vec<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WhenBlock(Vec<WhenClause>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WhenClause {
     condition: Expression,
     value: Expression,
@@ -123,15 +130,19 @@ fn parse_define_block(pairs: pest::iterators::Pairs<Rule>) -> Definitions {
 }
 
 fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expression {
+    use Expression::*;
+
     match pair.as_rule() {
-        Rule::bool => Expression::Bool(pair.as_str() == "true"),
-        Rule::number => Expression::Number(pair.as_str().parse().unwrap()),
-        Rule::string => Expression::String(parse_as_str(pair).into()),
-        Rule::tag_expr => Expression::TagPattern(parse_tag_expr(pair.into_inner())),
-        Rule::when_block => Expression::WhenBlock(parse_when_block(pair.into_inner())),
-        Rule::named_block => Expression::NamedBlock(parse_named_block(pair.into_inner())),
-        Rule::ident => Expression::Ident(parse_as_str(pair).into()),
-        Rule::invalid => Expression::Invalid,
+        Rule::bool => Literal(Value::Bool(pair.as_str() == "true")),
+        Rule::number => Literal(Value::Number(pair.as_str().parse().unwrap())),
+        Rule::string => Literal(Value::String(parse_as_str(pair).into())),
+        Rule::invalid => Literal(Value::Invalid),
+
+        Rule::tag_expr => TagPattern(parse_tag_expr(pair.into_inner())),
+        Rule::when_block => WhenBlock(parse_when_block(pair.into_inner())),
+        Rule::named_block => NamedBlock(parse_named_block(pair.into_inner())),
+        Rule::ident => Ident(parse_as_str(pair).into()),
+
         rule => panic!("unexpected rule: {:?}", rule),
     }
 }
@@ -145,7 +156,7 @@ fn parse_when_block(pairs: pest::iterators::Pairs<Rule>) -> WhenBlock {
         let condition = {
             let node = node.next().unwrap();
             match node.as_rule() {
-                Rule::else_ => Expression::Bool(true),
+                Rule::else_ => Expression::Literal(Value::Bool(true)),
                 _ => parse_expr(node),
             }
         };
@@ -238,11 +249,121 @@ fn parse_as_str<'i>(pair: pest::iterators::Pair<'i, Rule>) -> &'i str {
     }
 }
 
+#[derive(Debug)]
 struct EvaluationContext<'a> {
     profile: &'a Profile,
+    scope_stack: Vec<Scope>,
+}
+
+#[derive(Debug)]
+struct Scope {
+    scope: HashMap<String, LazyValue>,
+}
+
+#[derive(Debug)]
+enum LazyValue {
+    Evaluated(Value),
+    Unevaluated(Expression),
+}
+
+impl Scope {
+    fn root() -> Scope {
+        Scope {
+            scope: HashMap::new(),
+        }
+    }
+
+    fn get_child(&self, definitions: &Definitions) -> Scope {
+        let scope = definitions
+            .iter()
+            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v.clone())))
+            .collect();
+
+        Scope { scope }
+    }
+
+    fn set(&mut self, k: &str, v: Value) {
+        self.scope.insert(k.into(), LazyValue::Evaluated(v));
+    }
+
+    fn set_unevaluated(&mut self, k: &str, v: Expression) {
+        self.scope.insert(k.into(), LazyValue::Unevaluated(v));
+    }
+
+    fn get(&mut self, k: &str) -> Result<&LazyValue, EvalError> {
+        if let Some(val) = self.scope.get(k) {
+            return Ok(val);
+        }
+
+        Err(EvalError::Lookup(k.into()))
+    }
+}
+
+#[derive(Debug, Clone)]
+enum EvalError {
+    Lookup(String),
 }
 
 impl<'a> EvaluationContext<'a> {
+    fn create(profile: &'a Profile) -> EvaluationContext<'a> {
+        EvaluationContext {
+            profile,
+            scope_stack: vec![Scope::root()],
+        }
+    }
+
+    #[inline(always)]
+    fn cur_scope(&mut self) -> &mut Scope {
+        self.scope_stack.last_mut().expect("empty stack")
+    }
+
+    fn push_scope(&mut self, definitions: &Definitions) {
+        let cur_scope = self.scope_stack.last().expect("empty stack");
+        let child = cur_scope.get_child(definitions);
+
+        self.scope_stack.push(child);
+    }
+
+    fn pop_stack(&mut self) {
+        if self.scope_stack.len() == 1 {
+            panic!("bug: trying to pop global scope");
+        }
+
+        self.scope_stack.pop();
+    }
+
+    fn eval_globals(&mut self) -> Result<(), EvalError> {
+        for (name, expr) in self.profile.global_defs.iter() {
+            let value = self.eval_expr(expr)?;
+
+            self.cur_scope().set(name, value);
+        }
+
+        Ok(())
+    }
+
+    // TODO: way too much cloning here
+    fn eval_expr(&mut self, expr: &Expression) -> Result<Value, EvalError> {
+        use Expression::*;
+        let value = match expr {
+            Literal(v) => v.clone(),
+
+            Ident(name) => match self.cur_scope().get(name)? {
+                LazyValue::Evaluated(val) => val.clone(),
+                LazyValue::Unevaluated(expr) => {
+                    let expr = expr.clone();
+                    self.eval_expr(&expr)?
+                }
+            },
+
+            NamedBlock(_) => todo!(),
+            TagPattern(_) => todo!(),
+            WhenBlock(_) => todo!(),
+        };
+
+        Ok(value)
+    }
+
     fn score_node(&self) -> f32 {
         0.0
     }
@@ -331,5 +452,27 @@ profile "test" {
 
         let profile = parse(input).expect("parse success");
         assert_eq!(profile.name, "test");
+    }
+
+    #[test]
+    fn evaluate_globals() {
+        let input = r#"
+profile "test" {
+    define {
+        a = 1
+        b = a
+    }
+}
+"#;
+        let profile = parse(input).expect("parse success");
+        let mut context = EvaluationContext::create(&profile);
+
+        context.eval_globals().expect("eval globals");
+
+        let resolved = context
+            .eval_expr(&Expression::Ident("b".into()))
+            .expect("lookup");
+
+        assert_eq!(resolved, Value::Number(1.0));
     }
 }
