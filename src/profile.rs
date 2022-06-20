@@ -387,10 +387,8 @@ impl<'a> EvaluationContext<'a> {
         Ok(Value::Invalid)
     }
 
-    fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
-        self.push_scope(&block.defs);
-
-        let value = match block.name.as_str() {
+    fn eval_named_block_inner(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
+        match block.name.as_str() {
             "any?" | "none?" => {
                 let mut any = false;
                 let invert = block.name.as_str() == "none?";
@@ -408,50 +406,42 @@ impl<'a> EvaluationContext<'a> {
             }
 
             "all?" => {
-                let mut all = true;
-
                 for expr in block.body.iter() {
                     let val = self.eval_expr(expr)?;
                     if !val.is_truthy() {
-                        all = false;
-                        break;
+                        return Ok(Value::Bool(false));
                     }
                 }
 
-                Ok(Value::Bool(all))
+                Ok(Value::Bool(true))
             }
 
             "eq?" => todo!(),
 
             "sum" => {
-                let mut invalid = false;
                 let mut acc = 0.0_f32;
 
                 for expr in block.body.iter() {
                     match self.eval_expr(expr)? {
-                        Value::Invalid => {
-                            invalid = true;
-                            break;
-                        }
-                        Value::Number(x) => {
-                            acc += x;
-                        }
+                        Value::Invalid => return Ok(Value::Invalid),
+                        Value::Number(x) => acc += x,
                         val => panic!("todo: expected num, got {:?}", val),
                     }
                 }
 
-                if invalid {
-                    Ok(Value::Invalid)
-                } else {
-                    Ok(Value::Number(acc))
-                }
+                Ok(Value::Number(acc))
             }
 
             name => Err(EvalError::Lookup(name.into())),
-        };
+        }
+    }
 
+    fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
+        self.push_scope(&block.defs);
+        let value = self.eval_named_block_inner(block);
         self.pop_scope();
-        return value;
+
+        value
     }
 
     fn score_node(&self) -> f32 {
