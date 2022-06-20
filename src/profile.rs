@@ -239,7 +239,7 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
     exprs
 }
 
-fn parse_as_str<'i>(pair: pest::iterators::Pair<'i, Rule>) -> &'i str {
+fn parse_as_str(pair: pest::iterators::Pair<Rule>) -> &str {
     match pair.as_rule() {
         Rule::ident => pair.as_str(),
         Rule::string => {
@@ -303,12 +303,52 @@ enum EvalError {
     TagNotSupported,
 }
 
-type TagMatcherFn = dyn FnMut(&TagPattern) -> Result<bool, EvalError>;
+trait TagMatcher {
+    fn get_tag(&self, k: &str) -> Result<Option<&str>, EvalError>;
 
-struct EvalContext<'a> {
+    fn matches(&self, pattern: &TagPattern) -> Result<bool, EvalError> {
+        match pattern {
+            TagPattern::Exists { key } => {
+                let val = self.get_tag(key)?;
+                Ok(val.is_some())
+            }
+            TagPattern::NotExists { key } => {
+                let val = self.get_tag(key)?;
+                Ok(val.is_none())
+            }
+            TagPattern::OneOf { key, values } => {
+                let matches = self
+                    .get_tag(key)?
+                    .map(|val| values.iter().any(|v| *v == val))
+                    .unwrap_or(false);
+                Ok(matches)
+            }
+            TagPattern::NoneOf { key, values } => {
+                let no_matches = self
+                    .get_tag(key)?
+                    .map(|val| !values.iter().any(|v| *v == val))
+                    .unwrap_or(true);
+                Ok(no_matches)
+            }
+        }
+    }
+}
+
+// TODO: this is clunky
+struct TagMatcherUnsupported;
+impl TagMatcher for TagMatcherUnsupported {
+    fn get_tag(&self, _k: &str) -> Result<Option<&str>, EvalError> {
+        Err(EvalError::TagNotSupported)
+    }
+}
+
+struct EvalContext<'a, T>
+where
+    T: TagMatcher,
+{
     scope: &'a mut Scope,
-    parent: Option<&'a EvalContext<'a>>,
-    matcher: &'a TagMatcherFn,
+    parent: Option<&'a EvalContext<'a, T>>,
+    matcher: &'a T,
 }
 
 #[derive(Debug)]
@@ -335,26 +375,26 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    fn global_context(&mut self) -> EvalContext {
+    fn global_context(&mut self) -> EvalContext<TagMatcherUnsupported> {
         EvalContext {
             scope: &mut self.global_scope,
             parent: None,
-            matcher: &|_| Err(EvalError::TagNotSupported),
+            matcher: &TagMatcherUnsupported,
         }
     }
 
-    fn with_tag_context<'a>(&'a mut self, matcher: &'a TagMatcherFn) -> EvalContext {
+    fn with_tag_context<'a, T: TagMatcher>(&'a mut self, matcher: &'a T) -> EvalContext<T> {
         EvalContext {
-            matcher,
             scope: &mut self.global_scope,
             parent: None,
+            matcher,
         }
     }
 }
 
-impl<'a> EvalContext<'a> {
+impl<'a, T: TagMatcher> EvalContext<'a, T> {
     // TODO: better name
-    fn child(&'a self, scope: &'a mut Scope) -> EvalContext {
+    fn child(&'a self, scope: &'a mut Scope) -> EvalContext<T> {
         EvalContext {
             scope,
             parent: Some(self),
@@ -385,7 +425,6 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    // TODO: way too much cloning here
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, EvalError> {
         use Expression::*;
         let value = match expr {
@@ -393,11 +432,21 @@ impl<'a> EvalContext<'a> {
             Ident(name) => self.get_and_eval(name)?,
 
             NamedBlock(block) => self.eval_named_block(block)?,
-            TagPattern(_) => todo!(),
+            TagPattern(patterns) => self.eval_tag_patterns(patterns)?,
             WhenBlock(block) => self.eval_when_block(block)?,
         };
 
         Ok(value)
+    }
+
+    fn eval_tag_patterns(&mut self, patterns: &[TagPattern]) -> Result<Value, EvalError> {
+        for pattern in patterns {
+            if !self.matcher.matches(pattern)? {
+                return Ok(Value::Bool(false));
+            }
+        }
+
+        Ok(Value::Bool(true))
     }
 
     fn eval_when_block(&mut self, block: &WhenBlock) -> Result<Value, EvalError> {
