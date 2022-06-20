@@ -303,23 +303,12 @@ enum EvalError {
     TagNotSupported,
 }
 
-trait TagPatternMatcher {
-    fn matches(&mut self, pattern: &TagPattern) -> Result<bool, EvalError>;
-}
+type TagMatcherFn = dyn FnMut(&TagPattern) -> Result<bool, EvalError>;
 
-// TODO: poor naming
-struct TagsNotSupportedMatcher;
-impl TagPatternMatcher for TagsNotSupportedMatcher {
-    fn matches(&mut self, pattern: &TagPattern) -> Result<bool, EvalError> {
-        Err(EvalError::TagNotSupported)
-    }
-}
-
-#[derive(Debug)]
-struct EvalContext<'a, T> {
+struct EvalContext<'a> {
     scope: &'a mut Scope,
-    parent: Option<&'a EvalContext<'a, T>>,
-    matcher: &'a T,
+    parent: Option<&'a EvalContext<'a>>,
+    matcher: &'a TagMatcherFn,
 }
 
 #[derive(Debug)]
@@ -346,18 +335,15 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    fn global_context(&mut self) -> EvalContext<TagsNotSupportedMatcher> {
+    fn global_context(&mut self) -> EvalContext {
         EvalContext {
             scope: &mut self.global_scope,
             parent: None,
-            matcher: &TagsNotSupportedMatcher,
+            matcher: &|_| Err(EvalError::TagNotSupported),
         }
     }
 
-    fn with_tag_context<'a, T: TagPatternMatcher>(
-        &'a mut self,
-        matcher: &'a T,
-    ) -> EvalContext<'a, T> {
+    fn with_tag_context<'a>(&'a mut self, matcher: &'a TagMatcherFn) -> EvalContext {
         EvalContext {
             matcher,
             scope: &mut self.global_scope,
@@ -366,9 +352,9 @@ impl ProfileRuntime {
     }
 }
 
-impl<'a, T: TagPatternMatcher> EvalContext<'a, T> {
+impl<'a> EvalContext<'a> {
     // TODO: better name
-    fn child(&'a self, scope: &'a mut Scope) -> EvalContext<'a, T> {
+    fn child(&'a self, scope: &'a mut Scope) -> EvalContext {
         EvalContext {
             scope,
             parent: Some(self),
