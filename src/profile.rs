@@ -105,9 +105,9 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
         name: profile_name.into(),
         global_defs: defs,
 
-        node_penalty: node_penalty,
-        way_penalty: way_penalty,
-        cost_factor: cost_factor,
+        node_penalty,
+        way_penalty,
+        cost_factor,
     }
 }
 
@@ -241,7 +241,7 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
 
 fn parse_as_str<'i>(pair: pest::iterators::Pair<'i, Rule>) -> &'i str {
     match pair.as_rule() {
-        Rule::ident => &pair.as_str(),
+        Rule::ident => pair.as_str(),
         Rule::string => {
             let s = &pair.as_str();
             &s[1..s.len() - 1]
@@ -249,12 +249,6 @@ fn parse_as_str<'i>(pair: pest::iterators::Pair<'i, Rule>) -> &'i str {
 
         r => panic!("unexpected rule: {:?}", r),
     }
-}
-
-#[derive(Debug)]
-struct EvaluationContext<'a> {
-    profile: &'a Profile,
-    scope_stack: Vec<Scope>,
 }
 
 #[derive(Debug)]
@@ -273,6 +267,15 @@ impl Scope {
         Scope {
             scope: HashMap::new(),
         }
+    }
+
+    fn from_defs(defs: &Definitions) -> Scope {
+        let scope = defs
+            .iter()
+            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v.clone())))
+            .collect();
+
+        Scope { scope }
     }
 
     fn get_child(&self, definitions: &Definitions) -> Scope {
@@ -300,65 +303,100 @@ enum EvalError {
     TagNotSupported,
 }
 
-impl<'a> EvaluationContext<'a> {
-    fn create(profile: &'a Profile) -> EvaluationContext<'a> {
-        EvaluationContext {
-            profile,
-            scope_stack: vec![Scope::root()],
-        }
+trait TagPatternMatcher {
+    fn matches(&mut self, pattern: &TagPattern) -> Result<bool, EvalError>;
+}
+
+// TODO: poor naming
+struct TagsNotSupportedMatcher;
+impl TagPatternMatcher for TagsNotSupportedMatcher {
+    fn matches(&mut self, pattern: &TagPattern) -> Result<bool, EvalError> {
+        Err(EvalError::TagNotSupported)
+    }
+}
+
+#[derive(Debug)]
+struct EvalContext<'a, T> {
+    scope: &'a mut Scope,
+    parent: Option<&'a EvalContext<'a, T>>,
+    matcher: &'a T,
+}
+
+#[derive(Debug)]
+struct ProfileRuntime {
+    global_scope: Scope,
+}
+
+impl ProfileRuntime {
+    fn from(profile: &Profile) -> Result<ProfileRuntime, EvalError> {
+        let mut rt = ProfileRuntime {
+            global_scope: Scope::root(),
+        };
+        rt.eval_globals(&profile.global_defs)?;
+        Ok(rt)
     }
 
-    #[inline(always)]
-    fn cur_scope(&mut self) -> &mut Scope {
-        self.scope_stack.last_mut().expect("empty stack")
-    }
-
-    // TODO: Clean this up
-    fn lookup(&mut self, key: &str) -> Result<Value, EvalError> {
-        for (i, scope) in self.scope_stack.iter().enumerate().rev() {
-            if let Some(lazy) = scope.get(key) {
-                return match lazy {
-                    LazyValue::Evaluated(val) => Ok(val.clone()),
-
-                    LazyValue::Unevaluated(expr) => {
-                        let val = {
-                            let expr = expr.clone();
-                            self.eval_expr(&expr)?
-                        };
-
-                        self.scope_stack[i].set(key, val.clone());
-                        Ok(val)
-                    }
-                };
-            }
-        }
-
-        Err(EvalError::Lookup(key.into()))
-    }
-
-    // TODO: Some kind of scope guard would be nice, requires borrowing self mutably.
-    fn push_scope(&mut self, definitions: &Definitions) {
-        let cur_scope = self.scope_stack.last().expect("empty stack");
-        let child = cur_scope.get_child(definitions);
-
-        self.scope_stack.push(child);
-    }
-
-    fn pop_scope(&mut self) {
-        if self.scope_stack.len() == 1 {
-            panic!("bug: trying to pop global scope");
-        }
-
-        self.scope_stack.pop();
-    }
-
-    fn eval_globals(&mut self) -> Result<(), EvalError> {
-        for (name, expr) in self.profile.global_defs.iter() {
-            let value = self.eval_expr(expr)?;
-            self.scope_stack[0].set(name, value);
+    fn eval_globals(&mut self, defs: &Definitions) -> Result<(), EvalError> {
+        for (name, expr) in defs {
+            // TODO: Creating in a loop to avoid lifetime-headaches, can this be avoided?
+            let value = self.global_context().eval_expr(expr)?;
+            self.global_scope.set(name, value);
         }
 
         Ok(())
+    }
+
+    fn global_context(&mut self) -> EvalContext<TagsNotSupportedMatcher> {
+        EvalContext {
+            scope: &mut self.global_scope,
+            parent: None,
+            matcher: &TagsNotSupportedMatcher,
+        }
+    }
+
+    fn with_tag_context<'a, T: TagPatternMatcher>(
+        &'a mut self,
+        matcher: &'a T,
+    ) -> EvalContext<'a, T> {
+        EvalContext {
+            matcher,
+            scope: &mut self.global_scope,
+            parent: None,
+        }
+    }
+}
+
+impl<'a, T: TagPatternMatcher> EvalContext<'a, T> {
+    // TODO: better name
+    fn child(&'a self, scope: &'a mut Scope) -> EvalContext<'a, T> {
+        EvalContext {
+            scope,
+            parent: Some(self),
+            matcher: self.matcher,
+        }
+    }
+
+    fn get_lazy(&self, key: &str) -> Option<LazyValue> {
+        self.scope.get(key).cloned().or_else(|| match self.parent {
+            Some(parent) => parent.get_lazy(key),
+            None => None,
+        })
+    }
+
+    fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
+        match self.get_lazy(key) {
+            None => Err(EvalError::Lookup(key.into())),
+            Some(LazyValue::Evaluated(val)) => Ok(val),
+            Some(LazyValue::Unevaluated(expr)) => {
+                let val = self.eval_expr(&expr)?;
+
+                // TODO: We're only setting variables in the local scope, which
+                // means they could need to be recalculated in a sibling.  not
+                // optimal
+                self.scope.set(key, val.clone());
+                Ok(val)
+            }
+        }
     }
 
     // TODO: way too much cloning here
@@ -366,7 +404,7 @@ impl<'a> EvaluationContext<'a> {
         use Expression::*;
         let value = match expr {
             Literal(v) => v.clone(),
-            Ident(name) => self.lookup(name)?,
+            Ident(name) => self.get_and_eval(name)?,
 
             NamedBlock(block) => self.eval_named_block(block)?,
             TagPattern(_) => todo!(),
@@ -454,18 +492,10 @@ impl<'a> EvaluationContext<'a> {
     }
 
     fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
-        self.push_scope(&block.defs);
-        let value = self.eval_named_block_inner(block);
-        self.pop_scope();
+        let mut scope = Scope::from_defs(&block.defs);
+        let mut child_ctx = self.child(&mut scope);
 
-        value
-    }
-
-    fn score_node(&self) -> f32 {
-        0.0
-    }
-    fn score_way(&self) -> f32 {
-        0.0
+        child_ctx.eval_named_block_inner(block)
     }
 }
 
@@ -571,9 +601,7 @@ profile "test" {
 }
 "#;
         let profile = parse(input).expect("parse success");
-        let mut context = EvaluationContext::create(&profile);
-
-        context.eval_globals().expect("eval globals");
+        let mut runtime = ProfileRuntime::from(&profile).expect("create runtime");
 
         let expected = vec![
             ("b", Value::Number(1.0)),
@@ -584,7 +612,8 @@ profile "test" {
         ];
 
         for (key, val) in expected.into_iter() {
-            let resolved = context
+            let resolved = runtime
+                .global_context()
                 .eval_expr(&Expression::Ident(key.into()))
                 .expect("lookup");
 
