@@ -296,6 +296,7 @@ impl Scope {
 #[derive(Debug, Clone)]
 enum EvalError {
     Lookup(String),
+    UnknownBlock(String),
     TagNotSupported,
 }
 
@@ -354,8 +355,7 @@ impl<'a> EvaluationContext<'a> {
     fn eval_globals(&mut self) -> Result<(), EvalError> {
         for (name, expr) in self.profile.global_defs.iter() {
             let value = self.eval_expr(expr)?;
-
-            self.cur_scope().set(name, value);
+            self.scope_stack[0].set(name, value);
         }
 
         Ok(())
@@ -395,7 +395,7 @@ impl<'a> EvaluationContext<'a> {
                 let mut any = false;
                 let invert = block.name.as_str() == "none?";
 
-                for expr in block.body.iter() {
+                for expr in &block.body {
                     let val = self.eval_expr(expr)?;
                     if val.is_truthy() {
                         any = true;
@@ -408,7 +408,7 @@ impl<'a> EvaluationContext<'a> {
             }
 
             "all?" => {
-                for expr in block.body.iter() {
+                for expr in &block.body {
                     let val = self.eval_expr(expr)?;
                     if !val.is_truthy() {
                         return Ok(Value::Bool(false));
@@ -418,12 +418,27 @@ impl<'a> EvaluationContext<'a> {
                 Ok(Value::Bool(true))
             }
 
-            "eq?" => todo!(),
+            "eq?" => {
+                if block.body.is_empty() {
+                    return Ok(Value::Bool(false));
+                }
+
+                let mut prev = self.eval_expr(&block.body[0])?;
+                for expr in &block.body[1..] {
+                    let val = self.eval_expr(expr)?;
+                    if val != prev {
+                        return Ok(Value::Bool(false));
+                    }
+                    prev = val;
+                }
+
+                Ok(Value::Bool(true))
+            }
 
             "sum" => {
                 let mut acc = 0.0_f32;
 
-                for expr in block.body.iter() {
+                for expr in &block.body {
                     match self.eval_expr(expr)? {
                         Value::Invalid => return Ok(Value::Invalid),
                         Value::Number(x) => acc += x,
@@ -434,7 +449,7 @@ impl<'a> EvaluationContext<'a> {
                 Ok(Value::Number(acc))
             }
 
-            name => Err(EvalError::Lookup(name.into())),
+            name => Err(EvalError::UnknownBlock(name.into())),
         }
     }
 
