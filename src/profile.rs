@@ -25,11 +25,7 @@ pub enum Value {
 
 impl Value {
     fn is_truthy(&self) -> bool {
-        match self {
-            Value::Bool(false) => false,
-            Value::Invalid => false,
-            _ => true,
-        }
+        !matches!(self, Value::Bool(false) | Value::Invalid)
     }
 }
 
@@ -426,7 +422,30 @@ impl<'a> EvaluationContext<'a> {
             }
 
             "eq?" => todo!(),
-            "sum" => todo!(),
+
+            "sum" => {
+                let mut invalid = false;
+                let mut acc = 0.0_f32;
+
+                for expr in block.body.iter() {
+                    match self.eval_expr(expr)? {
+                        Value::Invalid => {
+                            invalid = true;
+                            break;
+                        }
+                        Value::Number(x) => {
+                            acc += x;
+                        }
+                        val => panic!("todo: expected num, got {:?}", val),
+                    }
+                }
+
+                if invalid {
+                    Ok(Value::Invalid)
+                } else {
+                    Ok(Value::Number(acc))
+                }
+            }
 
             name => Err(EvalError::Lookup(name.into())),
         };
@@ -539,6 +558,8 @@ profile "test" {
            c            => "c"
            any? { d e } => "d or e"
         }
+        g = sum { a; 2 }
+        h = sum { invalid; a; 2 }
     }
 }
 "#;
@@ -547,22 +568,20 @@ profile "test" {
 
         context.eval_globals().expect("eval globals");
 
-        let resolved = context
-            .eval_expr(&Expression::Ident("b".into()))
-            .expect("lookup");
+        let expected = vec![
+            ("b", Value::Number(1.0)),
+            ("e", Value::Bool(true)),
+            ("f", Value::String("d or e".into())),
+            ("g", Value::Number(3.0)),
+            ("h", Value::Invalid),
+        ];
 
-        assert_eq!(resolved, Value::Number(1.0));
+        for (key, val) in expected.into_iter() {
+            let resolved = context
+                .eval_expr(&Expression::Ident(key.into()))
+                .expect("lookup");
 
-        let resolved = context
-            .eval_expr(&Expression::Ident("e".into()))
-            .expect("lookup");
-
-        assert_eq!(resolved, Value::Bool(true));
-
-        let resolved = context
-            .eval_expr(&Expression::Ident("f".into()))
-            .expect("lookup");
-
-        assert_eq!(resolved, Value::String("d or e".into()));
+            assert_eq!(resolved, val);
+        }
     }
 }
