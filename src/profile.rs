@@ -288,11 +288,7 @@ impl Scope {
         self.scope.insert(k.into(), LazyValue::Evaluated(v));
     }
 
-    fn set_unevaluated(&mut self, k: &str, v: Expression) {
-        self.scope.insert(k.into(), LazyValue::Unevaluated(v));
-    }
-
-    fn get(&mut self, k: &str) -> Option<&LazyValue> {
+    fn get(&self, k: &str) -> Option<&LazyValue> {
         self.scope.get(k)
     }
 }
@@ -316,15 +312,21 @@ impl<'a> EvaluationContext<'a> {
         self.scope_stack.last_mut().expect("empty stack")
     }
 
+    // TODO: Clean this up
     fn lookup(&mut self, key: &str) -> Result<Value, EvalError> {
-        let num_scopes = self.scope_stack.len();
-        for i in 1..=num_scopes {
-            if let Some(val) = self.scope_stack[num_scopes - i].get(key) {
-                return match val {
+        for (i, scope) in self.scope_stack.iter().enumerate().rev() {
+            if let Some(lazy) = scope.get(key) {
+                return match lazy {
                     LazyValue::Evaluated(val) => Ok(val.clone()),
+
                     LazyValue::Unevaluated(expr) => {
-                        let expr = expr.clone();
-                        self.eval_expr(&expr)
+                        let val = {
+                            let expr = expr.clone();
+                            self.eval_expr(&expr)?
+                        };
+
+                        self.scope_stack[i].set(key, val.clone());
+                        Ok(val)
                     }
                 };
             }
