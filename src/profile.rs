@@ -75,10 +75,6 @@ fn parse(source: &str) -> Result<Profile, Error<Rule>> {
     let mut syntax_tree = ProfileParser::parse(Rule::top_level, source)?;
     let root_node = syntax_tree.next().unwrap();
 
-    if root_node.as_rule() != Rule::profile {
-        panic!("unexpected: {:?}", root_node.as_rule());
-    }
-
     Ok(parse_profile(root_node.into_inner()))
 }
 
