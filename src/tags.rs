@@ -1,8 +1,109 @@
 #![allow(dead_code)]
 
 use std::convert::From;
+use std::fs::File;
+use std::hash::Hash;
+use std::io::{BufRead, BufReader, ErrorKind};
+use std::path::Path;
+use std::{collections::HashMap, io::Error};
 
 use osmpbfreader::Tags as OsmTags;
+use smartstring::{Compact, SmartString};
+
+pub type TagDictId = u16;
+
+pub struct TagDict<S> {
+    max_id: TagDictId,
+    forward: HashMap<S, TagDictId>,
+    backward: HashMap<TagDictId, S>,
+}
+
+impl<S: Eq + Hash + Clone> TagDict<S> {
+    fn new() -> Self {
+        TagDict {
+            max_id: TagDictId::default(),
+            forward: HashMap::new(),
+            backward: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, key: S) -> TagDictId {
+        match self.forward.get(&key) {
+            Some(&id) => id,
+            None => {
+                self.forward.insert(key.clone(), self.max_id);
+                self.backward.insert(self.max_id, key);
+                self.max_id += 1;
+
+                self.max_id
+            }
+        }
+    }
+}
+
+impl<S: Eq + Hash> TagDict<S> {
+    fn to_compact(&self, key: &S) -> Option<&TagDictId> {
+        self.forward.get(&key)
+    }
+
+    fn from_compact(&self, key: &TagDictId) -> Option<&S> {
+        self.backward.get(&key)
+    }
+}
+
+impl TagDict<SmartString<Compact>> {
+    // TODO: serialization
+    fn load(path: &Path) -> Result<Self, Error> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+
+        let mut dict = TagDict::new();
+
+        // TODO: size header to avoid allocations
+        // TODO: escape separator chars
+
+        for line in reader.lines() {
+            let line = line?;
+            let (key, vals) = line
+                .split_once(" ")
+                .ok_or_else(|| Error::new(ErrorKind::Other, "bad format"))?;
+
+            dict.insert(key.into());
+            for val in vals.split(";") {
+                dict.insert(val.into());
+            }
+        }
+
+        Ok(dict)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompactTag {
+    key: TagDictId,
+    val: TagDictId,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompactTags {
+    keys: Vec<CompactTag>,
+}
+
+impl CompactTags {
+    fn get_key<'a, S: Eq + Hash>(&self, dict: &'a TagDict<S>, key: &S) -> Option<&'a S> {
+        let key = dict.to_compact(key)?;
+        let val = self.get_compact_key(*key)?;
+
+        dict.from_compact(&val)
+    }
+
+    fn get_compact_key(&self, key: TagDictId) -> Option<TagDictId> {
+        self.keys
+            .binary_search_by_key(&key, |tag| tag.key)
+            .map(|idx| self.keys[idx].val)
+            .ok()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct EdgeTags {

@@ -307,30 +307,18 @@ trait TagMatcher {
     fn get_tag(&self, k: &str) -> Result<Option<&str>, EvalError>;
 
     fn matches(&self, pattern: &TagPattern) -> Result<bool, EvalError> {
-        match pattern {
-            TagPattern::Exists { key } => {
-                let val = self.get_tag(key)?;
-                Ok(val.is_some())
-            }
-            TagPattern::NotExists { key } => {
-                let val = self.get_tag(key)?;
-                Ok(val.is_none())
-            }
-            TagPattern::OneOf { key, values } => {
-                let matches = self
-                    .get_tag(key)?
-                    .map(|val| values.iter().any(|v| *v == val))
-                    .unwrap_or(false);
-                Ok(matches)
-            }
-            TagPattern::NoneOf { key, values } => {
-                let no_matches = self
-                    .get_tag(key)?
-                    .map(|val| !values.iter().any(|v| *v == val))
-                    .unwrap_or(true);
-                Ok(no_matches)
-            }
-        }
+        Ok(match pattern {
+            TagPattern::Exists { key } => self.get_tag(key)?.is_some(),
+            TagPattern::NotExists { key } => self.get_tag(key)?.is_none(),
+            TagPattern::OneOf { key, values } => self
+                .get_tag(key)?
+                .map(|val| values.iter().any(|v| *v == val))
+                .unwrap_or(false),
+            TagPattern::NoneOf { key, values } => self
+                .get_tag(key)?
+                .map(|val| !values.iter().any(|v| *v == val))
+                .unwrap_or(true),
+        })
     }
 }
 
