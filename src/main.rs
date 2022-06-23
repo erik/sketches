@@ -10,6 +10,7 @@ mod profile;
 mod tags;
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use rocket::serde::{Deserialize, Serialize};
@@ -99,8 +100,12 @@ mod routes {
     }
 
     #[rocket::post("/route", format = "json", data = "<req>")]
-    pub fn route(graph: &State<OsmGraph>, req: Json<RouteRequest>) -> Json<RouteResponse> {
+    pub fn route(
+        graph: &State<Arc<Mutex<OsmGraph>>>,
+        req: Json<RouteRequest>,
+    ) -> Json<RouteResponse> {
         println!("Incoming routing request: {:?}", req.0);
+        let graph = graph.lock().unwrap();
         let route = graph.find_route(req.0.from.into(), req.0.to.into());
 
         Json(RouteResponse {
@@ -111,7 +116,7 @@ mod routes {
 
 #[rocket::launch]
 fn launch_server() -> _ {
-    let graph = load_graph().expect("graph loading failed");
+    let graph = Arc::new(Mutex::new(load_graph().expect("graph loading failed")));
 
     rocket::build()
         .manage(graph)

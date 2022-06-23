@@ -69,11 +69,13 @@ pub struct Profile {
     cost_factor: Option<NamedBlock>,
 }
 
-fn parse(source: &str) -> Result<Profile, Error<Rule>> {
-    let mut syntax_tree = ProfileParser::parse(Rule::top_level, source)?;
-    let root_node = syntax_tree.next().unwrap();
+impl Profile {
+    pub fn parse(source: &str) -> Result<Profile, Error<Rule>> {
+        let mut syntax_tree = ProfileParser::parse(Rule::top_level, source)?;
+        let root_node = syntax_tree.next().unwrap();
 
-    Ok(parse_profile(root_node.into_inner()))
+        Ok(parse_profile(root_node.into_inner()))
+    }
 }
 
 fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
@@ -90,8 +92,11 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
             }
 
             Rule::named_block => {
-                let block = parse_named_block(node.into_inner());
-                match block.name.as_str() {
+                let mut block = parse_named_block(node.into_inner());
+                // TODO: hacky
+                let block_name = block.name;
+                block.name = "sum".into();
+                match block_name.as_str() {
                     "node-penalty" => node_penalty = Some(block),
                     "way-penalty" => way_penalty = Some(block),
                     "cost-factor" => cost_factor = Some(block),
@@ -299,13 +304,13 @@ impl Scope {
 }
 
 #[derive(Debug, Clone)]
-enum EvalError {
+pub enum EvalError {
     Lookup(String),
     UnknownBlock(String),
     TagNotSupported,
 }
 
-struct EvalContext<'a, T>
+pub struct EvalContext<'a, T>
 where
     T: TagSource,
 {
@@ -315,14 +320,17 @@ where
 }
 
 #[derive(Debug)]
-struct ProfileRuntime {
+pub struct ProfileRuntime {
     constant_scope: Scope,
+
+    way_penalty: Option<NamedBlock>,
 }
 
 impl ProfileRuntime {
-    fn from(profile: &Profile) -> Result<ProfileRuntime, EvalError> {
+    pub fn from(profile: Profile) -> Result<ProfileRuntime, EvalError> {
         let mut rt = ProfileRuntime {
             constant_scope: Scope::root(),
+            way_penalty: profile.way_penalty,
         };
         rt.eval_constants(&profile.constant_defs)?;
         Ok(rt)
@@ -338,6 +346,23 @@ impl ProfileRuntime {
         Ok(())
     }
 
+    pub fn score_way<'a, T: TagSource>(&'a mut self, tags: &'a T) -> Result<f32, EvalError> {
+        // TODO: clone bad
+        match self.way_penalty.clone() {
+            None => Ok(0.0),
+            Some(block) => {
+                let val = self.with_tag_source(tags).eval_named_block(&block)?;
+                if let Value::Number(score) = val {
+                    return Ok(score);
+                } else if let Value::Invalid = val {
+                    return Ok(10_000_000.0);
+                }
+
+                panic!("score way returned non-number")
+            }
+        }
+    }
+
     fn constant_context(&mut self) -> EvalContext<EmptyTagSource> {
         EvalContext {
             scope: &mut self.constant_scope,
@@ -346,7 +371,7 @@ impl ProfileRuntime {
         }
     }
 
-    fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
+    pub fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
         EvalContext {
             scope: &mut self.constant_scope,
             parent: None,
@@ -409,14 +434,15 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
         };
 
         for pattern in patterns {
+            use TagPattern::*;
             let matches = match pattern {
-                TagPattern::Exists { key } => source.get_tag(key).is_some(),
-                TagPattern::NotExists { key } => source.get_tag(key).is_none(),
-                TagPattern::OneOf { key, values } => source
+                Exists { key } => source.get_tag(key).is_some(),
+                NotExists { key } => source.get_tag(key).is_none(),
+                OneOf { key, values } => source
                     .get_tag(key)
                     .map(|val| values.iter().any(|v| *v == val))
                     .unwrap_or(false),
-                TagPattern::NoneOf { key, values } => source
+                NoneOf { key, values } => source
                     .get_tag(key)
                     .map(|val| !values.iter().any(|v| *v == val))
                     .unwrap_or(true),
@@ -593,7 +619,7 @@ profile "test" {
 }
 "#;
 
-        let profile = parse(input).expect("parse success");
+        let profile = Profile::parse(input).expect("parse success");
         assert_eq!(profile.name, "test");
     }
 
@@ -616,7 +642,7 @@ profile "test" {
     }
 }
 "#;
-        let profile = parse(input).expect("parse success");
+        let profile = Profile::parse(input).expect("parse success");
         let mut runtime = ProfileRuntime::from(&profile).expect("create runtime");
 
         let expected = vec![

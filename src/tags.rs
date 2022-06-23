@@ -34,7 +34,6 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
                 self.max_id += 1;
                 self.forward.insert(key.clone(), self.max_id);
                 self.backward.insert(self.max_id, key);
-
                 self.max_id
             }
         }
@@ -100,7 +99,6 @@ impl TagDict<SmartString<Compact>> {
         Ok(dict)
     }
 
-    // TODO: Don't insert here, use pre-built tag set to pare it down.
     pub fn from_osm(&mut self, osm_tags: &OsmTags) -> CompactTags {
         let mut keys = Vec::with_capacity(osm_tags.len());
 
@@ -113,14 +111,22 @@ impl TagDict<SmartString<Compact>> {
                 continue;
             }
 
-            let compact_key = self.insert(k);
+            // TODO: Don't insert here, use pre-built tag set to pare it down.
             keys.push(CompactTag {
-                key: compact_key,
-                val: self.to_compact(&v).unwrap_or(UNKNOWN_TAG_ID),
+                key: self.insert(k),
+                val: self.insert(v),
             });
         }
 
+        // We need to store the keys in ascending order so that our
+        // binary search during lookup works.
+        keys.sort_by_cached_key(|tag| tag.key);
+
         CompactTags { keys }
+    }
+
+    pub fn tag_source<'a>(&'a self, tags: &'a CompactTags) -> CompactTagSource {
+        CompactTagSource { dict: self, tags }
     }
 }
 

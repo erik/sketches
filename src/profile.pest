@@ -2,6 +2,7 @@ WHITESPACE = _{ " " | "\t" | ";" | "\n" }
 COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
 
 invalid      = @{ "invalid" }
+else_        = @{ "else" }
 bool         = @{ "true" | "false" }
 number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
@@ -61,12 +62,10 @@ when_block = {
 }
 
 when_clause = {
-      (expr | else_)
+      (else_ | expr )
     ~ "=>"
     ~ expr
 }
-
-else_ = @{ "else" }
 
 expr = _{
       bool
