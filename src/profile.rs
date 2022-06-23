@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use pest::error::Error;
 use pest::Parser;
-use smartstring::{Compact, SmartString};
 
-use crate::tags::{CompactTags, TagDict};
+use crate::tags::{EmptyTagSource, TagSource};
 
 #[derive(Parser)]
 #[grammar = "profile.pest"]
@@ -306,55 +305,13 @@ enum EvalError {
     TagNotSupported,
 }
 
-trait TagSource {
-    fn get_tag(&self, k: &str) -> Result<Option<&str>, EvalError>;
-
-    fn has_match(&self, pattern: &TagPattern) -> Result<bool, EvalError> {
-        Ok(match pattern {
-            TagPattern::Exists { key } => self.get_tag(key)?.is_some(),
-            TagPattern::NotExists { key } => self.get_tag(key)?.is_none(),
-            TagPattern::OneOf { key, values } => self
-                .get_tag(key)?
-                .map(|val| values.iter().any(|v| *v == val))
-                .unwrap_or(false),
-            TagPattern::NoneOf { key, values } => self
-                .get_tag(key)?
-                .map(|val| !values.iter().any(|v| *v == val))
-                .unwrap_or(true),
-        })
-    }
-}
-
-// TODO: this is clunky
-struct TagSourceUnsupported;
-impl TagSource for TagSourceUnsupported {
-    fn get_tag(&self, _k: &str) -> Result<Option<&str>, EvalError> {
-        Err(EvalError::TagNotSupported)
-    }
-}
-
-struct CompactTagSource<'a> {
-    dict: &'a TagDict<SmartString<Compact>>,
-    tags: &'a CompactTags,
-}
-
-impl<'a> TagSource for CompactTagSource<'a> {
-    fn get_tag(&self, key: &str) -> Result<Option<&str>, EvalError> {
-        let val = self
-            .tags
-            .get_key(self.dict, &key.into())
-            .map(|s| s.as_str());
-        Ok(val)
-    }
-}
-
 struct EvalContext<'a, T>
 where
     T: TagSource,
 {
     scope: &'a mut Scope,
     parent: Option<&'a EvalContext<'a, T>>,
-    source: &'a T,
+    source: Option<&'a T>,
 }
 
 #[derive(Debug)]
@@ -381,11 +338,11 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    fn constant_context(&mut self) -> EvalContext<TagSourceUnsupported> {
+    fn constant_context(&mut self) -> EvalContext<EmptyTagSource> {
         EvalContext {
             scope: &mut self.constant_scope,
             parent: None,
-            source: &TagSourceUnsupported,
+            source: None,
         }
     }
 
@@ -393,7 +350,7 @@ impl ProfileRuntime {
         EvalContext {
             scope: &mut self.constant_scope,
             parent: None,
-            source,
+            source: Some(source),
         }
     }
 }
@@ -446,8 +403,26 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn eval_tag_patterns(&mut self, patterns: &[TagPattern]) -> Result<Value, EvalError> {
+        let source = match self.source {
+            Some(s) => s,
+            None => return Err(EvalError::TagNotSupported),
+        };
+
         for pattern in patterns {
-            if !self.source.has_match(pattern)? {
+            let matches = match pattern {
+                TagPattern::Exists { key } => source.get_tag(key).is_some(),
+                TagPattern::NotExists { key } => source.get_tag(key).is_none(),
+                TagPattern::OneOf { key, values } => source
+                    .get_tag(key)
+                    .map(|val| values.iter().any(|v| *v == val))
+                    .unwrap_or(false),
+                TagPattern::NoneOf { key, values } => source
+                    .get_tag(key)
+                    .map(|val| !values.iter().any(|v| *v == val))
+                    .unwrap_or(true),
+            };
+
+            if !matches {
                 return Ok(Value::Bool(false));
             }
         }

@@ -155,3 +155,27 @@ impl CompactTags {
             .ok()
     }
 }
+
+pub trait TagSource {
+    fn get_tag(&self, k: &str) -> Option<&str>;
+}
+
+pub struct EmptyTagSource;
+impl TagSource for EmptyTagSource {
+    fn get_tag(&self, _k: &str) -> Option<&str> {
+        None
+    }
+}
+
+pub struct CompactTagSource<'a> {
+    dict: &'a TagDict<SmartString<Compact>>,
+    tags: &'a CompactTags,
+}
+
+impl<'a> TagSource for CompactTagSource<'a> {
+    fn get_tag(&self, key: &str) -> Option<&str> {
+        self.tags
+            .get_key(self.dict, &key.into())
+            .map(|s| s.as_str())
+    }
+}
