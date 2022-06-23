@@ -60,7 +60,7 @@ pub struct WhenClause {
 #[derive(Debug)]
 pub struct Profile {
     name: String,
-    global_defs: Definitions,
+    constant_defs: Definitions,
 
     node_penalty: Option<NamedBlock>,
     way_penalty: Option<NamedBlock>,
@@ -103,7 +103,7 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
 
     Profile {
         name: profile_name.into(),
-        global_defs: defs,
+        constant_defs: defs,
 
         node_penalty,
         way_penalty,
@@ -341,39 +341,39 @@ where
 
 #[derive(Debug)]
 struct ProfileRuntime {
-    global_scope: Scope,
+    constant_scope: Scope,
 }
 
 impl ProfileRuntime {
     fn from(profile: &Profile) -> Result<ProfileRuntime, EvalError> {
         let mut rt = ProfileRuntime {
-            global_scope: Scope::root(),
+            constant_scope: Scope::root(),
         };
-        rt.eval_globals(&profile.global_defs)?;
+        rt.eval_constants(&profile.constant_defs)?;
         Ok(rt)
     }
 
-    fn eval_globals(&mut self, defs: &Definitions) -> Result<(), EvalError> {
+    fn eval_constants(&mut self, defs: &Definitions) -> Result<(), EvalError> {
         for (name, expr) in defs {
             // TODO: Creating in a loop to avoid lifetime-headaches, can this be avoided?
-            let value = self.global_context().eval_expr(expr)?;
-            self.global_scope.set(name, value);
+            let value = self.constant_context().eval_expr(expr)?;
+            self.constant_scope.set(name, value);
         }
 
         Ok(())
     }
 
-    fn global_context(&mut self) -> EvalContext<TagSourceUnsupported> {
+    fn constant_context(&mut self) -> EvalContext<TagSourceUnsupported> {
         EvalContext {
-            scope: &mut self.global_scope,
+            scope: &mut self.constant_scope,
             parent: None,
             source: &TagSourceUnsupported,
         }
     }
 
-    fn with_tag_context<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
+    fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
         EvalContext {
-            scope: &mut self.global_scope,
+            scope: &mut self.constant_scope,
             parent: None,
             source,
         }
@@ -605,7 +605,7 @@ profile "test" {
     }
 
     #[test]
-    fn evaluate_globals() {
+    fn evaluate_constants() {
         let input = r#"
 profile "test" {
     define {
@@ -636,7 +636,7 @@ profile "test" {
 
         for (key, val) in expected.into_iter() {
             let resolved = runtime
-                .global_context()
+                .constant_context()
                 .eval_expr(&Expression::Ident(key.into()))
                 .expect("lookup");
 
