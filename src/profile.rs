@@ -303,10 +303,10 @@ enum EvalError {
     TagNotSupported,
 }
 
-trait TagMatcher {
+trait TagSource {
     fn get_tag(&self, k: &str) -> Result<Option<&str>, EvalError>;
 
-    fn matches(&self, pattern: &TagPattern) -> Result<bool, EvalError> {
+    fn has_match(&self, pattern: &TagPattern) -> Result<bool, EvalError> {
         Ok(match pattern {
             TagPattern::Exists { key } => self.get_tag(key)?.is_some(),
             TagPattern::NotExists { key } => self.get_tag(key)?.is_none(),
@@ -323,8 +323,8 @@ trait TagMatcher {
 }
 
 // TODO: this is clunky
-struct TagMatcherUnsupported;
-impl TagMatcher for TagMatcherUnsupported {
+struct TagSourceUnsupported;
+impl TagSource for TagSourceUnsupported {
     fn get_tag(&self, _k: &str) -> Result<Option<&str>, EvalError> {
         Err(EvalError::TagNotSupported)
     }
@@ -332,11 +332,11 @@ impl TagMatcher for TagMatcherUnsupported {
 
 struct EvalContext<'a, T>
 where
-    T: TagMatcher,
+    T: TagSource,
 {
     scope: &'a mut Scope,
     parent: Option<&'a EvalContext<'a, T>>,
-    matcher: &'a T,
+    source: &'a T,
 }
 
 #[derive(Debug)]
@@ -363,30 +363,30 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    fn global_context(&mut self) -> EvalContext<TagMatcherUnsupported> {
+    fn global_context(&mut self) -> EvalContext<TagSourceUnsupported> {
         EvalContext {
             scope: &mut self.global_scope,
             parent: None,
-            matcher: &TagMatcherUnsupported,
+            source: &TagSourceUnsupported,
         }
     }
 
-    fn with_tag_context<'a, T: TagMatcher>(&'a mut self, matcher: &'a T) -> EvalContext<T> {
+    fn with_tag_context<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
         EvalContext {
             scope: &mut self.global_scope,
             parent: None,
-            matcher,
+            source,
         }
     }
 }
 
-impl<'a, T: TagMatcher> EvalContext<'a, T> {
+impl<'a, T: TagSource> EvalContext<'a, T> {
     // TODO: better name
     fn child(&'a self, scope: &'a mut Scope) -> EvalContext<T> {
         EvalContext {
             scope,
             parent: Some(self),
-            matcher: self.matcher,
+            source: self.source,
         }
     }
 
@@ -429,7 +429,7 @@ impl<'a, T: TagMatcher> EvalContext<'a, T> {
 
     fn eval_tag_patterns(&mut self, patterns: &[TagPattern]) -> Result<Value, EvalError> {
         for pattern in patterns {
-            if !self.matcher.matches(pattern)? {
+            if !self.source.has_match(pattern)? {
                 return Ok(Value::Bool(false));
             }
         }
