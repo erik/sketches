@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::convert::From;
 use std::fs::File;
 use std::hash::Hash;
@@ -15,6 +13,7 @@ pub type TagDictId = u16;
 
 pub struct TagDict<S> {
     max_id: TagDictId,
+    // TODO: Wasteful to store two copies of the key, maybe Rc<S> it
     forward: HashMap<S, TagDictId>,
     backward: HashMap<TagDictId, S>,
 }
@@ -41,8 +40,8 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
         }
     }
 
-    fn to_compact(&self, key: &S) -> Option<&TagDictId> {
-        self.forward.get(&key)
+    fn to_compact(&self, key: &S) -> Option<TagDictId> {
+        self.forward.get(&key).copied()
     }
 
     fn from_compact(&self, key: &TagDictId) -> Option<&S> {
@@ -50,7 +49,7 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
     }
 }
 
-const IGNORED_KEY_PREFIXES: &[&str] = &["addr:", "name:", "tiger:"];
+const IGNORED_KEY_PREFIXES: &[&str] = &["addr:", "name:", "source:", "tiger:"];
 // TODO: lazy_static! HashSet might be faster as this grows.
 // roughly sorted by usage.
 const IGNORED_KEYS: &[&str] = &[
@@ -117,7 +116,7 @@ impl TagDict<SmartString<Compact>> {
             let compact_key = self.insert(k);
             keys.push(CompactTag {
                 key: compact_key,
-                val: *self.to_compact(&v).unwrap_or(&UNKNOWN_TAG_ID),
+                val: self.to_compact(&v).unwrap_or(UNKNOWN_TAG_ID),
             });
         }
 
@@ -138,8 +137,8 @@ pub struct CompactTags {
 
 impl CompactTags {
     fn get_key<'a, S: Eq + Hash + Clone>(&self, dict: &'a TagDict<S>, key: &S) -> Option<&'a S> {
-        let key = dict.to_compact(key)?;
-        let val = self.get_compact_key(*key)?;
+        let compact_key = dict.to_compact(key)?;
+        let val = self.get_compact_key(compact_key)?;
 
         dict.from_compact(&val)
             .or_else(|| dict.from_compact(&UNKNOWN_TAG_ID))
