@@ -10,6 +10,7 @@ use std::{collections::HashMap, io::Error};
 use osmpbfreader::Tags as OsmTags;
 use smartstring::{Compact, SmartString};
 
+pub const UNKNOWN_TAG_ID: TagDictId = 0;
 pub type TagDictId = u16;
 
 pub struct TagDict<S> {
@@ -19,29 +20,27 @@ pub struct TagDict<S> {
 }
 
 impl<S: Eq + Hash + Clone> TagDict<S> {
-    fn new() -> Self {
+    fn with_unknown(unknown_value: S) -> Self {
         TagDict {
-            max_id: TagDictId::default(),
-            forward: HashMap::new(),
-            backward: HashMap::new(),
+            max_id: UNKNOWN_TAG_ID,
+            forward: HashMap::from([(unknown_value.clone(), UNKNOWN_TAG_ID)]),
+            backward: HashMap::from([(UNKNOWN_TAG_ID, unknown_value)]),
         }
     }
 
     fn insert(&mut self, key: S) -> TagDictId {
         match self.forward.get(&key) {
-            Some(&id) => id,
+            Some(&existing) => existing,
             None => {
+                self.max_id += 1;
                 self.forward.insert(key.clone(), self.max_id);
                 self.backward.insert(self.max_id, key);
-                self.max_id += 1;
 
                 self.max_id
             }
         }
     }
-}
 
-impl<S: Eq + Hash> TagDict<S> {
     fn to_compact(&self, key: &S) -> Option<&TagDictId> {
         self.forward.get(&key)
     }
@@ -51,13 +50,38 @@ impl<S: Eq + Hash> TagDict<S> {
     }
 }
 
+const IGNORED_KEY_PREFIXES: &[&str] = &["addr:", "name:", "tiger:"];
+// TODO: lazy_static! HashSet might be faster as this grows.
+// roughly sorted by usage.
+const IGNORED_KEYS: &[&str] = &[
+    "name",
+    "source",
+    "ref",
+    "addr",
+    "comment",
+    "created_by",
+    "fixme",
+    "note",
+];
+
+fn ignore_osm_tag(key: &SmartString<Compact>, _val: &SmartString<Compact>) -> bool {
+    IGNORED_KEYS.iter().any(|k| key == k)
+        || IGNORED_KEY_PREFIXES
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+}
+
 impl TagDict<SmartString<Compact>> {
+    pub fn new() -> Self {
+        TagDict::with_unknown("unknown".into())
+    }
+
     // TODO: serialization
     fn load(path: &Path) -> Result<Self, Error> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
 
-        let mut dict = TagDict::new();
+        let mut dict = TagDict::with_unknown("unknown".into());
 
         // TODO: size header to avoid allocations
         // TODO: escape separator chars
@@ -76,6 +100,29 @@ impl TagDict<SmartString<Compact>> {
 
         Ok(dict)
     }
+
+    // TODO: Don't insert here, use pre-built tag set to pare it down.
+    pub fn from_osm(&mut self, osm_tags: &OsmTags) -> CompactTags {
+        let mut keys = Vec::with_capacity(osm_tags.len());
+
+        for (k, v) in osm_tags.iter() {
+            // FIXME: this is a dumb hack. OSM reader crate is using
+            // an older version of smartstring.
+            let (k, v) = (k.as_str().into(), v.as_str().into());
+
+            if ignore_osm_tag(&k, &v) {
+                continue;
+            }
+
+            let compact_key = self.insert(k);
+            keys.push(CompactTag {
+                key: compact_key,
+                val: *self.to_compact(&v).unwrap_or(&UNKNOWN_TAG_ID),
+            });
+        }
+
+        CompactTags { keys }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,11 +137,12 @@ pub struct CompactTags {
 }
 
 impl CompactTags {
-    fn get_key<'a, S: Eq + Hash>(&self, dict: &'a TagDict<S>, key: &S) -> Option<&'a S> {
+    fn get_key<'a, S: Eq + Hash + Clone>(&self, dict: &'a TagDict<S>, key: &S) -> Option<&'a S> {
         let key = dict.to_compact(key)?;
         let val = self.get_compact_key(*key)?;
 
         dict.from_compact(&val)
+            .or_else(|| dict.from_compact(&UNKNOWN_TAG_ID))
     }
 
     fn get_compact_key(&self, key: TagDictId) -> Option<TagDictId> {
@@ -102,194 +150,5 @@ impl CompactTags {
             .binary_search_by_key(&key, |tag| tag.key)
             .map(|idx| self.keys[idx].val)
             .ok()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct EdgeTags {
-    pub highway: HighwayKind,
-    pub surface: SurfaceKind,
-    pub smoothness: SmoothnessKind,
-    // TODO: access, one way, etc
-    pub raw: OsmTags,
-}
-
-impl From<OsmTags> for EdgeTags {
-    fn from(tags: OsmTags) -> EdgeTags {
-        EdgeTags {
-            highway: HighwayKind::from(&tags),
-            surface: SurfaceKind::from(&tags),
-            smoothness: SmoothnessKind::from(&tags),
-            raw: tags,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct NodeTags {
-    // TODO: Barrier, junction
-    pub raw: OsmTags,
-}
-
-impl From<OsmTags> for NodeTags {
-    fn from(tags: OsmTags) -> NodeTags {
-        NodeTags { raw: tags }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum SmoothnessKind {
-    Excellent,
-    Good,
-    Intermediate,
-    Bad,
-    VeryBad,
-    Horrible,
-    Unknown,
-}
-
-impl From<&OsmTags> for SmoothnessKind {
-    fn from(tags: &OsmTags) -> SmoothnessKind {
-        use SmoothnessKind::*;
-
-        match tags.get("smoothness").map(|v| v.as_str()).unwrap_or("") {
-            "excellent" => Excellent,
-            "good" => Good,
-            "intermediate" => Intermediate,
-            "bad" => Bad,
-            "very_bad" => VeryBad,
-            "horrible" => Horrible,
-            _ => Unknown,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum HighwayKind {
-    Bridleway,
-    Cycleway,
-    Footway,
-    Motorway,
-    MotorwayLink,
-    Path,
-    Primary,
-    PrimaryLink,
-    Residential,
-    Secondary,
-    SecondaryLink,
-    Service,
-    Steps,
-    Tertiary,
-    TertiaryLink,
-    Track,
-    Trunk,
-    TrunkLink,
-    Unclassified,
-    Unknown,
-}
-
-impl From<&OsmTags> for HighwayKind {
-    fn from(tags: &OsmTags) -> HighwayKind {
-        use HighwayKind::*;
-
-        match tags.get("highway").map(|v| v.as_str()).unwrap_or("") {
-            "bridleway" => Bridleway,
-            "cycleway" => Cycleway,
-            "footway" => Footway,
-            "motorway" => Motorway,
-            "motorway_link" => MotorwayLink,
-            "path" => Path,
-            "primary" => Primary,
-            "primary_link" => PrimaryLink,
-            "residential" => Residential,
-            "secondary" => Secondary,
-            "secondary_link" => SecondaryLink,
-            "service" => Service,
-            "steps" => Steps,
-            "tertiary" => Tertiary,
-            "tertiary_link" => TertiaryLink,
-            "track" => Track,
-            "trunk" => Trunk,
-            "trunk_link" => TrunkLink,
-            "unclassified" => Unclassified,
-            _ => Unknown,
-        }
-    }
-}
-
-// TODO: Narrow these down, too much granularity
-#[derive(Clone, Debug)]
-pub enum SurfaceKind {
-    Paved(PavementKind),
-    Unpaved(UnpavedKind),
-    Cobblestone(CobblestoneKind),
-    Unknown,
-}
-
-#[derive(Clone, Debug)]
-pub enum PavementKind {
-    Generic,
-    Asphalt,
-    Chipseal,
-    Concrete,
-    ConcreteLanes,
-    ConcretePlates,
-    Wood,
-    Metal,
-}
-
-#[derive(Clone, Debug)]
-pub enum CobblestoneKind {
-    Generic,
-    PavingStones,
-    Sett,
-    Unhewn,
-}
-
-#[derive(Clone, Debug)]
-pub enum UnpavedKind {
-    Generic,
-    Compacted,
-    FineGravel,
-    Gravel,
-    Rock,
-    Mud,
-    Sand,
-    Woodchips,
-    Snow,
-}
-
-impl From<&OsmTags> for SurfaceKind {
-    fn from(tags: &OsmTags) -> SurfaceKind {
-        use SurfaceKind::*;
-        match tags.get("surface").map(|v| v.as_str()).unwrap_or("") {
-            // paved
-            "paved" => Paved(PavementKind::Generic),
-            "asphalt" => Paved(PavementKind::Asphalt),
-            "chipseal" => Paved(PavementKind::Chipseal),
-            "concrete" => Paved(PavementKind::Concrete),
-            "concrete:lanes" => Paved(PavementKind::ConcreteLanes),
-            "concrete:plates" => Paved(PavementKind::ConcretePlates),
-            "wood" => Paved(PavementKind::Wood),
-            "metal" => Paved(PavementKind::Metal),
-
-            // cobblestone
-            "cobblestone" => Cobblestone(CobblestoneKind::Generic),
-            "paving_stones" => Cobblestone(CobblestoneKind::PavingStones),
-            "sett" => Cobblestone(CobblestoneKind::Sett),
-            "unhewn_cobblestone" => Cobblestone(CobblestoneKind::Unhewn),
-
-            // unpaved
-            "unpaved" | "ground" => Unpaved(UnpavedKind::Generic),
-            "compacted" | "pebblestone" | "dirt" | "earth" => Unpaved(UnpavedKind::Compacted),
-            "fine_gravel" => Unpaved(UnpavedKind::FineGravel),
-            "gravel" => Unpaved(UnpavedKind::Gravel),
-            "rock" => Unpaved(UnpavedKind::Rock),
-            "mud" => Unpaved(UnpavedKind::Mud),
-            "sand" => Unpaved(UnpavedKind::Sand),
-            "woodchips" => Unpaved(UnpavedKind::Woodchips),
-            "snow" | "ice" => Unpaved(UnpavedKind::Snow),
-            _ => Unknown,
-        }
     }
 }

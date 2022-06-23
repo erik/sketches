@@ -14,9 +14,10 @@ use petgraph::{
     graph::{EdgeReference, Graph},
     Undirected,
 };
+use smartstring::{Compact, SmartString};
 
 use crate::index::{IndexedCoordinate, Point2D, SpatialIndex};
-use crate::tags::{EdgeTags, NodeTags};
+use crate::tags::{CompactTags, TagDict};
 
 /// In radians
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -28,7 +29,7 @@ pub struct LatLng {
 #[derive(Debug)]
 pub struct NodeData {
     point: LatLng,
-    tags: NodeTags,
+    tags: CompactTags,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,7 @@ pub struct EdgeData {
     // meters
     // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
-    tags: EdgeTags,
+    tags: CompactTags,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
     geometry: Vec<LatLng>,
@@ -47,6 +48,7 @@ pub struct OsmGraph {
     // TODO: Use a directed graph so we can represent one ways etc.
     pub inner: Graph<NodeData, EdgeData, Undirected>,
     pub index: SpatialIndex<NodeIndex, Point2D>,
+    pub tag_dict: TagDict<SmartString<Compact>>,
 }
 
 impl LatLng {
@@ -206,32 +208,6 @@ where
     node_kind_mapping
 }
 
-fn strip_tags(tags: &Tags) -> Tags {
-    let mut tags = tags.clone();
-
-    // Not exhaustive
-    let unused_tags = vec![
-        "addr:city",
-        "addr:housenumber",
-        "addr:postcode",
-        "addr:street",
-        "comment",
-        "created_by",
-        "fixme",
-        "note",
-        "ref",
-        "source",
-        // TODO: remove
-        "name",
-    ];
-
-    for key in unused_tags.into_iter() {
-        tags.remove(key);
-    }
-
-    tags
-}
-
 enum Pass2Node {
     Routing(NodeIndex<u32>, LatLng),
     Geometry(LatLng),
@@ -294,6 +270,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
 
     let mut node_map = HashMap::<OsmNodeId, Pass2Node>::with_capacity(node_kind.len());
     let mut graph = Graph::<NodeData, EdgeData, _>::new_undirected();
+    let mut tag_dict = TagDict::new();
 
     let mut processed_nodes = 0;
     let mut processed_ways = 0;
@@ -324,7 +301,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                             NodeKind::Routing => {
                                 let id = graph.add_node(NodeData {
                                     point,
-                                    tags: NodeTags::from(strip_tags(&osm_node.tags)),
+                                    tags: tag_dict.from_osm(&osm_node.tags),
                                 });
 
                                 Pass2Node::Routing(id, point)
@@ -374,7 +351,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
                                 prev_id,
                                 EdgeData {
                                     dist: accumulated_dist as u32,
-                                    tags: EdgeTags::from(strip_tags(&way.tags)),
+                                    tags: tag_dict.from_osm(&way.tags),
                                     // Approx 1m precision at equator.
                                     geometry: simplify(&way_geo, 1e-5),
                                 },
@@ -404,6 +381,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     Ok(OsmGraph {
         inner: graph,
         index: SpatialIndex::build(&node_coordinates),
+        tag_dict,
     })
 }
 
@@ -417,30 +395,7 @@ const INACCESSIBLE: u32 = 5_000_000;
 impl OsmGraph {
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
         let edge_data = edge.weight();
-
-        use crate::tags::HighwayKind::*;
-        let mut multiple = match edge_data.tags.highway {
-            Motorway | MotorwayLink => INACCESSIBLE,
-            Trunk | TrunkLink => 10,
-            Primary | PrimaryLink => 5,
-            Path | Steps | Track => 0,
-            _ => 1,
-        };
-
-        use crate::tags::SurfaceKind::*;
-        multiple += match edge_data.tags.surface {
-            Unpaved(_) => 0,
-            Paved(_) => 10,
-            Cobblestone(_) => 20,
-            crate::tags::SurfaceKind::Unknown => 10,
-        };
-
-        let max_multiple = 1000;
-        if multiple > max_multiple {
-            return INACCESSIBLE;
-        }
-
-        edge_data.dist * (1 + multiple)
+        edge_data.dist
     }
 
     pub fn find_route(&self, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
