@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use pest::error::Error;
 use pest::Parser;
+use smartstring::{Compact, SmartString};
+
+use crate::tags::{CompactTags, TagDict};
 
 #[derive(Parser)]
 #[grammar = "profile.pest"]
@@ -327,6 +330,21 @@ struct TagSourceUnsupported;
 impl TagSource for TagSourceUnsupported {
     fn get_tag(&self, _k: &str) -> Result<Option<&str>, EvalError> {
         Err(EvalError::TagNotSupported)
+    }
+}
+
+struct CompactTagSource<'a> {
+    dict: &'a TagDict<SmartString<Compact>>,
+    tags: &'a CompactTags,
+}
+
+impl<'a> TagSource for CompactTagSource<'a> {
+    fn get_tag(&self, key: &str) -> Result<Option<&str>, EvalError> {
+        let val = self
+            .tags
+            .get_key(self.dict, &key.into())
+            .map(|s| s.as_str());
+        Ok(val)
     }
 }
 

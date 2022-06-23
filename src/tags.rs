@@ -136,7 +136,11 @@ pub struct CompactTags {
 }
 
 impl CompactTags {
-    fn get_key<'a, S: Eq + Hash + Clone>(&self, dict: &'a TagDict<S>, key: &S) -> Option<&'a S> {
+    pub fn get_key<'a, S: Eq + Hash + Clone>(
+        &self,
+        dict: &'a TagDict<S>,
+        key: &S,
+    ) -> Option<&'a S> {
         let compact_key = dict.to_compact(key)?;
         let val = self.get_compact_key(compact_key)?;
 
