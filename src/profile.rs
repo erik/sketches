@@ -345,7 +345,6 @@ impl ProfileRuntime {
         }
 
         self.constant_scope = context.scope;
-
         Ok(())
     }
 
@@ -368,9 +367,9 @@ impl ProfileRuntime {
 
     fn constant_context(&self) -> EvalContext<EmptyTagSource> {
         EvalContext {
-            constants: None,
-            scope: Scope::empty(),
+            constants: Some(&self.constant_scope),
             parent: None,
+            scope: Scope::empty(),
             source: None,
         }
     }
@@ -378,8 +377,8 @@ impl ProfileRuntime {
     pub fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
         EvalContext {
             constants: Some(&self.constant_scope),
-            scope: Scope::empty(),
             parent: None,
+            scope: Scope::empty(),
             source: Some(source),
         }
     }
@@ -391,8 +390,8 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
         EvalContext {
             scope,
             constants: self.constants,
+            parent: Some(self),
             source: self.source,
-            parent: Some(&self),
         }
     }
 
@@ -663,7 +662,7 @@ profile "test" {
 }
 "#;
         let profile = Profile::parse(input).expect("parse success");
-        let mut runtime = ProfileRuntime::from(&profile).expect("create runtime");
+        let runtime = ProfileRuntime::from(profile).expect("create runtime");
 
         let expected = vec![
             ("b", Value::Number(1.0)),

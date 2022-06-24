@@ -40,11 +40,11 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
     }
 
     fn to_compact(&self, key: &S) -> Option<TagDictId> {
-        self.forward.get(&key).copied()
+        self.forward.get(key).copied()
     }
 
     fn from_compact(&self, key: &TagDictId) -> Option<&S> {
-        self.backward.get(&key)
+        self.backward.get(key)
     }
 }
 
@@ -87,11 +87,11 @@ impl TagDict<SmartString<Compact>> {
         for line in reader.lines() {
             let line = line?;
             let (key, vals) = line
-                .split_once(" ")
+                .split_once(' ')
                 .ok_or_else(|| Error::new(ErrorKind::Other, "bad format"))?;
 
             dict.insert(key.into());
-            for val in vals.split(";") {
+            for val in vals.split(';') {
                 dict.insert(val.into());
             }
         }

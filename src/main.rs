@@ -58,19 +58,19 @@ struct JsonLatLng {
     lon: f32,
 }
 
-impl Into<crate::graph::LatLng> for JsonLatLng {
-    fn into(self) -> crate::graph::LatLng {
-        crate::graph::LatLng {
-            lat: self.lat.to_radians(),
-            lon: self.lon.to_radians(),
+impl From<crate::graph::LatLng> for JsonLatLng {
+    fn from(ll: crate::graph::LatLng) -> JsonLatLng {
+        JsonLatLng {
+            lat: ll.lat.to_degrees(),
+            lon: ll.lon.to_degrees(),
         }
     }
 }
-impl Into<JsonLatLng> for crate::graph::LatLng {
-    fn into(self) -> JsonLatLng {
-        JsonLatLng {
-            lat: self.lat.to_degrees(),
-            lon: self.lon.to_degrees(),
+impl From<JsonLatLng> for crate::graph::LatLng {
+    fn from(json: JsonLatLng) -> crate::graph::LatLng {
+        crate::graph::LatLng {
+            lat: json.lat.to_radians(),
+            lon: json.lon.to_radians(),
         }
     }
 }
