@@ -107,6 +107,7 @@ mod routes {
         println!("Incoming routing request: {:?}", req.0);
         let graph = graph.lock().unwrap();
         let route = graph.find_route(req.0.from.into(), req.0.to.into());
+        println!(" ====> done");
 
         Json(RouteResponse {
             route: route.map(|points| points.into_iter().map(|pt| pt.into()).collect()),

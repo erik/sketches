@@ -391,14 +391,16 @@ profile "foo" {
 
   way-penalty {
     define {
-      paved? = [surface=paved|asphalt|concrete]
-      steps? = [highway=steps]
+      is-paved? = [surface=paved|asphalt|concrete]
+      steps     = [highway=steps]
+      sidewalk  = [highway=footway; footway=sidewalk]
     }
 
     when {
-        steps? => 0
-        paved? => 10
-        else   => 3
+        steps      => 0
+        is-paved?  => 50
+        sidewalk   => 100
+        else       => 5
     }
   }
 }"#,

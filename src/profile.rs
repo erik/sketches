@@ -270,7 +270,7 @@ enum LazyValue {
 }
 
 impl Scope {
-    fn root() -> Scope {
+    fn empty() -> Scope {
         Scope {
             scope: HashMap::new(),
         }
@@ -314,8 +314,9 @@ pub struct EvalContext<'a, T>
 where
     T: TagSource,
 {
-    scope: &'a mut Scope,
+    constants: Option<&'a Scope>,
     parent: Option<&'a EvalContext<'a, T>>,
+    scope: Scope,
     source: Option<&'a T>,
 }
 
@@ -329,7 +330,7 @@ pub struct ProfileRuntime {
 impl ProfileRuntime {
     pub fn from(profile: Profile) -> Result<ProfileRuntime, EvalError> {
         let mut rt = ProfileRuntime {
-            constant_scope: Scope::root(),
+            constant_scope: Scope::empty(),
             way_penalty: profile.way_penalty,
         };
         rt.eval_constants(&profile.constant_defs)?;
@@ -337,11 +338,13 @@ impl ProfileRuntime {
     }
 
     fn eval_constants(&mut self, defs: &Definitions) -> Result<(), EvalError> {
-        for (name, expr) in defs {
-            // TODO: Creating in a loop to avoid lifetime-headaches, can this be avoided?
-            let value = self.constant_context().eval_expr(expr)?;
-            self.constant_scope.set(name, value);
+        let mut context = self.constant_context();
+        for (ident, expr) in defs {
+            let value = context.eval_expr(expr)?;
+            context.scope.set(ident, value);
         }
+
+        self.constant_scope = context.scope;
 
         Ok(())
     }
@@ -355,7 +358,7 @@ impl ProfileRuntime {
                 if let Value::Number(score) = val {
                     return Ok(score);
                 } else if let Value::Invalid = val {
-                    return Ok(10_000_000.0);
+                    return Ok(100_000_000.0);
                 }
 
                 panic!("score way returned non-number")
@@ -363,9 +366,10 @@ impl ProfileRuntime {
         }
     }
 
-    fn constant_context(&mut self) -> EvalContext<EmptyTagSource> {
+    fn constant_context(&self) -> EvalContext<EmptyTagSource> {
         EvalContext {
-            scope: &mut self.constant_scope,
+            constants: None,
+            scope: Scope::empty(),
             parent: None,
             source: None,
         }
@@ -373,7 +377,8 @@ impl ProfileRuntime {
 
     pub fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
         EvalContext {
-            scope: &mut self.constant_scope,
+            constants: Some(&self.constant_scope),
+            scope: Scope::empty(),
             parent: None,
             source: Some(source),
         }
@@ -382,39 +387,54 @@ impl ProfileRuntime {
 
 impl<'a, T: TagSource> EvalContext<'a, T> {
     // TODO: better name
-    fn child(&'a self, scope: &'a mut Scope) -> EvalContext<T> {
+    fn child_context(&'a self, scope: Scope) -> EvalContext<T> {
         EvalContext {
             scope,
-            parent: Some(self),
+            constants: self.constants,
             source: self.source,
+            parent: Some(&self),
         }
     }
 
-    fn get_lazy(&self, key: &str) -> Option<LazyValue> {
-        self.scope.get(key).cloned().or_else(|| match self.parent {
-            Some(parent) => parent.get_lazy(key),
-            None => None,
+    fn get_lazy(&self, key: &str) -> Option<&LazyValue> {
+        // TODO: Drop the cloned()
+        self.scope.get(key).or_else(|| {
+            if let Some(parent) = self.parent {
+                parent.get_lazy(key)
+            } else if let Some(consts) = self.constants {
+                consts.get(key)
+            } else {
+                None
+            }
         })
     }
 
     fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
-        match self.get_lazy(key) {
-            None => Err(EvalError::Lookup(key.into())),
-            Some(LazyValue::Evaluated(val)) => Ok(val),
-            Some(LazyValue::Unevaluated(expr)) => {
-                let val = self.eval_expr(&expr)?;
+        if let Some(lazy_val) = self.get_lazy(key) {
+            // TODO: avoid the clone
+            let val = match lazy_val.clone() {
+                LazyValue::Evaluated(val) => val,
+                LazyValue::Unevaluated(expr) => {
+                    let val = self.eval_expr(&expr)?;
 
-                // TODO: We're only setting variables in the local scope, which
-                // means they could need to be recalculated in a sibling.  not
-                // optimal
-                self.scope.set(key, val.clone());
-                Ok(val)
-            }
+                    // TODO: We're only setting variables in the local scope, which
+                    // means they could need to be recalculated in a sibling.  not
+                    // optimal
+                    self.scope.set(key, val.clone());
+                    val
+                }
+            };
+
+            Ok(val)
+        } else {
+            Err(EvalError::Lookup(key.into()))
         }
     }
 
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, EvalError> {
         use Expression::*;
+
+        // TODO: Avoid cloning Value in each branch
         let value = match expr {
             Literal(v) => v.clone(),
             Ident(name) => self.get_and_eval(name)?,
@@ -534,8 +554,8 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
-        let mut scope = Scope::from_defs(&block.defs);
-        let mut child_ctx = self.child(&mut scope);
+        let scope = Scope::from_defs(&block.defs);
+        let mut child_ctx = self.child_context(scope);
 
         child_ctx.eval_named_block_inner(block)
     }
