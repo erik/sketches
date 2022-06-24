@@ -71,7 +71,6 @@ expr = _{
       bool
     | invalid
     | number
-    | string
     | tag_expr
     | when_block
     | named_block

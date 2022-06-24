@@ -17,12 +17,11 @@ pub enum TagPattern {
     NoneOf { key: String, values: Vec<String> },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Value {
     Invalid,
     Bool(bool),
     Number(f32),
-    String(String),
 }
 
 impl Value {
@@ -144,7 +143,6 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expression {
     match pair.as_rule() {
         Rule::bool => Literal(Value::Bool(pair.as_str() == "true")),
         Rule::number => Literal(Value::Number(pair.as_str().parse().unwrap())),
-        Rule::string => Literal(Value::String(parse_as_str(pair).into())),
         Rule::invalid => Literal(Value::Invalid),
 
         Rule::tag_expr => TagPattern(parse_tag_expr(pair.into_inner())),
@@ -396,24 +394,24 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn get_lazy(&self, key: &str) -> Option<&LazyValue> {
-        // TODO: Drop the cloned()
-        self.scope.get(key).or_else(|| {
-            if let Some(parent) = self.parent {
-                parent.get_lazy(key)
-            } else if let Some(consts) = self.constants {
-                consts.get(key)
-            } else {
-                None
-            }
-        })
+        if let Some(val) = self.scope.get(key) {
+            Some(val)
+        } else if let Some(parent) = self.parent {
+            parent.get_lazy(key)
+        } else if let Some(consts) = self.constants {
+            consts.get(key)
+        } else {
+            None
+        }
     }
 
     fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
         if let Some(lazy_val) = self.get_lazy(key) {
-            // TODO: avoid the clone
-            let val = match lazy_val.clone() {
-                LazyValue::Evaluated(val) => val,
+            let val = match lazy_val {
+                LazyValue::Evaluated(val) => *val,
+                // TODO: avoid the clone, this branch seems to be expensive.
                 LazyValue::Unevaluated(expr) => {
+                    let expr = expr.clone();
                     let val = self.eval_expr(&expr)?;
 
                     // TODO: We're only setting variables in the local scope, which
@@ -435,7 +433,7 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
 
         // TODO: Avoid cloning Value in each branch
         let value = match expr {
-            Literal(v) => v.clone(),
+            Literal(val) => *val,
             Ident(name) => self.get_and_eval(name)?,
 
             NamedBlock(block) => self.eval_named_block(block)?,
@@ -571,8 +569,6 @@ mod test {
 // a
 profile "kitchen sink" {
     define {
-        k = "value" // b
-        k = "a \"quoted\" value"
         k = true
         k = 123
         k = value
@@ -610,7 +606,6 @@ profile "test" {
         }
         base-cost   = 123
         this        = true
-        that        = "the other"
         bar         = [highway=path; access; access!=private]
     }
 
@@ -652,12 +647,8 @@ profile "test" {
         c = false
         d = any? { c; false }
         e = any? { c; false; b }
-        f = when {
-           c            => "c"
-           any? { d e } => "d or e"
-        }
-        g = sum { a; 2 }
-        h = sum { invalid; a; 2 }
+        f = sum { a; 2 }
+        g = sum { invalid; a; 2 }
     }
 }
 "#;
@@ -667,9 +658,8 @@ profile "test" {
         let expected = vec![
             ("b", Value::Number(1.0)),
             ("e", Value::Bool(true)),
-            ("f", Value::String("d or e".into())),
-            ("g", Value::Number(3.0)),
-            ("h", Value::Invalid),
+            ("f", Value::Number(3.0)),
+            ("g", Value::Invalid),
         ];
 
         for (key, val) in expected.into_iter() {
