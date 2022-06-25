@@ -350,14 +350,14 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    pub fn score_way<T: TagSource<CompactString, CompactString>>(
-        &self,
-        tags: &T,
-    ) -> Result<f32, EvalError> {
+    pub fn score_way<T>(&self, tags: &T) -> Result<f32, EvalError>
+    where
+        T: TagSource<CompactString, CompactString>,
+    {
         match &self.way_penalty {
             None => Ok(0.0),
             Some(block) => {
-                match self.with_tag_source(tags).eval_named_block(&block)? {
+                match self.with_tag_source(tags).eval_named_block(block)? {
                     Value::Number(score) => Ok(score),
                     // TODO: Formally specify this somehow. Result<Option<f32>>?
                     Value::Invalid => Ok(100_000_000.0),
@@ -375,10 +375,7 @@ impl ProfileRuntime {
         }
     }
 
-    pub fn with_tag_source<'a, T: TagSource<CompactString, CompactString>>(
-        &'a self,
-        source: &'a T,
-    ) -> EvalContext<'a, T> {
+    pub fn with_tag_source<'a, T>(&'a self, source: &'a T) -> EvalContext<'a, T> {
         EvalContext {
             scope: Scope::with_parent(&self.constant_scope),
             source: Some(source),
@@ -412,7 +409,7 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
                 // optimal
 
                 // TODO: avoid clone
-                self.scope.set(key.clone(), val.clone());
+                self.scope.set(key.clone(), val);
                 val
             }
         };
@@ -437,23 +434,23 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
     }
 
     fn eval_tag_patterns(&mut self, patterns: &[TagPattern]) -> Result<Value, EvalError> {
-        let source = match self.source {
-            Some(s) => s,
-            None => return Err(EvalError::TagNotSupported),
-        };
+        let tag_source = self.source.ok_or(EvalError::TagNotSupported)?;
 
         for pattern in patterns {
             use TagPattern::*;
             let matches = match pattern {
-                Exists(key) => source.has_tag(key),
-                NotExists(key) => !source.has_tag(key),
-                OneOf(key, values) => source
+                Exists(key) => tag_source.has_tag(key),
+
+                NotExists(key) => !tag_source.has_tag(key),
+
+                OneOf(key, values) => tag_source
                     .get_tag(key)
-                    .map(|val| values.iter().any(|v| v == val))
+                    .map(|val| values.contains(val))
                     .unwrap_or(false),
-                NoneOf(key, values) => source
+
+                NoneOf(key, values) => tag_source
                     .get_tag(key)
-                    .map(|val| !values.iter().any(|v| v == val))
+                    .map(|val| !values.contains(val))
                     .unwrap_or(true),
             };
 

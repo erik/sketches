@@ -144,7 +144,7 @@ pub struct CompactTags {
 
 impl CompactTags {
     pub fn contains_key<S: Eq + Hash + Clone>(&self, dict: &TagDict<S>, key: &S) -> bool {
-        dict.to_compact(&key)
+        dict.to_compact(key)
             .and_then(|k| self.get_compact_key(k))
             .is_some()
     }
