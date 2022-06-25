@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use pest::error::Error;
 use pest::Parser;
 
-use crate::tags::{EmptyTagSource, TagSource};
+use crate::tags::{CompactString, EmptyTagSource, TagSource};
 
 #[derive(Parser)]
 #[grammar = "profile.pest"]
@@ -11,10 +11,10 @@ pub struct ProfileParser;
 
 #[derive(Debug, Clone)]
 pub enum TagPattern {
-    Exists(String),
-    NotExists(String),
-    OneOf(String, Vec<String>),
-    NoneOf(String, Vec<String>),
+    Exists(CompactString),
+    NotExists(CompactString),
+    OneOf(CompactString, Vec<CompactString>),
+    NoneOf(CompactString, Vec<CompactString>),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -33,14 +33,13 @@ impl Value {
 #[derive(Debug, Clone)]
 pub enum Expression {
     Literal(Value),
-    Ident(String),
+    Ident(CompactString),
     TagPattern(Vec<TagPattern>),
     NamedBlock(NamedBlock),
     WhenBlock(WhenBlock),
 }
 
-// TODO: switch to smartstring
-type Def = (String, Expression);
+type Def = (CompactString, Expression);
 type Definitions = Vec<Def>;
 
 #[derive(Debug, Clone)]
@@ -253,7 +252,8 @@ fn parse_as_str(pair: pest::iterators::Pair<Rule>) -> &str {
 
 #[derive(Debug)]
 struct Scope<'a> {
-    scope: HashMap<String, LazyValue<'a>>,
+    // TODO: don't clone key, store ref
+    scope: HashMap<CompactString, LazyValue<'a>>,
     parent: Option<&'a Scope<'a>>,
 }
 
@@ -281,7 +281,7 @@ impl<'a> Scope<'a> {
     fn get_child(&'a self, definitions: &'a Definitions) -> Scope<'a> {
         let scope = definitions
             .iter()
-            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v)))
+            .map(|(k, v)| (k.clone(), LazyValue::Unevaluated(v)))
             .collect();
 
         Scope {
@@ -290,11 +290,11 @@ impl<'a> Scope<'a> {
         }
     }
 
-    fn set(&mut self, k: &str, v: Value) {
-        self.scope.insert(k.into(), LazyValue::Evaluated(v));
+    fn set(&mut self, k: CompactString, v: Value) {
+        self.scope.insert(k, LazyValue::Evaluated(v));
     }
 
-    fn get(&'a self, k: &str) -> Option<&'a LazyValue> {
+    fn get(&'a self, k: &CompactString) -> Option<&'a LazyValue> {
         self.scope
             .get(k)
             .or_else(|| self.parent.and_then(|scope| scope.get(k)))
@@ -308,15 +308,12 @@ pub enum EvalError {
     TagNotSupported,
 }
 
-pub struct EvalContext<'a, T>
-where
-    T: TagSource,
-{
+pub struct EvalContext<'a, T> {
     scope: Scope<'a>,
     source: Option<&'a T>,
 }
 
-impl<T: TagSource> EvalContext<'_, T> {
+impl<T: TagSource<CompactString, CompactString>> EvalContext<'_, T> {
     fn root() -> EvalContext<'static, T> {
         EvalContext {
             scope: Scope::empty(),
@@ -325,7 +322,6 @@ impl<T: TagSource> EvalContext<'_, T> {
     }
 }
 
-#[derive(Debug)]
 pub struct ProfileRuntime {
     constant_scope: Scope<'static>,
 
@@ -347,14 +343,17 @@ impl ProfileRuntime {
 
         for (ident, expr) in defs {
             let value = context.eval_expr(expr)?;
-            context.scope.set(ident, value);
+            context.scope.set(ident.clone(), value);
         }
 
         self.constant_scope = context.scope;
         Ok(())
     }
 
-    pub fn score_way<T: TagSource>(&self, tags: &T) -> Result<f32, EvalError> {
+    pub fn score_way<T: TagSource<CompactString, CompactString>>(
+        &self,
+        tags: &T,
+    ) -> Result<f32, EvalError> {
         match &self.way_penalty {
             None => Ok(0.0),
             Some(block) => {
@@ -376,7 +375,10 @@ impl ProfileRuntime {
         }
     }
 
-    pub fn with_tag_source<'a, T: TagSource>(&'a self, source: &'a T) -> EvalContext<'a, T> {
+    pub fn with_tag_source<'a, T: TagSource<CompactString, CompactString>>(
+        &'a self,
+        source: &'a T,
+    ) -> EvalContext<'a, T> {
         EvalContext {
             scope: Scope::with_parent(&self.constant_scope),
             source: Some(source),
@@ -384,7 +386,7 @@ impl ProfileRuntime {
     }
 }
 
-impl<'a, T: TagSource> EvalContext<'a, T> {
+impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
     fn child_context(&'a self, scope: Scope<'a>) -> EvalContext<T> {
         EvalContext {
             scope,
@@ -392,11 +394,11 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
         }
     }
 
-    fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
+    fn get_and_eval(&mut self, key: &CompactString) -> Result<Value, EvalError> {
         let lazy_val = self
             .scope
             .get(key)
-            .ok_or_else(|| EvalError::Lookup(key.into()))?;
+            .ok_or_else(|| EvalError::Lookup(key.as_str().into()))?;
 
         let value = match *lazy_val {
             LazyValue::Evaluated(val) => val,
@@ -409,7 +411,8 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
                 // means they could need to be recalculated in a sibling.  not
                 // optimal
 
-                self.scope.set(key, val.clone());
+                // TODO: avoid clone
+                self.scope.set(key.clone(), val.clone());
                 val
             }
         };
@@ -446,11 +449,11 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
                 NotExists(key) => !source.has_tag(key),
                 OneOf(key, values) => source
                     .get_tag(key)
-                    .map(|val| values.iter().any(|v| *v == val))
+                    .map(|val| values.iter().any(|v| v == val))
                     .unwrap_or(false),
                 NoneOf(key, values) => source
                     .get_tag(key)
-                    .map(|val| !values.iter().any(|v| *v == val))
+                    .map(|val| !values.iter().any(|v| v == val))
                     .unwrap_or(true),
             };
 

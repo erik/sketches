@@ -10,6 +10,7 @@ use smartstring::{Compact, SmartString};
 
 pub const UNKNOWN_TAG_ID: TagDictId = 0;
 pub type TagDictId = u16;
+pub type CompactString = SmartString<Compact>;
 
 pub struct TagDict<S> {
     max_id: TagDictId,
@@ -62,14 +63,14 @@ const IGNORED_KEYS: &[&str] = &[
     "note",
 ];
 
-fn ignore_osm_tag(key: &SmartString<Compact>, _val: &SmartString<Compact>) -> bool {
+fn ignore_osm_tag(key: &CompactString, _val: &CompactString) -> bool {
     IGNORED_KEYS.iter().any(|k| key == k)
         || IGNORED_KEY_PREFIXES
             .iter()
             .any(|prefix| key.starts_with(prefix))
 }
 
-impl TagDict<SmartString<Compact>> {
+impl TagDict<CompactString> {
     pub fn new() -> Self {
         TagDict::with_unknown("unknown".into())
     }
@@ -142,7 +143,7 @@ pub struct CompactTags {
 }
 
 impl CompactTags {
-    pub fn contains_key<'a, S: Eq + Hash + Clone>(&self, dict: &'a TagDict<S>, key: &S) -> bool {
+    pub fn contains_key<S: Eq + Hash + Clone>(&self, dict: &TagDict<S>, key: &S) -> bool {
         dict.to_compact(&key)
             .and_then(|k| self.get_compact_key(k))
             .is_some()
@@ -168,33 +169,31 @@ impl CompactTags {
     }
 }
 
-pub trait TagSource {
-    fn has_tag(&self, k: &str) -> bool;
-    fn get_tag(&self, k: &str) -> Option<&str>;
+pub trait TagSource<K, V> {
+    fn has_tag(&self, k: &K) -> bool;
+    fn get_tag(&self, k: &K) -> Option<&V>;
 }
 
 pub struct EmptyTagSource;
-impl TagSource for EmptyTagSource {
-    fn has_tag(&self, _k: &str) -> bool {
+impl<K, V> TagSource<K, V> for EmptyTagSource {
+    fn has_tag(&self, _k: &K) -> bool {
         false
     }
-    fn get_tag(&self, _k: &str) -> Option<&str> {
+    fn get_tag(&self, _k: &K) -> Option<&V> {
         None
     }
 }
 
 pub struct CompactTagSource<'a> {
-    dict: &'a TagDict<SmartString<Compact>>,
+    dict: &'a TagDict<CompactString>,
     tags: &'a CompactTags,
 }
 
-impl<'a> TagSource for CompactTagSource<'a> {
-    fn has_tag(&self, key: &str) -> bool {
-        self.tags.contains_key(self.dict, &key.into())
+impl<'a> TagSource<CompactString, CompactString> for CompactTagSource<'a> {
+    fn has_tag(&self, key: &CompactString) -> bool {
+        self.tags.contains_key(self.dict, key)
     }
-    fn get_tag(&self, key: &str) -> Option<&str> {
-        self.tags
-            .get_key(self.dict, &key.into())
-            .map(|s| s.as_str())
+    fn get_tag(&self, key: &CompactString) -> Option<&CompactString> {
+        self.tags.get_key(self.dict, key)
     }
 }

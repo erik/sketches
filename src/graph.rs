@@ -391,9 +391,9 @@ profile "foo" {
 
   way-penalty {
     define {
-      is-paved? = [surface=paved|asphalt|concrete]
-      steps     = [highway=steps]
-      sidewalk  = [highway=footway; footway=sidewalk]
+       is-paved? = [surface=paved|asphalt|concrete]
+       steps     = [highway=steps]
+       sidewalk  = [highway=footway; footway=sidewalk]
     }
 
     when {
@@ -424,6 +424,7 @@ profile "foo" {
 const INACCESSIBLE: u32 = 5_000_000;
 
 impl OsmGraph {
+    // TODO: edge score needs to include nodes
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
         let edge_data = edge.weight();
         let tag_source = self.tag_dict.tag_source(&edge_data.tags);
@@ -443,7 +444,6 @@ impl OsmGraph {
         self.find_route_from_nodes(from, to)
     }
 
-    // TODO: Build lat,lng -> NodeIndex lookup so we don't need to pass node index values.
     fn find_route_from_nodes(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
