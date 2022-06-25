@@ -313,7 +313,7 @@ where
     T: TagSource,
 {
     constants: Option<&'a Scope>,
-    parent: Option<&'a EvalContext<'a, T>>,
+    parents: Vec<&'a Scope>,
     scope: Scope,
     source: Option<&'a T>,
 }
@@ -346,19 +346,17 @@ impl ProfileRuntime {
         Ok(())
     }
 
-    pub fn score_way<'a, T: TagSource>(&'a mut self, tags: &'a T) -> Result<f32, EvalError> {
-        // TODO: clone bad
-        match self.way_penalty.clone() {
+    pub fn score_way<T: TagSource>(&self, tags: &T) -> Result<f32, EvalError> {
+        match &self.way_penalty {
             None => Ok(0.0),
             Some(block) => {
-                let val = self.with_tag_source(tags).eval_named_block(&block)?;
-                if let Value::Number(score) = val {
-                    return Ok(score);
-                } else if let Value::Invalid = val {
-                    return Ok(100_000_000.0);
+                match self.with_tag_source(tags).eval_named_block(&block)? {
+                    Value::Number(score) => Ok(score),
+                    // TODO: Formally specify this somehow. Result<Option<f32>>?
+                    Value::Invalid => Ok(100_000_000.0),
+                    // TODO: recover, don't panic
+                    _ => panic!("score_way returned a non-number"),
                 }
-
-                panic!("score way returned non-number")
             }
         }
     }
@@ -366,16 +364,16 @@ impl ProfileRuntime {
     fn constant_context(&self) -> EvalContext<EmptyTagSource> {
         EvalContext {
             constants: Some(&self.constant_scope),
-            parent: None,
+            parents: vec![],
             scope: Scope::empty(),
             source: None,
         }
     }
 
-    pub fn with_tag_source<'a, T: TagSource>(&'a mut self, source: &'a T) -> EvalContext<T> {
+    pub fn with_tag_source<'a, T: TagSource>(&'a self, source: &'a T) -> EvalContext<'a, T> {
         EvalContext {
             constants: Some(&self.constant_scope),
-            parent: None,
+            parents: vec![],
             scope: Scope::empty(),
             source: Some(source),
         }
@@ -388,7 +386,11 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
         EvalContext {
             scope,
             constants: self.constants,
-            parent: Some(self),
+            parents: {
+                let mut scopes = vec![&self.scope];
+                scopes.extend_from_slice(&self.parents);
+                scopes
+            },
             source: self.source,
         }
     }
@@ -396,8 +398,8 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     fn get_lazy(&self, key: &str) -> Option<&LazyValue> {
         if let Some(val) = self.scope.get(key) {
             Some(val)
-        } else if let Some(parent) = self.parent {
-            parent.get_lazy(key)
+        } else if let Some(val) = self.parents.iter().find_map(|s| s.scope.get(key)) {
+            Some(val)
         } else if let Some(consts) = self.constants {
             consts.get(key)
         } else {
@@ -406,12 +408,11 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
-        if let Some(lazy_val) = self.get_lazy(key) {
+        // TODO: avoid the clone, this branch seems to be expensive.
+        if let Some(lazy_val) = self.get_lazy(key).cloned() {
             let val = match lazy_val {
-                LazyValue::Evaluated(val) => *val,
-                // TODO: avoid the clone, this branch seems to be expensive.
+                LazyValue::Evaluated(val) => val,
                 LazyValue::Unevaluated(expr) => {
-                    let expr = expr.clone();
                     let val = self.eval_expr(&expr)?;
 
                     // TODO: We're only setting variables in the local scope, which
