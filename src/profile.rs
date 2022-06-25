@@ -11,10 +11,10 @@ pub struct ProfileParser;
 
 #[derive(Debug, Clone)]
 pub enum TagPattern {
-    Exists { key: String },
-    NotExists { key: String },
-    OneOf { key: String, values: Vec<String> },
-    NoneOf { key: String, values: Vec<String> },
+    Exists(String),
+    NotExists(String),
+    OneOf(String, Vec<String>),
+    NoneOf(String, Vec<String>),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -39,6 +39,7 @@ pub enum Expression {
     WhenBlock(WhenBlock),
 }
 
+// TODO: switch to smartstring
 type Def = (String, Expression);
 type Definitions = Vec<Def>;
 
@@ -209,14 +210,8 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
                     .map(|x| parse_as_str(x).into());
 
                 match op.as_rule() {
-                    Rule::op_eq => TagPattern::OneOf {
-                        key: key.into(),
-                        values: patterns.collect(),
-                    },
-                    Rule::op_neq => TagPattern::NoneOf {
-                        key: key.into(),
-                        values: patterns.collect(),
-                    },
+                    Rule::op_eq => TagPattern::OneOf(key.into(), patterns.collect()),
+                    Rule::op_neq => TagPattern::NoneOf(key.into(), patterns.collect()),
                     rule => panic!("unexpected rule: {:?}", rule),
                 }
             }
@@ -225,14 +220,14 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
                 let mut node = node.into_inner();
                 let key = parse_as_str(node.next().unwrap());
 
-                TagPattern::Exists { key: key.into() }
+                TagPattern::Exists(key.into())
             }
 
             Rule::tag_expr_not_exists_clause => {
                 let mut node = node.into_inner();
                 let key = parse_as_str(node.next().unwrap());
 
-                TagPattern::NotExists { key: key.into() }
+                TagPattern::NotExists(key.into())
             }
 
             rule => panic!("unexpected: {:?}", rule),
@@ -257,47 +252,52 @@ fn parse_as_str(pair: pest::iterators::Pair<Rule>) -> &str {
 }
 
 #[derive(Debug)]
-struct Scope {
-    scope: HashMap<String, LazyValue>,
+struct Scope<'a> {
+    scope: HashMap<String, LazyValue<'a>>,
+    parent: Option<&'a Scope<'a>>,
 }
 
 #[derive(Debug, Clone)]
-enum LazyValue {
+enum LazyValue<'a> {
     Evaluated(Value),
-    Unevaluated(Expression),
+    Unevaluated(&'a Expression),
 }
 
-impl Scope {
-    fn empty() -> Scope {
+impl<'a> Scope<'a> {
+    fn empty() -> Scope<'a> {
         Scope {
             scope: HashMap::new(),
+            parent: None,
         }
     }
 
-    fn from_defs(defs: &Definitions) -> Scope {
-        let scope = defs
-            .iter()
-            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v.clone())))
-            .collect();
-
-        Scope { scope }
+    fn with_parent(scope: &'a Scope) -> Scope<'a> {
+        Scope {
+            scope: HashMap::new(),
+            parent: Some(scope),
+        }
     }
 
-    fn get_child(&self, definitions: &Definitions) -> Scope {
+    fn get_child(&'a self, definitions: &'a Definitions) -> Scope<'a> {
         let scope = definitions
             .iter()
-            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v.clone())))
+            .map(|(k, v)| (k.into(), LazyValue::Unevaluated(v)))
             .collect();
 
-        Scope { scope }
+        Scope {
+            scope,
+            parent: Some(self),
+        }
     }
 
     fn set(&mut self, k: &str, v: Value) {
         self.scope.insert(k.into(), LazyValue::Evaluated(v));
     }
 
-    fn get(&self, k: &str) -> Option<&LazyValue> {
-        self.scope.get(k)
+    fn get(&'a self, k: &str) -> Option<&'a LazyValue> {
+        self.scope
+            .get(k)
+            .or_else(|| self.parent.and_then(|scope| scope.get(k)))
     }
 }
 
@@ -312,15 +312,22 @@ pub struct EvalContext<'a, T>
 where
     T: TagSource,
 {
-    constants: Option<&'a Scope>,
-    parents: Vec<&'a Scope>,
-    scope: Scope,
+    scope: Scope<'a>,
     source: Option<&'a T>,
+}
+
+impl<T: TagSource> EvalContext<'_, T> {
+    fn root() -> EvalContext<'static, T> {
+        EvalContext {
+            scope: Scope::empty(),
+            source: None,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct ProfileRuntime {
-    constant_scope: Scope,
+    constant_scope: Scope<'static>,
 
     way_penalty: Option<NamedBlock>,
 }
@@ -336,7 +343,8 @@ impl ProfileRuntime {
     }
 
     fn eval_constants(&mut self, defs: &Definitions) -> Result<(), EvalError> {
-        let mut context = self.constant_context();
+        let mut context = EvalContext::<EmptyTagSource>::root();
+
         for (ident, expr) in defs {
             let value = context.eval_expr(expr)?;
             context.scope.set(ident, value);
@@ -361,72 +369,52 @@ impl ProfileRuntime {
         }
     }
 
-    fn constant_context(&self) -> EvalContext<EmptyTagSource> {
+    pub fn without_tag_source(&self) -> EvalContext<'_, EmptyTagSource> {
         EvalContext {
-            constants: Some(&self.constant_scope),
-            parents: vec![],
-            scope: Scope::empty(),
+            scope: Scope::with_parent(&self.constant_scope),
             source: None,
         }
     }
 
     pub fn with_tag_source<'a, T: TagSource>(&'a self, source: &'a T) -> EvalContext<'a, T> {
         EvalContext {
-            constants: Some(&self.constant_scope),
-            parents: vec![],
-            scope: Scope::empty(),
+            scope: Scope::with_parent(&self.constant_scope),
             source: Some(source),
         }
     }
 }
 
 impl<'a, T: TagSource> EvalContext<'a, T> {
-    // TODO: better name
-    fn child_context(&'a self, scope: Scope) -> EvalContext<T> {
+    fn child_context(&'a self, scope: Scope<'a>) -> EvalContext<T> {
         EvalContext {
             scope,
-            constants: self.constants,
-            parents: {
-                let mut scopes = vec![&self.scope];
-                scopes.extend_from_slice(&self.parents);
-                scopes
-            },
             source: self.source,
         }
     }
 
-    fn get_lazy(&self, key: &str) -> Option<&LazyValue> {
-        if let Some(val) = self.scope.get(key) {
-            Some(val)
-        } else if let Some(val) = self.parents.iter().find_map(|s| s.scope.get(key)) {
-            Some(val)
-        } else if let Some(consts) = self.constants {
-            consts.get(key)
-        } else {
-            None
-        }
-    }
-
     fn get_and_eval(&mut self, key: &str) -> Result<Value, EvalError> {
-        // TODO: avoid the clone, this branch seems to be expensive.
-        if let Some(lazy_val) = self.get_lazy(key).cloned() {
-            let val = match lazy_val {
-                LazyValue::Evaluated(val) => val,
-                LazyValue::Unevaluated(expr) => {
-                    let val = self.eval_expr(&expr)?;
+        let lazy_val = self
+            .scope
+            .get(key)
+            .ok_or_else(|| EvalError::Lookup(key.into()))?;
 
-                    // TODO: We're only setting variables in the local scope, which
-                    // means they could need to be recalculated in a sibling.  not
-                    // optimal
-                    self.scope.set(key, val.clone());
-                    val
-                }
-            };
+        let value = match *lazy_val {
+            LazyValue::Evaluated(val) => val,
+            LazyValue::Unevaluated(expr) => {
+                // TODO: avoid the clone, this branch seems to be expensive.
+                let expr = expr.clone();
+                let val = self.eval_expr(&expr)?;
 
-            Ok(val)
-        } else {
-            Err(EvalError::Lookup(key.into()))
-        }
+                // TODO: We're only setting variables in the local scope, which
+                // means they could need to be recalculated in a sibling.  not
+                // optimal
+
+                self.scope.set(key, val.clone());
+                val
+            }
+        };
+
+        Ok(value)
     }
 
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, EvalError> {
@@ -454,13 +442,13 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
         for pattern in patterns {
             use TagPattern::*;
             let matches = match pattern {
-                Exists { key } => source.get_tag(key).is_some(),
-                NotExists { key } => source.get_tag(key).is_none(),
-                OneOf { key, values } => source
+                Exists(key) => source.has_tag(key),
+                NotExists(key) => !source.has_tag(key),
+                OneOf(key, values) => source
                     .get_tag(key)
                     .map(|val| values.iter().any(|v| *v == val))
                     .unwrap_or(false),
-                NoneOf { key, values } => source
+                NoneOf(key, values) => source
                     .get_tag(key)
                     .map(|val| !values.iter().any(|v| *v == val))
                     .unwrap_or(true),
@@ -488,6 +476,7 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn eval_named_block_inner(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
+        // TODO: avoid doing string matches
         match block.name.as_str() {
             "any?" | "none?" => {
                 let mut any = false;
@@ -552,10 +541,14 @@ impl<'a, T: TagSource> EvalContext<'a, T> {
     }
 
     fn eval_named_block(&mut self, block: &NamedBlock) -> Result<Value, EvalError> {
-        let scope = Scope::from_defs(&block.defs);
-        let mut child_ctx = self.child_context(scope);
-
-        child_ctx.eval_named_block_inner(block)
+        // Avoid creating unnecessary children if there are no
+        // definitions to pollute the scope
+        if block.defs.is_empty() {
+            self.eval_named_block_inner(block)
+        } else {
+            let scope = self.scope.get_child(&block.defs);
+            self.child_context(scope).eval_named_block_inner(block)
+        }
     }
 }
 
@@ -665,7 +658,7 @@ profile "test" {
 
         for (key, val) in expected.into_iter() {
             let resolved = runtime
-                .constant_context()
+                .without_tag_source()
                 .eval_expr(&Expression::Ident(key.into()))
                 .expect("lookup");
 

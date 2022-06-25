@@ -142,6 +142,12 @@ pub struct CompactTags {
 }
 
 impl CompactTags {
+    pub fn contains_key<'a, S: Eq + Hash + Clone>(&self, dict: &'a TagDict<S>, key: &S) -> bool {
+        dict.to_compact(&key)
+            .and_then(|k| self.get_compact_key(k))
+            .is_some()
+    }
+
     pub fn get_key<'a, S: Eq + Hash + Clone>(
         &self,
         dict: &'a TagDict<S>,
@@ -163,11 +169,15 @@ impl CompactTags {
 }
 
 pub trait TagSource {
+    fn has_tag(&self, k: &str) -> bool;
     fn get_tag(&self, k: &str) -> Option<&str>;
 }
 
 pub struct EmptyTagSource;
 impl TagSource for EmptyTagSource {
+    fn has_tag(&self, _k: &str) -> bool {
+        false
+    }
     fn get_tag(&self, _k: &str) -> Option<&str> {
         None
     }
@@ -179,6 +189,9 @@ pub struct CompactTagSource<'a> {
 }
 
 impl<'a> TagSource for CompactTagSource<'a> {
+    fn has_tag(&self, key: &str) -> bool {
+        self.tags.contains_key(self.dict, &key.into())
+    }
     fn get_tag(&self, key: &str) -> Option<&str> {
         self.tags
             .get_key(self.dict, &key.into())
