@@ -358,7 +358,8 @@ impl ProfileRuntime {
                 match self.with_tag_source(tags).eval_named_block(block)? {
                     Value::Number(score) => Ok(score),
                     // TODO: Formally specify this somehow. Result<Option<f32>>?
-                    Value::Invalid => Ok(100_000_000.0),
+                    // TODO: Can easily overflow.
+                    Value::Invalid => Ok(500_000.0),
                     // TODO: recover, don't panic
                     _ => panic!("score_way returned a non-number"),
                 }

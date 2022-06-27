@@ -416,13 +416,6 @@ profile "foo" {
     })
 }
 
-// TODO: Seems that this can get the A-star impl in petgraph stuck if
-// we use u32::MAX. (maybe an overflow?)
-//
-// Need some way of signaling "no, NEVER take this edge, I know
-// there's an edge but I lied."
-const INACCESSIBLE: u32 = 5_000_000;
-
 impl OsmGraph {
     // TODO: edge score needs to include nodes
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
