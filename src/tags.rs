@@ -49,7 +49,14 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
     }
 }
 
-const IGNORED_KEY_PREFIXES: &[&str] = &["addr:", "name:", "source:", "tiger:"];
+const IGNORED_KEY_PREFIXES: &[&str] = &[
+    "addr:",
+    "name:",
+    "source:",
+    "network:",
+    "operator:",
+    "tiger:",
+];
 // TODO: lazy_static! HashSet might be faster as this grows.
 // roughly sorted by usage.
 const IGNORED_KEYS: &[&str] = &[
