@@ -382,30 +382,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         .map(|ix| IndexedCoordinate::new(ix, graph[ix].point.into()))
         .collect();
 
-    let profile = Profile::parse(
-        r#"
-profile "foo" {
-  define {
-    avoid-highways = true
-  }
-
-  way-penalty {
-    define {
-       is-paved? = [surface=paved|asphalt|concrete]
-       steps     = [highway=steps]
-       sidewalk  = [highway=footway; footway=sidewalk]
-    }
-
-    when {
-        steps      => 0
-        is-paved?  => 50
-        sidewalk   => 100
-        else       => 5
-    }
-  }
-}"#,
-    )
-    .expect("parse profile");
+    let profile = Profile::parse(include_str!("../profiles/cxb.mint")).expect("parse profile");
     let runtime = ProfileRuntime::from(profile).expect("load profile");
 
     Ok(OsmGraph {
