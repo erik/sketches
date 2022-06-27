@@ -202,15 +202,13 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
                 let key = parse_as_str(node.next().unwrap());
                 let op = node.next().unwrap();
                 let patterns = node
-                    .next()
-                    .unwrap()
-                    .into_inner()
                     .into_iter()
-                    .map(|x| parse_as_str(x).into());
+                    .map(|x| parse_as_str(x).into())
+                    .collect::<Vec<_>>();
 
                 match op.as_rule() {
-                    Rule::op_eq => TagPattern::OneOf(key.into(), patterns.collect()),
-                    Rule::op_neq => TagPattern::NoneOf(key.into(), patterns.collect()),
+                    Rule::op_eq => TagPattern::OneOf(key.into(), patterns),
+                    Rule::op_neq => TagPattern::NoneOf(key.into(), patterns),
                     rule => panic!("unexpected rule: {:?}", rule),
                 }
             }
