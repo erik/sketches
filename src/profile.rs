@@ -450,7 +450,7 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
                 NoneOf(key, values) => tag_source
                     .get_tag(key)
                     .map(|val| !values.contains(val))
-                    .unwrap_or(true),
+                    .unwrap_or(false),
             };
 
             if !matches {
