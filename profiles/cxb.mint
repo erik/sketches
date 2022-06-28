@@ -36,8 +36,8 @@ profile "cxb - gravel optimized" {
         }
 
         bike-access? = any? {
-            [bicycle; bicycle!=private|no|dismount]
-            [vehicle; vehicle!=private|no]
+            [bicycle!=private|no|dismount]
+            [vehicle!=private|no]
             cycleroute?
             default-access?
         }
@@ -45,7 +45,7 @@ profile "cxb - gravel optimized" {
         foot-access? = any? {
             bike-access?
             [bicycle=dismount]
-            [foot; foot!=private|no]
+            [foot!=private|no]
             default-access?
         }
 
