@@ -68,6 +68,8 @@ const IGNORED_KEYS: &[&str] = &[
     "created_by",
     "fixme",
     "note",
+    "network",
+    "operator",
 ];
 
 fn ignore_osm_tag(key: &CompactString, _val: &CompactString) -> bool {
