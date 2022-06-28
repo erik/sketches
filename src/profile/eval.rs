@@ -5,53 +5,30 @@ use crate::tags::{CompactString, EmptyTagSource, TagSource};
 use super::{Definitions, Expression, NamedBlock, Profile, TagPattern, Value, WhenBlock};
 
 #[derive(Debug)]
-struct Scope<'a> {
-    // TODO: don't clone key, store ref
-    scope: HashMap<CompactString, LazyValue<'a>>,
-    parent: Option<&'a Scope<'a>>,
-}
+struct Scope(Vec<HashMap<CompactString, Value>>);
 
-#[derive(Debug, Clone)]
-enum LazyValue<'a> {
-    Evaluated(Value),
-    Unevaluated(&'a Expression),
-}
-
-impl<'a> Scope<'a> {
-    fn empty() -> Scope<'a> {
-        Scope {
-            scope: HashMap::new(),
-            parent: None,
-        }
+impl Scope {
+    fn empty() -> Scope {
+        Scope(vec![HashMap::new()])
     }
 
-    fn with_parent(scope: &'a Scope) -> Scope<'a> {
-        Scope {
-            scope: HashMap::new(),
-            parent: Some(scope),
-        }
+    fn push(&mut self) {
+        self.0.push(HashMap::new())
     }
 
-    fn get_child(&'a self, definitions: &'a Definitions) -> Scope<'a> {
-        let scope = definitions
-            .iter()
-            .map(|(k, v)| (k.clone(), LazyValue::Unevaluated(v)))
-            .collect();
-
-        Scope {
-            scope,
-            parent: Some(self),
-        }
+    fn pop(&mut self) -> HashMap<CompactString, Value> {
+        self.0.pop().expect("scope stack is empty!")
     }
 
     fn set(&mut self, k: CompactString, v: Value) {
-        self.scope.insert(k, LazyValue::Evaluated(v));
+        self.0
+            .last_mut()
+            .expect("scope stack is empty")
+            .insert(k, v);
     }
 
-    fn get(&'a self, k: &CompactString) -> Option<&'a LazyValue> {
-        self.scope
-            .get(k)
-            .or_else(|| self.parent.and_then(|scope| scope.get(k)))
+    fn get(&self, k: &CompactString) -> Option<&Value> {
+        self.0.iter().rev().find_map(|map| map.get(k))
     }
 }
 
@@ -63,21 +40,23 @@ pub enum EvalError {
 }
 
 pub struct EvalContext<'a, T> {
-    scope: Scope<'a>,
+    constants: Option<&'a HashMap<CompactString, Value>>,
+    variables: Scope,
     source: Option<&'a T>,
 }
 
 impl<T: TagSource<CompactString, CompactString>> EvalContext<'_, T> {
-    fn root() -> EvalContext<'static, T> {
+    fn empty() -> EvalContext<'static, T> {
         EvalContext {
-            scope: Scope::empty(),
+            constants: None,
+            variables: Scope::empty(),
             source: None,
         }
     }
 }
 
 pub struct ProfileRuntime {
-    constant_scope: Scope<'static>,
+    constants: HashMap<CompactString, Value>,
 
     way_penalty: Option<NamedBlock>,
 }
@@ -85,7 +64,7 @@ pub struct ProfileRuntime {
 impl ProfileRuntime {
     pub fn from(profile: Profile) -> Result<ProfileRuntime, EvalError> {
         let mut rt = ProfileRuntime {
-            constant_scope: Scope::empty(),
+            constants: HashMap::new(),
             way_penalty: profile.way_penalty,
         };
         rt.eval_constants(&profile.constant_defs)?;
@@ -93,14 +72,14 @@ impl ProfileRuntime {
     }
 
     fn eval_constants(&mut self, defs: &Definitions) -> Result<(), EvalError> {
-        let mut context = EvalContext::<EmptyTagSource>::root();
+        let mut context = EvalContext::<EmptyTagSource>::empty();
 
         for (ident, expr) in defs {
             let value = context.eval_expr(expr)?;
-            context.scope.set(ident.clone(), value);
+            context.variables.set(ident.clone(), value);
         }
 
-        self.constant_scope = context.scope;
+        self.constants = context.variables.pop();
         Ok(())
     }
 
@@ -125,51 +104,28 @@ impl ProfileRuntime {
 
     pub fn without_tag_source(&self) -> EvalContext<'_, EmptyTagSource> {
         EvalContext {
-            scope: Scope::with_parent(&self.constant_scope),
+            constants: Some(&self.constants),
+            variables: Scope::empty(),
             source: None,
         }
     }
 
     pub fn with_tag_source<'a, T>(&'a self, source: &'a T) -> EvalContext<'a, T> {
         EvalContext {
-            scope: Scope::with_parent(&self.constant_scope),
+            constants: Some(&self.constants),
+            variables: Scope::empty(),
             source: Some(source),
         }
     }
 }
 
 impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
-    fn child_context(&'a self, scope: Scope<'a>) -> EvalContext<T> {
-        EvalContext {
-            scope,
-            source: self.source,
-        }
-    }
-
     fn get_and_eval(&mut self, key: &CompactString) -> Result<Value, EvalError> {
-        let lazy_val = self
-            .scope
+        self.variables
             .get(key)
-            .ok_or_else(|| EvalError::Lookup(key.as_str().into()))?;
-
-        let value = match *lazy_val {
-            LazyValue::Evaluated(val) => val,
-            LazyValue::Unevaluated(expr) => {
-                // TODO: avoid the clone, this branch seems to be expensive.
-                let expr = expr.clone();
-                let val = self.eval_expr(&expr)?;
-
-                // TODO: We're only setting variables in the local scope, which
-                // means they could need to be recalculated in a sibling.  not
-                // optimal
-
-                // TODO: avoid clone
-                self.scope.set(key.clone(), val);
-                val
-            }
-        };
-
-        Ok(value)
+            .cloned()
+            .or_else(|| self.constants?.get(key).cloned())
+            .ok_or_else(|| EvalError::Lookup(key.as_str().into()))
     }
 
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, EvalError> {
@@ -301,8 +257,17 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
         if block.defs.is_empty() {
             self.eval_named_block_inner(block)
         } else {
-            let scope = self.scope.get_child(&block.defs);
-            self.child_context(scope).eval_named_block_inner(block)
+            self.variables.push();
+
+            for (ident, expr) in &block.defs {
+                let val = self.eval_expr(expr)?;
+                self.variables.set(ident.clone(), val);
+            }
+
+            let result = self.eval_named_block_inner(block);
+
+            self.variables.pop();
+            result
         }
     }
 }

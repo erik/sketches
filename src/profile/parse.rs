@@ -245,6 +245,7 @@ fn parse_as_str(pair: pest::iterators::Pair<Rule>) -> &str {
         r => panic!("unexpected rule: {:?}", r),
     }
 }
+
 #[cfg(test)]
 mod test {
     use super::*;

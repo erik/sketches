@@ -104,10 +104,13 @@ mod routes {
         graph: &State<Arc<Mutex<OsmGraph>>>,
         req: Json<RouteRequest>,
     ) -> Json<RouteResponse> {
-        println!("Incoming routing request: {:?}", req.0);
+        println!("Request: {:?}", req.0);
+
+        let mut timer = Timer::new();
         let graph = graph.lock().unwrap();
         let route = graph.find_route(req.0.from.into(), req.0.to.into());
-        println!(" ====> done");
+
+        timer.elapsed("find route");
 
         Json(RouteResponse {
             route: route.map(|points| points.into_iter().map(|pt| pt.into()).collect()),
@@ -119,9 +122,13 @@ mod routes {
 fn launch_server() -> _ {
     let graph = Arc::new(Mutex::new(load_graph().expect("graph loading failed")));
 
-    rocket::build()
+    let server = rocket::build()
         .manage(graph)
-        .mount("/", rocket::routes![routes::index, routes::route])
+        .mount("/", rocket::routes![routes::index, routes::route]);
+
+    println!("Ready to go!");
+
+    server
 }
 
 fn load_graph() -> Result<OsmGraph, std::io::Error> {

@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::From;
 use std::io::{Read, Seek};
@@ -52,7 +51,7 @@ pub struct OsmGraph {
     pub index: SpatialIndex<NodeIndex, Point2D>,
     pub tag_dict: TagDict<SmartString<Compact>>,
     // TODO: This doesn't belong here
-    pub runtime: RefCell<ProfileRuntime>,
+    pub runtime: ProfileRuntime,
 }
 
 impl LatLng {
@@ -388,7 +387,7 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
     Ok(OsmGraph {
         inner: graph,
         index: SpatialIndex::build(&node_coordinates),
-        runtime: RefCell::new(runtime),
+        runtime,
         tag_dict,
     })
 }
@@ -398,11 +397,7 @@ impl OsmGraph {
     fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
         let edge_data = edge.weight();
         let tag_source = self.tag_dict.tag_source(&edge_data.tags);
-        let score = self
-            .runtime
-            .borrow_mut()
-            .score_way(&tag_source)
-            .expect("score way");
+        let score = self.runtime.score_way(&tag_source).expect("score way");
 
         edge_data.dist + (edge_data.dist as f64 * score as f64) as u32
     }
