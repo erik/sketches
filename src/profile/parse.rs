@@ -8,11 +8,11 @@ use crate::tags::CompactString;
 pub struct ProfileParser;
 
 #[derive(Debug, Clone)]
-pub enum TagPattern {
-    Exists(CompactString),
-    NotExists(CompactString),
-    OneOf(CompactString, Vec<CompactString>),
-    NoneOf(CompactString, Vec<CompactString>),
+pub enum TagPattern<T> {
+    Exists(T),
+    NotExists(T),
+    OneOf(T, Vec<T>),
+    NoneOf(T, Vec<T>),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -32,7 +32,7 @@ impl Value {
 pub enum Expression {
     Literal(Value),
     Ident(CompactString),
-    TagPattern(Vec<TagPattern>),
+    TagPattern(Vec<TagPattern<CompactString>>),
     NamedBlock(NamedBlock),
     WhenBlock(WhenBlock),
 }
@@ -190,7 +190,7 @@ fn parse_named_block(mut pairs: pest::iterators::Pairs<Rule>) -> NamedBlock {
     NamedBlock { defs, name, body }
 }
 
-fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern> {
+fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern<CompactString>> {
     let mut exprs = vec![];
 
     for node in pairs {

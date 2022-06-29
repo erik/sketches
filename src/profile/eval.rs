@@ -1,33 +1,39 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use crate::tags::{CompactString, EmptyTagSource, TagSource};
 
 use super::{Definitions, Expression, NamedBlock, Profile, TagPattern, Value, WhenBlock};
 
 #[derive(Debug)]
-struct Scope(Vec<HashMap<CompactString, Value>>);
+pub struct NestedScope<K, V>(Vec<HashMap<K, V>>);
 
-impl Scope {
-    fn empty() -> Scope {
-        Scope(vec![HashMap::new()])
+pub type Scope = NestedScope<CompactString, Value>;
+
+impl<K, V> NestedScope<K, V>
+where
+    K: Eq + Hash,
+{
+    pub fn empty() -> Self {
+        NestedScope(vec![HashMap::new()])
     }
 
-    fn push(&mut self) {
+    pub fn push(&mut self) {
         self.0.push(HashMap::new())
     }
 
-    fn pop(&mut self) -> HashMap<CompactString, Value> {
+    pub fn pop(&mut self) -> HashMap<K, V> {
         self.0.pop().expect("scope stack is empty!")
     }
 
-    fn set(&mut self, k: CompactString, v: Value) {
+    pub fn set(&mut self, k: K, v: V) {
         self.0
             .last_mut()
             .expect("scope stack is empty")
             .insert(k, v);
     }
 
-    fn get(&self, k: &CompactString) -> Option<&Value> {
+    pub fn get(&self, k: &K) -> Option<&V> {
         self.0.iter().rev().find_map(|map| map.get(k))
     }
 }
@@ -120,7 +126,7 @@ impl ProfileRuntime {
 }
 
 impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
-    fn get_and_eval(&mut self, key: &CompactString) -> Result<Value, EvalError> {
+    fn lookup_ident(&mut self, key: &CompactString) -> Result<Value, EvalError> {
         self.variables
             .get(key)
             .cloned()
@@ -134,7 +140,7 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
         // TODO: Avoid cloning Value in each branch
         let value = match expr {
             Literal(val) => *val,
-            Ident(name) => self.get_and_eval(name)?,
+            Ident(name) => self.lookup_ident(name)?,
 
             NamedBlock(block) => self.eval_named_block(block)?,
             TagPattern(patterns) => self.eval_tag_patterns(patterns)?,
@@ -144,7 +150,10 @@ impl<'a, T: TagSource<CompactString, CompactString>> EvalContext<'a, T> {
         Ok(value)
     }
 
-    fn eval_tag_patterns(&mut self, patterns: &[TagPattern]) -> Result<Value, EvalError> {
+    fn eval_tag_patterns(
+        &mut self,
+        patterns: &[TagPattern<CompactString>],
+    ) -> Result<Value, EvalError> {
         let tag_source = self.source.ok_or(EvalError::TagNotSupported)?;
 
         for pattern in patterns {

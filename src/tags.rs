@@ -28,7 +28,7 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
         }
     }
 
-    fn insert(&mut self, key: S) -> TagDictId {
+    pub fn insert(&mut self, key: S) -> TagDictId {
         match self.forward.get(&key) {
             Some(&existing) => existing,
             None => {
@@ -40,7 +40,7 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
         }
     }
 
-    fn to_compact(&self, key: &S) -> Option<TagDictId> {
+    pub fn to_compact(&self, key: &S) -> Option<TagDictId> {
         self.forward.get(key).copied()
     }
 
@@ -166,14 +166,15 @@ impl CompactTags {
         let compact_key = dict.to_compact(key)?;
         let val = self.get_compact_key(compact_key)?;
 
-        dict.from_compact(&val)
+        dict.from_compact(val)
             .or_else(|| dict.from_compact(&UNKNOWN_TAG_ID))
     }
 
-    fn get_compact_key(&self, key: TagDictId) -> Option<TagDictId> {
+    // TODO: only returns a ref for the interface - not needed
+    fn get_compact_key(&self, key: TagDictId) -> Option<&TagDictId> {
         self.keys
             .binary_search_by_key(&key, |tag| tag.key)
-            .map(|idx| self.keys[idx].val)
+            .map(|idx| &self.keys[idx].val)
             .ok()
     }
 }
@@ -204,5 +205,14 @@ impl<'a> TagSource<CompactString, CompactString> for CompactTagSource<'a> {
     }
     fn get_tag(&self, key: &CompactString) -> Option<&CompactString> {
         self.tags.get_key(self.dict, key)
+    }
+}
+
+impl TagSource<TagDictId, TagDictId> for CompactTags {
+    fn has_tag(&self, key: &TagDictId) -> bool {
+        self.get_compact_key(*key).is_some()
+    }
+    fn get_tag(&self, key: &TagDictId) -> Option<&TagDictId> {
+        self.get_compact_key(*key)
     }
 }
