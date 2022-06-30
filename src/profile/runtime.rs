@@ -1,11 +1,42 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 
-use crate::{
-    profile::{Definitions, Expression, TagPattern, Value},
-    tags::{CompactString, EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID},
-};
+use crate::tags::{CompactString, EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
 
-use super::{NestedScope, Profile};
+use super::parse::{Definitions, Expression, Profile, TagPattern, Value};
+
+#[derive(Debug)]
+pub struct NestedScope<K, V>(Vec<HashMap<K, V>>);
+
+pub type Scope = NestedScope<CompactString, Value>;
+
+impl<K, V> NestedScope<K, V>
+where
+    K: Eq + Hash,
+{
+    pub fn empty() -> Self {
+        NestedScope(vec![HashMap::new()])
+    }
+
+    pub fn push(&mut self) {
+        self.0.push(HashMap::new())
+    }
+
+    pub fn pop(&mut self) -> HashMap<K, V> {
+        self.0.pop().expect("scope stack is empty!")
+    }
+
+    pub fn set(&mut self, k: K, v: V) {
+        self.0
+            .last_mut()
+            .expect("scope stack is empty")
+            .insert(k, v);
+    }
+
+    pub fn get(&self, k: &K) -> Option<&V> {
+        self.0.iter().rev().find_map(|map| map.get(k))
+    }
+}
 
 #[derive(Debug, Clone)]
 enum BlockTy {
@@ -205,7 +236,7 @@ struct RunnableExpr {
     variables: VariableMapping,
 }
 
-pub struct ProfileRuntime {
+pub struct Runtime {
     constants: Vec<Value>,
 
     way_penalty: Option<RunnableExpr>,
@@ -213,7 +244,7 @@ pub struct ProfileRuntime {
     cost_factor: Option<RunnableExpr>,
 }
 
-impl ProfileRuntime {
+impl Runtime {
     pub fn from(profile: &Profile, tag_dict: &TagDict<CompactString>) -> Result<Self, ()> {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
 
@@ -456,7 +487,7 @@ mod tests {
             tag_dict.insert(tag.into());
         }
 
-        ProfileRuntime::from(&profile, &tag_dict).expect("create runtime");
+        Runtime::from(&profile, &tag_dict).expect("create runtime");
     }
 
     #[test]
@@ -481,7 +512,7 @@ profile "test" {
             tag_dict.insert(tag.into());
         }
 
-        let runtime = ProfileRuntime::from(&profile, &tag_dict).expect("create runtime");
+        let runtime = Runtime::from(&profile, &tag_dict).expect("create runtime");
 
         let expected = vec![
             Value::Number(1.0),
