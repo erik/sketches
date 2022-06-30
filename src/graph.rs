@@ -17,8 +17,9 @@ use petgraph::{
 use smartstring::{Compact, SmartString};
 
 use crate::index::{IndexedCoordinate, Point2D, SpatialIndex};
-use crate::profile::{Profile, ProfileRuntime};
+use crate::profile::{eval, runtime, Profile};
 use crate::tags::{CompactTags, TagDict};
+use crate::Timer;
 
 /// In radians
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -51,7 +52,8 @@ pub struct OsmGraph {
     pub index: SpatialIndex<NodeIndex, Point2D>,
     pub tag_dict: TagDict<SmartString<Compact>>,
     // TODO: This doesn't belong here
-    pub runtime: ProfileRuntime,
+    pub old_runtime: eval::ProfileRuntime,
+    pub new_runtime: runtime::ProfileRuntime,
 }
 
 impl LatLng {
@@ -382,22 +384,36 @@ pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
         .collect();
 
     let profile = Profile::parse(include_str!("../profiles/cxb.mint")).expect("parse profile");
-    let runtime = ProfileRuntime::from(profile).expect("load profile");
+
+    let new_runtime = runtime::ProfileRuntime::from(&profile, &tag_dict).expect("load new profile");
+    let old_runtime = eval::ProfileRuntime::from(profile).expect("load profile");
 
     Ok(OsmGraph {
         inner: graph,
         index: SpatialIndex::build(&node_coordinates),
-        runtime,
+        new_runtime,
+        old_runtime,
         tag_dict,
     })
 }
 
 impl OsmGraph {
     // TODO: edge score needs to include nodes
-    fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
+    fn score_edge_old(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
         let edge_data = edge.weight();
         let tag_source = self.tag_dict.tag_source(&edge_data.tags);
-        let score = self.runtime.score_way(&tag_source).expect("score way");
+
+        let score = self.old_runtime.score_way(&tag_source).expect("score way");
+
+        edge_data.dist + (edge_data.dist as f64 * score as f64) as u32
+    }
+    fn score_edge_new(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
+        let edge_data = edge.weight();
+
+        let score = self
+            .new_runtime
+            .score_way(&edge_data.tags)
+            .expect("score way");
 
         edge_data.dist + (edge_data.dist as f64 * score as f64) as u32
     }
@@ -412,11 +428,28 @@ impl OsmGraph {
     fn find_route_from_nodes(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
+        let mut timer = Timer::new();
+
+        // let (cost, path) = astar(
+        //     &self.inner,
+        //     from,
+        //     |node_id| node_id == to,
+        //     |e| self.score_edge_old(e),
+        //     |node_id| {
+        //         self.inner
+        //             .node_weight(node_id)
+        //             .map(|n| n.point.dist_to(&dest_node.point) as u32)
+        //             .unwrap_or(0)
+        //     },
+        // )?;
+
+        // timer.elapsed("find route: old impl");
+
         let (cost, path) = astar(
             &self.inner,
             from,
             |node_id| node_id == to,
-            |e| self.score_edge(e),
+            |e| self.score_edge_new(e),
             |node_id| {
                 self.inner
                     .node_weight(node_id)
@@ -424,6 +457,8 @@ impl OsmGraph {
                     .unwrap_or(0)
             },
         )?;
+
+        timer.elapsed("find route: new impl");
 
         println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
 
