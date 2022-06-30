@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use crate::{
-    profile::{Expression, TagPattern, Value},
-    tags::{CompactString, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID},
+    profile::{Definitions, Expression, TagPattern, Value},
+    tags::{CompactString, EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID},
 };
 
-use super::NestedScope;
+use super::{NestedScope, Profile};
 
 #[derive(Debug, Clone)]
 enum BlockTy {
@@ -28,22 +28,76 @@ enum Expr {
     TagPattern(Vec<TagPattern<TagDictId>>),
 }
 
+type VariableId = u16;
+
+struct VariableMapping {
+    // ident -> id
+    ids: NestedScope<CompactString, VariableId>,
+    // ident -> definition
+    defs: NestedScope<CompactString, Expr>,
+
+    next_id: VariableId,
+}
+
+impl VariableMapping {
+    fn new() -> Self {
+        Self {
+            ids: NestedScope::empty(),
+            defs: NestedScope::empty(),
+            next_id: VariableId::default(),
+        }
+    }
+
+    fn clear(&mut self) -> Self {
+        std::mem::replace(self, Self::new())
+    }
+
+    fn push(&mut self) {
+        self.ids.push();
+        self.defs.push();
+    }
+
+    fn pop(&mut self) {
+        self.ids.pop();
+        self.defs.pop();
+    }
+
+    fn add_variable(&mut self, ident: &CompactString) -> VariableId {
+        let new_id = self.next_id;
+        self.ids.set(ident.clone(), new_id);
+        self.next_id += 1;
+
+        new_id
+    }
+
+    fn get_or_assign_id(&mut self, ident: &CompactString) -> VariableId {
+        match self.ids.get(ident) {
+            Some(&id) => id,
+            None => self.add_variable(ident),
+        }
+    }
+
+    fn add_definition(&mut self, ident: &CompactString, expr: Expr) {
+        self.defs.set(ident.clone(), expr);
+    }
+
+    fn get_definition(&self, ident: &CompactString) -> Option<&Expr> {
+        self.defs.get(ident)
+    }
+}
+
 struct Builder<'a> {
     constants: HashMap<CompactString, u8>,
-    assignments: NestedScope<CompactString, u16>,
-    defs: NestedScope<CompactString, Expr>,
     tag_dict: &'a TagDict<CompactString>,
-    num_ids: u16,
+    variables: VariableMapping,
 }
 
 impl<'a> Builder<'a> {
-    fn new(tag_dict: &'a TagDict<CompactString>) -> Self {
+    fn new(constants: &Definitions, tag_dict: &'a TagDict<CompactString>) -> Self {
         Self {
             tag_dict,
-            constants: HashMap::new(),
-            assignments: NestedScope::empty(),
-            defs: NestedScope::empty(),
-            num_ids: 0,
+            variables: VariableMapping::new(),
+            constants: Self::build_const_map(constants),
         }
     }
 
@@ -51,17 +105,15 @@ impl<'a> Builder<'a> {
         self.tag_dict.to_compact(key).unwrap_or(UNKNOWN_TAG_ID)
     }
 
-    fn add_constant(&mut self, ident: CompactString) -> u8 {
-        let new_id = self.constants.len() as u8;
-        self.constants.insert(ident, new_id);
-        new_id
-    }
+    fn build_const_map(defs: &Definitions) -> HashMap<CompactString, u8> {
+        if defs.len() >= (u8::MAX as usize) {
+            panic!("Too many constants defined")
+        }
 
-    fn add_variable(&mut self, ident: CompactString) -> u16 {
-        let new_id = self.num_ids + 1;
-        self.assignments.set(ident, new_id);
-        self.num_ids += 1;
-        new_id
+        defs.iter()
+            .enumerate()
+            .map(|(id, (ident, _))| (ident.clone(), id as u8))
+            .collect()
     }
 
     fn lower(&mut self, expr: &Expression) -> Expr {
@@ -69,13 +121,11 @@ impl<'a> Builder<'a> {
             Expression::Literal(val) => Expr::Literal(*val),
 
             Expression::Ident(ident) => {
-                if let Some(def) = self.defs.get(ident) {
+                if let Some(def) = self.variables.get_definition(ident) {
                     let def = Box::new(def.clone());
-                    let var_id = match self.assignments.get(ident) {
-                        Some(id) => *id,
-                        None => self.add_variable(ident.clone()),
-                    };
-                    Expr::LookupOrCompute(var_id, def.clone())
+                    let var_id = self.variables.get_or_assign_id(ident);
+
+                    Expr::LookupOrCompute(var_id, def)
                 } else if let Some(const_id) = self.constants.get(ident) {
                     Expr::LookupConstant(*const_id)
                 } else {
@@ -105,12 +155,11 @@ impl<'a> Builder<'a> {
             }
 
             Expression::NamedBlock(block) => {
-                self.assignments.push();
-                self.defs.push();
+                self.variables.push();
 
                 for (ident, expr) in &block.defs {
                     let expr = self.lower(expr);
-                    self.defs.set(ident.clone(), expr);
+                    self.variables.add_definition(ident, expr);
                 }
 
                 let ty = match block.name.as_str() {
@@ -123,8 +172,7 @@ impl<'a> Builder<'a> {
 
                 let body = block.body.iter().map(|expr| self.lower(expr)).collect();
 
-                self.defs.pop();
-                self.assignments.pop();
+                self.variables.pop();
 
                 Expr::Block(ty, body)
             }
@@ -144,26 +192,98 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn build(&mut self, expr: &Expression) -> LoweredExpression {
+    fn build(&mut self, expr: &Expression) -> RunnableExpr {
         let expr = self.lower(expr);
+        let variables = self.variables.clear();
 
-        LoweredExpression {
-            expr,
-            num_variables: self.num_ids,
-        }
+        RunnableExpr { expr, variables }
     }
 }
 
-struct LoweredExpression {
+struct RunnableExpr {
     expr: Expr,
-    num_variables: u16,
+    variables: VariableMapping,
 }
 
-struct Runtime {
+pub struct ProfileRuntime {
     constants: Vec<Value>,
+
+    way_penalty: Option<RunnableExpr>,
+    node_penalty: Option<RunnableExpr>,
+    cost_factor: Option<RunnableExpr>,
 }
 
-impl Runtime {}
+impl ProfileRuntime {
+    pub fn from(profile: &Profile, tag_dict: &TagDict<CompactString>) -> Result<Self, ()> {
+        let mut builder = Builder::new(&profile.constant_defs, tag_dict);
+
+        Ok(Self {
+            constants: Self::evaluate_constants(&mut builder, &profile.constant_defs)?,
+
+            // TODO: oof.
+            way_penalty: match &profile.way_penalty {
+                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
+                None => None,
+            },
+            node_penalty: match &profile.node_penalty {
+                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
+                None => None,
+            },
+            cost_factor: match &profile.cost_factor {
+                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
+                None => None,
+            },
+        })
+    }
+
+    fn evaluate_constants(builder: &mut Builder, defs: &Definitions) -> Result<Vec<Value>, ()> {
+        let mut consts = vec![];
+
+        for (ident, def) in defs {
+            let runnable = builder.build(def);
+
+            let mut context = EvalContext::constant(&consts);
+            let value = context.evaluate(&runnable.expr)?;
+
+            println!("const {:?} = {:?}", ident, def);
+
+            consts.push(value);
+        }
+
+        Ok(consts)
+    }
+
+    fn constant_ctx(&self) -> EvalContext<'_, EmptyTagSource> {
+        EvalContext::constant(&self.constants)
+    }
+
+    fn expr_ctx<'a, T>(&'a self, expr: &RunnableExpr, tag_source: &'a T) -> EvalContext<'a, T>
+    where
+        T: TagSource<TagDictId, TagDictId>,
+    {
+        EvalContext::with_tag_source(&self.constants, expr.variables.next_id as usize, tag_source)
+    }
+
+    pub fn score_way<T>(&self, tags: &T) -> Result<f32, ()>
+    where
+        T: TagSource<TagDictId, TagDictId>,
+    {
+        match &self.way_penalty {
+            None => Ok(0.0),
+            Some(expr) => {
+                let mut context = self.expr_ctx(expr, tags);
+                match context.evaluate(&expr.expr)? {
+                    Value::Number(score) => Ok(score),
+                    // TODO: Formally specify this somehow. Result<Option<f32>>?
+                    // TODO: Can easily overflow.
+                    Value::Invalid => Ok(500_000.0),
+                    // TODO: recover, don't panic
+                    _ => panic!("score_way returned a non-number"),
+                }
+            }
+        }
+    }
+}
 
 struct EvalContext<'a, T> {
     constants: &'a [Value],
@@ -171,10 +291,32 @@ struct EvalContext<'a, T> {
     tag_source: Option<&'a T>,
 }
 
+impl<'a> EvalContext<'a, EmptyTagSource> {
+    fn constant(constants: &'a [Value]) -> EvalContext<'a, EmptyTagSource> {
+        EvalContext {
+            constants,
+            variables: vec![],
+            tag_source: None,
+        }
+    }
+}
+
 impl<'a, T> EvalContext<'a, T>
 where
     T: TagSource<TagDictId, TagDictId>,
 {
+    fn with_tag_source(
+        constants: &'a [Value],
+        num_variables: usize,
+        tag_source: &'a T,
+    ) -> EvalContext<'a, T> {
+        EvalContext {
+            constants,
+            variables: vec![None; num_variables],
+            tag_source: Some(tag_source),
+        }
+    }
+
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, ()> {
         match expr {
             Expr::Literal(val) => Ok(*val),
@@ -294,7 +436,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
     use super::*;
 
     use crate::tags::TagDict;
@@ -306,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_stmt_builder() {
+    fn build_full_runtime() {
         let input = include_str!("../../profiles/cxb.mint");
         let profile = Profile::parse(input).expect("parse success");
 
@@ -315,16 +456,43 @@ mod tests {
             tag_dict.insert(tag.into());
         }
 
-        let mut builder = Builder::new(&tag_dict);
+        ProfileRuntime::from(&profile, &tag_dict).expect("create runtime");
+    }
 
-        for (ident, _) in &profile.constant_defs {
-            builder.add_constant(ident.clone());
+    #[test]
+    fn evaluate_constants_for_runtime() {
+        let input = r#"
+profile "test" {
+    define {
+        a = 1
+        b = a
+        c = false
+        d = any? { c; false }
+        e = any? { c; false; b }
+        f = sum { a; 2 }
+        g = sum { invalid; a; 2 }
+    }
+}
+"#;
+        let profile = Profile::parse(input).expect("parse success");
+
+        let mut tag_dict = TagDict::new();
+        for &tag in &common_tags() {
+            tag_dict.insert(tag.into());
         }
 
-        let expr = Expression::NamedBlock(profile.way_penalty.unwrap().clone());
+        let runtime = ProfileRuntime::from(&profile, &tag_dict).expect("create runtime");
 
-        let stmt = builder.build(&expr);
+        let expected = vec![
+            Value::Number(1.0),
+            Value::Number(1.0),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Number(3.0),
+            Value::Invalid,
+        ];
 
-        println!("evaluated to: {:#?}", stmt.expr);
+        assert_eq!(expected, runtime.constants);
     }
 }
