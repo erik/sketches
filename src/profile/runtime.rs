@@ -8,12 +8,7 @@ use super::parse::{Definitions, Expression, Profile, TagPattern, Value};
 #[derive(Debug)]
 pub struct NestedScope<K, V>(Vec<HashMap<K, V>>);
 
-pub type Scope = NestedScope<CompactString, Value>;
-
-impl<K, V> NestedScope<K, V>
-where
-    K: Eq + Hash,
-{
+impl<K: Eq + Hash, V> NestedScope<K, V> {
     pub fn empty() -> Self {
         NestedScope(vec![HashMap::new()])
     }
@@ -117,6 +112,7 @@ impl VariableMapping {
     }
 }
 
+// TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
     constants: HashMap<CompactString, u8>,
     tag_dict: &'a TagDict<CompactString>,
@@ -236,6 +232,20 @@ struct RunnableExpr {
     variables: VariableMapping,
 }
 
+#[derive(Debug)]
+pub enum CompileError {
+    UnknownBlockTy(String),
+    UnknownIdent(String),
+}
+
+#[derive(Debug)]
+pub enum RuntimeError {
+    Internal(String),
+    // TODO: could be compile time
+    TypeError { have: String, expected: String },
+    WhenFallthrough,
+}
+
 pub struct Runtime {
     constants: Vec<Value>,
 
@@ -245,38 +255,42 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn from(profile: &Profile, tag_dict: &TagDict<CompactString>) -> Result<Self, ()> {
+    pub fn from(
+        profile: &Profile,
+        tag_dict: &TagDict<CompactString>,
+    ) -> Result<Self, RuntimeError> {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
 
         Ok(Self {
             constants: Self::evaluate_constants(&mut builder, &profile.constant_defs)?,
 
             // TODO: oof.
-            way_penalty: match &profile.way_penalty {
-                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
-                None => None,
-            },
-            node_penalty: match &profile.node_penalty {
-                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
-                None => None,
-            },
-            cost_factor: match &profile.cost_factor {
-                Some(expr) => Some(builder.build(&Expression::NamedBlock(expr.clone()))),
-                None => None,
-            },
+            way_penalty: profile
+                .way_penalty
+                .as_ref()
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
+            node_penalty: profile
+                .node_penalty
+                .as_ref()
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
+            cost_factor: profile
+                .cost_factor
+                .as_ref()
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
         })
     }
 
-    fn evaluate_constants(builder: &mut Builder, defs: &Definitions) -> Result<Vec<Value>, ()> {
+    fn evaluate_constants(
+        builder: &mut Builder,
+        defs: &Definitions,
+    ) -> Result<Vec<Value>, RuntimeError> {
         let mut consts = vec![];
 
-        for (ident, def) in defs {
+        for (_, def) in defs {
             let runnable = builder.build(def);
 
             let mut context = EvalContext::constant(&consts);
             let value = context.evaluate(&runnable.expr)?;
-
-            println!("const {:?} = {:?}", ident, def);
 
             consts.push(value);
         }
@@ -295,7 +309,7 @@ impl Runtime {
         EvalContext::with_tag_source(&self.constants, expr.variables.next_id as usize, tag_source)
     }
 
-    pub fn score_way<T>(&self, tags: &T) -> Result<f32, ()>
+    pub fn score_way<T>(&self, tags: &T) -> Result<f32, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
     {
@@ -309,7 +323,10 @@ impl Runtime {
                     // TODO: Can easily overflow.
                     Value::Invalid => Ok(500_000.0),
                     // TODO: recover, don't panic
-                    _ => panic!("score_way returned a non-number"),
+                    val => Err(RuntimeError::TypeError {
+                        have: format!("{:?}", val),
+                        expected: "number|invalid".into(),
+                    }),
                 }
             }
         }
@@ -348,15 +365,15 @@ where
         }
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Value, ()> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(val) => Ok(*val),
 
-            Expr::LookupConstant(id) => self
-                .constants
-                .get(*id as usize)
-                .cloned()
-                .ok_or_else(|| panic!("bug: bad const lookup")),
+            Expr::LookupConstant(id) => {
+                self.constants.get(*id as usize).cloned().ok_or_else(|| {
+                    RuntimeError::Internal(format!("bad constant reference: {:?}", id))
+                })
+            }
 
             Expr::LookupOrCompute(id, def) => match self.variables[*id as usize] {
                 Some(val) => Ok(val),
@@ -374,7 +391,7 @@ where
         }
     }
 
-    fn evaluate_block(&mut self, ty: &BlockTy, body: &[Expr]) -> Result<Value, ()> {
+    fn evaluate_block(&mut self, ty: &BlockTy, body: &[Expr]) -> Result<Value, RuntimeError> {
         match ty {
             BlockTy::Any => {
                 for expr in body {
@@ -412,7 +429,12 @@ where
                     match self.evaluate(expr)? {
                         Value::Invalid => return Ok(Value::Invalid),
                         Value::Number(n) => acc += n,
-                        other => panic!("Unexpected type from sum block: {:?}", other),
+                        other => {
+                            return Err(RuntimeError::TypeError {
+                                have: format!("{:?}", other),
+                                expected: "invalid|number".into(),
+                            })
+                        }
                     }
                 }
 
@@ -421,7 +443,7 @@ where
         }
     }
 
-    fn evaluate_when(&mut self, clauses: &[WhenBlockClause]) -> Result<Value, ()> {
+    fn evaluate_when(&mut self, clauses: &[WhenBlockClause]) -> Result<Value, RuntimeError> {
         for clause in clauses {
             let condition = self.evaluate(&clause.0)?;
             if condition.is_truthy() {
@@ -430,10 +452,13 @@ where
             }
         }
 
-        panic!("Fallthrough -> no else block for when");
+        Err(RuntimeError::WhenFallthrough)
     }
 
-    fn evaluate_tag_patterns(&mut self, patterns: &[TagPattern<TagDictId>]) -> Result<Value, ()> {
+    fn evaluate_tag_patterns(
+        &mut self,
+        patterns: &[TagPattern<TagDictId>],
+    ) -> Result<Value, RuntimeError> {
         let tag_source = self
             .tag_source
             .unwrap_or_else(|| panic!("no tags supported here"));
