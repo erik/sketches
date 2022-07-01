@@ -4,7 +4,7 @@ use pest::Parser;
 use crate::tags::CompactString;
 
 #[derive(Parser)]
-#[grammar = "profile.pest"]
+#[grammar = "profile/grammar.pest"]
 pub struct ProfileParser;
 
 #[derive(Debug, Clone)]
