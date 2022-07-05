@@ -6,7 +6,7 @@ else_        = @{ "else" }
 bool         = @{ "true" | "false" }
 number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
-ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" | ":" }
+ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" | ":" | "!" }
 ident        = @{ ident_char+ }
 
 top_level = _{

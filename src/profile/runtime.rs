@@ -39,6 +39,7 @@ enum BlockTy {
     All,
     None,
     Sum,
+    Return,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +195,7 @@ impl<'a> Builder<'a> {
                     "all?" => BlockTy::All,
                     "none?" => BlockTy::None,
                     "sum" => BlockTy::Sum,
+                    "return!" => BlockTy::Return,
                     other => panic!("unknown block type: {:?}", other),
                 };
 
@@ -241,9 +243,11 @@ pub enum CompileError {
 #[derive(Debug)]
 pub enum RuntimeError {
     Internal(String),
-    // TODO: could be compile time
+    // TODO: could be compile time if we add a type-checking pass.
     TypeError { have: String, expected: String },
     WhenFallthrough,
+    // TODO: Not an error, reconsider naming
+    EarlyReturn(Value),
 }
 
 pub struct Runtime {
@@ -317,7 +321,13 @@ impl Runtime {
             None => Ok(0.0),
             Some(expr) => {
                 let mut context = self.expr_ctx(expr, tags);
-                match context.evaluate(&expr.expr)? {
+
+                let val = match context.evaluate(&expr.expr) {
+                    Err(RuntimeError::EarlyReturn(val)) => Ok(val),
+                    res => res,
+                }?;
+
+                match val {
                     Value::Number(score) => Ok(score),
                     // TODO: Formally specify this somehow. Result<Option<f32>>?
                     // TODO: Can easily overflow.
@@ -421,6 +431,12 @@ where
                 }
 
                 Ok(Value::Bool(true))
+            }
+
+            BlockTy::Return => {
+                // TODO: confirm block arity
+                let val = self.evaluate(&body[0])?;
+                Err(RuntimeError::EarlyReturn(val))
             }
 
             BlockTy::Sum => {
