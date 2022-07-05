@@ -162,20 +162,20 @@ impl<'a> Builder<'a> {
             .collect()
     }
 
-    fn lower(&mut self, expr: &Expression) -> Expr {
+    fn lower(&mut self, expr: &Expression) -> Result<Expr, CompileError> {
         match expr {
-            Expression::Literal(val) => Expr::Literal(*val),
+            Expression::Literal(val) => Ok(Expr::Literal(*val)),
 
             Expression::Ident(ident) => {
                 if let Some(def) = self.variables.get_definition(ident) {
                     let def = Box::new(def.clone());
                     let var_id = self.variables.get_or_assign_id(ident);
 
-                    Expr::LookupOrCompute(var_id, def)
+                    Ok(Expr::LookupOrCompute(var_id, def))
                 } else if let Some(const_id) = self.constants.get(ident) {
-                    Expr::LookupConstant(*const_id)
+                    Ok(Expr::LookupConstant(*const_id))
                 } else {
-                    panic!("undefined var or const: {:?}", ident);
+                    Err(CompileError::UnknownIdent(ident.as_str().into()))
                 }
             }
 
@@ -197,14 +197,14 @@ impl<'a> Builder<'a> {
                     })
                     .collect();
 
-                Expr::TagPattern(patterns)
+                Ok(Expr::TagPattern(patterns))
             }
 
             Expression::NamedBlock(block) => {
                 self.variables.push();
 
                 for (ident, expr) in &block.defs {
-                    let expr = self.lower(expr);
+                    let expr = self.lower(expr)?;
                     self.variables.add_definition(ident, expr);
                 }
 
@@ -214,7 +214,7 @@ impl<'a> Builder<'a> {
                     "none?" => BlockTy::None,
                     "sum" => BlockTy::Sum,
                     "return!" => BlockTy::Return,
-                    other => panic!("unknown block type: {:?}", other),
+                    other => return Err(CompileError::UnknownBlockTy(other.into())),
                 };
 
                 let arg_range = match ty.arity() {
@@ -226,33 +226,35 @@ impl<'a> Builder<'a> {
                     panic!("invalid number of arguments given");
                 }
 
-                let body = block.body.iter().map(|expr| self.lower(expr)).collect();
+                let mut body = vec![];
+                for expr in &block.body {
+                    body.push(self.lower(expr)?);
+                }
 
                 self.variables.pop();
 
-                Expr::Block(ty, body)
+                Ok(Expr::Block(ty, body))
             }
 
-            Expression::WhenBlock(clauses) => Expr::When(
-                clauses
-                    .0
-                    .iter()
-                    .map(|clause| {
-                        let cond = self.lower(&clause.condition);
-                        let value = self.lower(&clause.value);
+            Expression::WhenBlock(exprs) => {
+                let mut clauses = vec![];
+                for clause in &exprs.0 {
+                    let cond = self.lower(&clause.condition)?;
+                    let value = self.lower(&clause.value)?;
 
-                        WhenBlockClause(cond, value)
-                    })
-                    .collect(),
-            ),
+                    clauses.push(WhenBlockClause(cond, value))
+                }
+
+                Ok(Expr::When(clauses))
+            }
         }
     }
 
-    fn build(&mut self, expr: &Expression) -> RunnableExpr {
-        let expr = self.lower(expr);
+    fn build(&mut self, expr: &Expression) -> Result<RunnableExpr, CompileError> {
+        let expr = self.lower(expr)?;
         let variables = self.variables.clear();
 
-        RunnableExpr { expr, variables }
+        Ok(RunnableExpr { expr, variables })
     }
 }
 
@@ -265,6 +267,7 @@ struct RunnableExpr {
 pub enum CompileError {
     UnknownBlockTy(String),
     UnknownIdent(String),
+    ConstEval(RuntimeError),
 }
 
 #[derive(Debug)]
@@ -289,39 +292,43 @@ impl Runtime {
     pub fn from(
         profile: &Profile,
         tag_dict: &TagDict<CompactString>,
-    ) -> Result<Self, RuntimeError> {
+    ) -> Result<Self, CompileError> {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
 
         Ok(Self {
             constants: Self::evaluate_constants(&mut builder, &profile.constant_defs)?,
 
-            // TODO: oof.
             way_penalty: profile
                 .way_penalty
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .transpose()?,
             node_penalty: profile
                 .node_penalty
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .transpose()?,
             cost_factor: profile
                 .cost_factor
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone()))),
+                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .transpose()?,
         })
     }
 
     fn evaluate_constants(
         builder: &mut Builder,
         defs: &Definitions,
-    ) -> Result<Vec<Value>, RuntimeError> {
+    ) -> Result<Vec<Value>, CompileError> {
         let mut consts = vec![];
 
         for (_, def) in defs {
-            let runnable = builder.build(def);
+            let runnable = builder.build(def)?;
 
             let mut context = EvalContext::constant(&consts);
-            let value = context.evaluate(&runnable.expr)?;
+            let value = context
+                .evaluate(&runnable.expr)
+                .map_err(|err| CompileError::ConstEval(err))?;
 
             consts.push(value);
         }
