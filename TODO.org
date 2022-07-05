@@ -1,7 +1,5 @@
 * Customizability
 - Preprocessing: which ways to consider
-- Routing profiles: language, runtime evaluation
-
 
 * Completeness / correctness
 - Ingest DEM (SRTM) data for elevation consideration
