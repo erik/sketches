@@ -33,7 +33,7 @@ pub enum Expression {
     Literal(Value),
     Ident(CompactString),
     TagPattern(Vec<TagPattern<CompactString>>),
-    NamedBlock(NamedBlock),
+    Block(Block),
     WhenBlock(WhenBlock),
 }
 
@@ -41,7 +41,7 @@ pub(super) type Def = (CompactString, Expression);
 pub(super) type Definitions = Vec<Def>;
 
 #[derive(Debug, Clone)]
-pub struct NamedBlock {
+pub struct Block {
     pub defs: Definitions,
     pub name: String,
     pub body: Vec<Expression>,
@@ -61,9 +61,9 @@ pub struct Profile {
     pub name: String,
     pub constant_defs: Definitions,
 
-    pub node_penalty: Option<NamedBlock>,
-    pub way_penalty: Option<NamedBlock>,
-    pub cost_factor: Option<NamedBlock>,
+    pub node_penalty: Option<Expression>,
+    pub way_penalty: Option<Expression>,
+    pub cost_factor: Option<Expression>,
 }
 
 impl Profile {
@@ -89,14 +89,18 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
             }
 
             Rule::named_block => {
-                let mut block = parse_named_block(node.into_inner());
-                // TODO: hacky
-                let block_name = block.name;
-                block.name = "sum".into();
-                match block_name.as_str() {
-                    "node-penalty" => node_penalty = Some(block),
-                    "way-penalty" => way_penalty = Some(block),
-                    "cost-factor" => cost_factor = Some(block),
+                let block = parse_block(node.into_inner());
+                // TODO: still a bit hacky here...
+                let block_expr = Expression::Block(Block {
+                    body: block.body,
+                    name: "return!".into(),
+                    defs: block.defs,
+                });
+
+                match block.name.as_str() {
+                    "node-penalty" => node_penalty = Some(block_expr),
+                    "way-penalty" => way_penalty = Some(block_expr),
+                    "cost-factor" => cost_factor = Some(block_expr),
                     name => panic!("unexpected block: {:?}", name),
                 }
             }
@@ -145,7 +149,7 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expression {
 
         Rule::tag_expr => TagPattern(parse_tag_expr(pair.into_inner())),
         Rule::when_block => WhenBlock(parse_when_block(pair.into_inner())),
-        Rule::named_block => NamedBlock(parse_named_block(pair.into_inner())),
+        Rule::named_block => Block(parse_block(pair.into_inner())),
         Rule::ident => Ident(parse_as_str(pair).into()),
 
         rule => panic!("unexpected rule: {:?}", rule),
@@ -175,7 +179,7 @@ fn parse_when_block(pairs: pest::iterators::Pairs<Rule>) -> WhenBlock {
     WhenBlock(clauses)
 }
 
-fn parse_named_block(mut pairs: pest::iterators::Pairs<Rule>) -> NamedBlock {
+fn parse_block(mut pairs: pest::iterators::Pairs<Rule>) -> Block {
     let name = pairs.next().unwrap().as_str().into();
     let mut defs = Definitions::new();
     let mut body = vec![];
@@ -187,7 +191,7 @@ fn parse_named_block(mut pairs: pest::iterators::Pairs<Rule>) -> NamedBlock {
         }
     }
 
-    NamedBlock { defs, name, body }
+    Block { defs, name, body }
 }
 
 fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern<CompactString>> {

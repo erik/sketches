@@ -200,7 +200,7 @@ impl<'a> Builder<'a> {
                 Ok(Expr::TagPattern(patterns))
             }
 
-            Expression::NamedBlock(block) => {
+            Expression::Block(block) => {
                 self.variables.push();
 
                 for (ident, expr) in &block.defs {
@@ -301,17 +301,17 @@ impl Runtime {
             way_penalty: profile
                 .way_penalty
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .map(|expr| builder.build(&expr))
                 .transpose()?,
             node_penalty: profile
                 .node_penalty
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .map(|expr| builder.build(&expr))
                 .transpose()?,
             cost_factor: profile
                 .cost_factor
                 .as_ref()
-                .map(|expr| builder.build(&Expression::NamedBlock(expr.clone())))
+                .map(|expr| builder.build(&expr))
                 .transpose()?,
         })
     }
