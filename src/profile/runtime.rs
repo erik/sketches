@@ -35,11 +35,29 @@ impl<K: Eq + Hash, V> NestedScope<K, V> {
 
 #[derive(Debug, Clone)]
 enum BlockTy {
-    Any,
     All,
+    Any,
     None,
-    Sum,
     Return,
+    Sum,
+}
+
+#[derive(Debug, Clone)]
+enum Arity {
+    Unary,
+    Variadic,
+}
+
+impl BlockTy {
+    const fn arity(&self) -> Arity {
+        match self {
+            BlockTy::Any => Arity::Variadic,
+            BlockTy::All => Arity::Variadic,
+            BlockTy::None => Arity::Variadic,
+            BlockTy::Sum => Arity::Variadic,
+            BlockTy::Return => Arity::Unary,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -198,6 +216,15 @@ impl<'a> Builder<'a> {
                     "return!" => BlockTy::Return,
                     other => panic!("unknown block type: {:?}", other),
                 };
+
+                let arg_range = match ty.arity() {
+                    Arity::Unary => 1..=1,
+                    Arity::Variadic => (1..=usize::MAX),
+                };
+
+                if !arg_range.contains(&block.body.len()) {
+                    panic!("invalid number of arguments given");
+                }
 
                 let body = block.body.iter().map(|expr| self.lower(expr)).collect();
 

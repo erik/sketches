@@ -1,6 +1,7 @@
 * Customizability
 - Preprocessing: which ways to consider
 
+
 * Completeness / correctness
 - Ingest DEM (SRTM) data for elevation consideration
 - Turn restrictions
