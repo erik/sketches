@@ -16,7 +16,7 @@ use std::time::Instant;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
-use crate::graph::{construct_graph, OsmGraph};
+use crate::graph::{osm::construct_graph, OsmGraph};
 
 struct Timer {
     started_at: Instant,
