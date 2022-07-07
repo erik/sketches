@@ -1,45 +1,22 @@
 use std::collections::HashMap;
 use std::convert::From;
-use std::io::{Read, Seek};
+use std::fs::File;
+use std::io::{Error, Read, Seek};
 use std::path::Path;
 
-use osmpbfreader::{objects::NodeId as OsmNodeId, OsmObj, OsmPbfReader, Tags};
+use osmpbfreader::{objects::NodeId as OsmNodeId, Node, OsmObj, OsmPbfReader, Way};
+use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
 use crate::graph::{EdgeData, LatLng, NodeData, OsmGraph};
 use crate::index::{IndexedCoordinate, SpatialIndex};
 use crate::profile::{Profile, Runtime};
-use crate::tags::TagDict;
+use crate::tags::{CompactString, TagDict};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
 const WAY_UNROUTABLE_HIGHWAY_VALUES: &[&str] =
     &["bus_guideway", "raceway", "proposed", "construction"];
-
-/// Return if the OSM Way has tags that are relevant to routability
-///
-/// Reference: https://wiki.openstreetmap.org/wiki/OSM_tags_for_routing
-fn is_way_routeable(tags: &Tags) -> bool {
-    if tags.contains("route", "ferry") {
-        return true;
-    }
-
-    // TODO: What about something like access=no + bicycle=yes?
-    match tags.get("access") {
-        Some(val) if !WAY_PERMITTED_ACCESS_VALUES.contains(&val.as_str()) => return false,
-        Some(_) => {}
-        None => {}
-    }
-
-    match tags.get("highway") {
-        Some(val) if WAY_UNROUTABLE_HIGHWAY_VALUES.contains(&val.as_str()) => return false,
-        Some(_) => return true,
-        None => {}
-    };
-
-    // If we don't have a highway=*, we need to at least have a junction
-    tags.contains_key("junction")
-}
 
 const NODE_HIGHWAY_ROUTING_VALUES: &[&str] = &[
     "crossing",
@@ -53,100 +30,320 @@ const NODE_HIGHWAY_ROUTING_VALUES: &[&str] = &[
 
 const NODE_ROUTING_TAGS: &[&str] = &["ford", "bicycle", "access", "barrier", "junction"];
 
-fn is_node_used_for_routing(tags: &Tags) -> bool {
-    match tags.get("highway") {
+fn is_routable_node(node: &Node) -> bool {
+    match node.tags.get("highway") {
         Some(val) if NODE_HIGHWAY_ROUTING_VALUES.contains(&val.as_str()) => return true,
         Some(_) => {}
         None => {}
     }
 
-    return NODE_ROUTING_TAGS.iter().any(|&t| tags.contains_key(t));
+    return NODE_ROUTING_TAGS.iter().any(|&t| node.tags.contains_key(t));
 }
 
+/// Return if the OSM Way has tags that are relevant to routability
+///
+/// Reference: https://wiki.openstreetmap.org/wiki/OSM_tags_for_routing
+fn is_routable_way(way: &Way) -> bool {
+    if way.nodes.len() < 2 {
+        return false;
+    }
+
+    if way.tags.contains("route", "ferry") {
+        return true;
+    }
+
+    // TODO: What about something like access=no + bicycle=yes?
+    match way.tags.get("access") {
+        Some(val) if !WAY_PERMITTED_ACCESS_VALUES.contains(&val.as_str()) => return false,
+        Some(_) => {}
+        None => {}
+    }
+
+    match way.tags.get("highway") {
+        Some(val) if WAY_UNROUTABLE_HIGHWAY_VALUES.contains(&val.as_str()) => return false,
+        Some(_) => return true,
+        None => {}
+    };
+
+    // If we don't have a highway=*, we need to at least have a junction
+    return way.tags.contains_key("junction");
+}
+
+#[derive(Copy, Clone)]
 enum NodeKind {
     Routing,
     Geometry,
 }
 
-fn construct_node_kind_map<R>(reader: &mut OsmPbfReader<R>) -> HashMap<OsmNodeId, NodeKind>
-where
-    R: Read + Seek,
-{
-    // A node is used for routing if it:
-    // - is the first or last node of a way
-    // - is shared by multiple ways (i.e. a junction)
-    //
-    // TODO: Could be a bitvector.
-    let mut node_kind_mapping = HashMap::<OsmNodeId, NodeKind>::new();
-    let mut processed_nodes = 0;
-    let mut processed_ways = 0;
+struct SecondPassNode {
+    kind: NodeKind,
+    point: LatLng,
+    index: Option<NodeIndex<u32>>,
+}
 
-    for (i, obj) in reader.par_iter().enumerate() {
-        let obj = obj.unwrap();
+struct ProgressTracker {
+    stage: &'static str,
+    objects: usize,
+    nodes: usize,
+    ways: usize,
+}
 
-        if i % 1_000_000 == 0 {
-            print!(
-                "\r[PASS 1]: objects={:?} nodes={:?} ways={:?}",
-                i, processed_nodes, processed_ways,
-            );
-        }
-
-        match obj {
-            OsmObj::Node(ref node) => {
-                if is_node_used_for_routing(&node.tags) {
-                    node_kind_mapping.insert(node.id, NodeKind::Routing);
-                    processed_nodes += 1;
-                }
-            }
-
-            OsmObj::Way(ref way) => {
-                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                    continue;
-                }
-                processed_ways += 1;
-
-                for (i, &osm_node_id) in way.nodes.iter().enumerate() {
-                    let is_first_or_last = i == 0 || i == way.nodes.len() - 1;
-
-                    node_kind_mapping
-                        .entry(osm_node_id)
-                        // If there's an existing entry, it's a either a
-                        // junction or already a routing node.
-                        .and_modify(|it| *it = NodeKind::Routing)
-                        .or_insert(if is_first_or_last {
-                            NodeKind::Routing
-                        } else {
-                            NodeKind::Geometry
-                        });
-                }
-            }
-
-            // TODO: Is this needed?
-            OsmObj::Relation(_) => {}
+impl ProgressTracker {
+    fn new(stage: &'static str) -> Self {
+        println!();
+        Self {
+            stage,
+            objects: 0,
+            nodes: 0,
+            ways: 0,
         }
     }
 
-    println!(
-        "\n[PASS 1] complete: nodes={:?} ways={:?}",
-        processed_nodes, processed_ways,
-    );
+    #[inline]
+    fn report(&self, state: &'static str) {
+        let start_of_line = '\r';
+        let previous_line = "\x1B[A";
+        let erase_line = "\x1B[2K";
+        println!(
+            "{}{}{}[{}] {} objects={}\tnodes={}\tways={}",
+            start_of_line,
+            previous_line,
+            erase_line,
+            state,
+            self.stage,
+            self.objects,
+            self.nodes,
+            self.ways
+        );
+    }
 
-    node_kind_mapping
+    fn finish(&self) {
+        self.report("DONE");
+    }
+
+    #[inline]
+    fn object(&mut self) {
+        self.objects += 1;
+
+        if self.objects % 1_000_000 == 0 {
+            self.report("running");
+        }
+    }
+
+    #[inline]
+    fn node(&mut self) {
+        self.nodes += 1;
+    }
+
+    #[inline]
+    fn way(&mut self) {
+        self.ways += 1;
+    }
 }
 
-enum Pass2Node {
-    Routing(NodeIndex<u32>, LatLng),
-    Geometry(LatLng),
+struct OsmGraphBuilder<R> {
+    reader: OsmPbfReader<R>,
+    node_kind: HashMap<OsmNodeId, NodeKind>,
+    graph: Graph<NodeData, EdgeData, Undirected>,
+    tag_dict: TagDict<CompactString>,
+}
+
+impl<R> OsmGraphBuilder<R>
+where
+    R: Read + Seek,
+{
+    fn new(reader: OsmPbfReader<R>) -> Self {
+        OsmGraphBuilder {
+            reader,
+            node_kind: HashMap::new(),
+            graph: Graph::new_undirected(),
+            tag_dict: TagDict::new(),
+        }
+    }
+
+    fn load_graph(
+        mut self,
+    ) -> Result<
+        (
+            Graph<NodeData, EdgeData, Undirected>,
+            TagDict<CompactString>,
+        ),
+        Error,
+    > {
+        self.categorize_nodes()?;
+        self.construct_graph()?;
+
+        // TODO: Change this, super weird response format
+        Ok((self.graph, self.tag_dict))
+    }
+
+    fn categorize_nodes(&mut self) -> Result<(), Error> {
+        let mut trk = ProgressTracker::new("PASS1");
+
+        for obj in self.reader.par_iter() {
+            let obj = obj.expect("encountered unexpected object reading PBF");
+            trk.object();
+
+            match obj {
+                OsmObj::Node(node) if is_routable_node(&node) => {
+                    trk.node();
+
+                    self.node_kind.insert(node.id, NodeKind::Routing);
+                }
+
+                OsmObj::Way(way) if is_routable_way(&way) => {
+                    trk.way();
+
+                    for (i, &osm_node_id) in way.nodes.iter().enumerate() {
+                        match self.node_kind.get_mut(&osm_node_id) {
+                            Some(kind) => {
+                                // If there's an existing entry, it's a either a
+                                // junction or already a routing node.
+                                *kind = NodeKind::Routing;
+                            }
+                            None => {
+                                let is_first_or_last = i == 0 || i == way.nodes.len() - 1;
+                                let kind = if is_first_or_last {
+                                    NodeKind::Routing
+                                } else {
+                                    NodeKind::Geometry
+                                };
+
+                                self.node_kind.insert(osm_node_id, kind);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Reset to start of file for next iteration.
+        self.reader
+            .rewind()
+            .expect("Failed to rewind to start of file");
+
+        trk.finish();
+
+        Ok(())
+    }
+
+    fn construct_graph(&mut self) -> Result<(), Error> {
+        let mut trk = ProgressTracker::new("PASS2");
+
+        let mut node_map =
+            HashMap::<OsmNodeId, SecondPassNode>::with_capacity(self.node_kind.len());
+
+        for obj in self.reader.par_iter() {
+            let obj = obj.expect("encountered unexpected object reading PBF");
+            trk.object();
+
+            match obj {
+                OsmObj::Node(node) => {
+                    assert!(trk.ways == 0, "input file not sorted (saw NODE after WAY)");
+
+                    if let Some(&kind) = self.node_kind.get(&node.id) {
+                        trk.node();
+                        let point = LatLng::from(&node);
+                        let index = match kind {
+                            NodeKind::Geometry => None,
+                            NodeKind::Routing => Some(self.graph.add_node(NodeData {
+                                point,
+                                tags: self.tag_dict.from_osm(&node.tags),
+                            })),
+                        };
+
+                        node_map.insert(node.id, SecondPassNode { kind, point, index });
+                    }
+                }
+
+                OsmObj::Way(way) if is_routable_way(&way) => {
+                    trk.way();
+
+                    let mut dist = 0.0;
+                    let mut way_geo: Vec<LatLng> = vec![];
+
+                    let mut prev_node_id: Option<NodeIndex> = None;
+
+                    for id in way.nodes.iter() {
+                        let node = node_map.get(id).expect("Missing node info from way");
+
+                        if let Some(prev) = way_geo.last() {
+                            dist += prev.dist_to(&node.point);
+                        }
+
+                        way_geo.push(node.point);
+
+                        if let Some(index) = node.index {
+                            if let Some(prev_id) = prev_node_id {
+                                // Duplicate edges are possible!
+                                // - https://www.openstreetmap.org/way/1060404609
+                                // - https://www.openstreetmap.org/way/1060404608
+
+                                self.graph.add_edge(
+                                    index,
+                                    prev_id,
+                                    EdgeData {
+                                        dist: dist as u32,
+                                        tags: self.tag_dict.from_osm(&way.tags),
+                                        // Approx 1m precision at equator.
+                                        geometry: simplify(&way_geo, 1e-5),
+                                    },
+                                );
+
+                                way_geo.clear();
+                                way_geo.push(node.point);
+                                dist = 0.0;
+                            }
+
+                            prev_node_id = Some(index);
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        trk.finish();
+
+        Ok(())
+    }
+}
+
+impl OsmGraph {
+    pub fn from_osm(path: &Path) -> Result<OsmGraph, std::io::Error> {
+        let file = File::open(path)?;
+        let reader = OsmPbfReader::new(file);
+
+        let (graph, tag_dict) = OsmGraphBuilder::new(reader).load_graph()?;
+        let index = SpatialIndex::build(
+            &graph
+                .node_indices()
+                .map(|ix| IndexedCoordinate::new(ix, graph[ix].point.into()))
+                .collect::<Vec<_>>(),
+        );
+
+        // TODO: Remove from here
+        let profile =
+            Profile::parse(include_str!("../../profiles/cxb.mint")).expect("parse profile");
+        let runtime = Runtime::from(&profile, &tag_dict).expect("load new profile");
+
+        Ok(OsmGraph {
+            inner: graph,
+            index,
+            tag_dict,
+            runtime,
+        })
+    }
 }
 
 // Ramer-Douglas-Peucker line simplification
 // TODO: needs tests, not checked
 fn simplify(geo: &[LatLng], epsilon: f32) -> Vec<LatLng> {
     let mut result = Vec::with_capacity(geo.len());
-    if geo.len() >= 2 {
-        result.push(geo[0]);
-        simplify_inner(geo, epsilon, &mut result);
-    }
+    result.push(geo[0]);
+    simplify_inner(geo, epsilon, &mut result);
     result
 }
 
@@ -182,136 +379,4 @@ fn simplify_inner(geo: &[LatLng], epsilon: f32, result: &mut Vec<LatLng>) {
     } else {
         result.push(last);
     }
-}
-
-// TODO: Extract out some kind of helper functions, too big.
-pub fn construct_graph(path: &Path) -> Result<OsmGraph, std::io::Error> {
-    let f = std::fs::File::open(path).unwrap();
-    let mut pbf = OsmPbfReader::new(f);
-
-    let node_kind = construct_node_kind_map(&mut pbf);
-
-    // Reset to start of file for next iteration.
-    pbf.rewind().unwrap();
-
-    let mut node_map = HashMap::<OsmNodeId, Pass2Node>::with_capacity(node_kind.len());
-    let mut graph = Graph::<NodeData, EdgeData, _>::new_undirected();
-    let mut tag_dict = TagDict::new();
-
-    let mut processed_nodes = 0;
-    let mut processed_ways = 0;
-    for (i, obj) in pbf.par_iter().enumerate() {
-        let obj = obj.unwrap();
-
-        if i % 1_000_000 == 0 {
-            print!(
-                "\r[PASS 2]: objects={:?} nodes={:?} ways={:?}",
-                i, processed_nodes, processed_ways,
-            );
-        }
-
-        match obj {
-            OsmObj::Relation(_) => {}
-
-            OsmObj::Node(ref osm_node) => {
-                assert!(processed_ways == 0, "input files MUST be sorted!");
-
-                node_kind
-                    .get(&osm_node.id)
-                    .map(|kind| {
-                        processed_nodes += 1;
-
-                        let point = LatLng::from(osm_node);
-                        match kind {
-                            NodeKind::Geometry => Pass2Node::Geometry(point),
-                            NodeKind::Routing => {
-                                let id = graph.add_node(NodeData {
-                                    point,
-                                    tags: tag_dict.from_osm(&osm_node.tags),
-                                });
-
-                                Pass2Node::Routing(id, point)
-                            }
-                        }
-                    })
-                    .and_then(|node| node_map.insert(osm_node.id, node));
-            }
-
-            OsmObj::Way(ref way) => {
-                if way.nodes.len() < 2 || !is_way_routeable(&way.tags) {
-                    continue;
-                }
-
-                processed_ways += 1;
-
-                let mut accumulated_dist = 0.0;
-                let mut way_geo = vec![];
-
-                let mut prev_point: Option<LatLng> = None;
-                let mut prev_node_id: Option<NodeIndex> = None;
-
-                for osm_node_id in way.nodes.iter() {
-                    let node = node_map
-                        .get(osm_node_id)
-                        .expect("Missing node info from way");
-
-                    let point = match node {
-                        Pass2Node::Routing(_, p) => *p,
-                        Pass2Node::Geometry(p) => *p,
-                    };
-
-                    way_geo.push(point);
-                    if let Some(prev_point) = prev_point {
-                        accumulated_dist += prev_point.dist_to(&point);
-                    }
-                    prev_point = Some(point);
-
-                    if let Pass2Node::Routing(node_id, _) = node {
-                        if let Some(prev_id) = prev_node_id {
-                            // Duplicate edges are possible!
-                            // - https://www.openstreetmap.org/way/1060404609
-                            // - https://www.openstreetmap.org/way/1060404608
-
-                            graph.add_edge(
-                                *node_id,
-                                prev_id,
-                                EdgeData {
-                                    dist: accumulated_dist as u32,
-                                    tags: tag_dict.from_osm(&way.tags),
-                                    // Approx 1m precision at equator.
-                                    geometry: simplify(&way_geo, 1e-5),
-                                },
-                            );
-
-                            way_geo.clear();
-                            accumulated_dist = 0.0;
-                        }
-
-                        prev_node_id = Some(*node_id);
-                    }
-                }
-            }
-        }
-    }
-    println!(
-        "\n[PASS 2] complete: nodes={}, edges={}",
-        graph.node_count(),
-        graph.edge_count()
-    );
-
-    let node_coordinates: Vec<_> = graph
-        .node_indices()
-        .map(|ix| IndexedCoordinate::new(ix, graph[ix].point.into()))
-        .collect();
-
-    let profile = Profile::parse(include_str!("../../profiles/cxb.mint")).expect("parse profile");
-
-    let runtime = Runtime::from(&profile, &tag_dict).expect("load new profile");
-
-    Ok(OsmGraph {
-        inner: graph,
-        index: SpatialIndex::build(&node_coordinates),
-        runtime,
-        tag_dict,
-    })
 }

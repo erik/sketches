@@ -16,7 +16,7 @@ use std::time::Instant;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
-use crate::graph::{osm::construct_graph, OsmGraph};
+use crate::graph::OsmGraph;
 
 struct Timer {
     started_at: Instant,
@@ -143,7 +143,7 @@ fn load_graph() -> Result<OsmGraph, std::io::Error> {
 
     // TODO: save/load graph so it doesn't need to be constructed
     // every time.
-    let graph = construct_graph(Path::new(&osm_path))?;
+    let graph = OsmGraph::from_osm(Path::new(&osm_path))?;
     timer.elapsed("build graph");
 
     Ok(graph)
