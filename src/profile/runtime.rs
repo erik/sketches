@@ -301,17 +301,17 @@ impl Runtime {
             way_penalty: profile
                 .way_penalty
                 .as_ref()
-                .map(|expr| builder.build(&expr))
+                .map(|expr| builder.build(expr))
                 .transpose()?,
             node_penalty: profile
                 .node_penalty
                 .as_ref()
-                .map(|expr| builder.build(&expr))
+                .map(|expr| builder.build(expr))
                 .transpose()?,
             cost_factor: profile
                 .cost_factor
                 .as_ref()
-                .map(|expr| builder.build(&expr))
+                .map(|expr| builder.build(expr))
                 .transpose()?,
         })
     }
@@ -328,7 +328,7 @@ impl Runtime {
             let mut context = EvalContext::constant(&consts);
             let value = context
                 .evaluate(&runnable.expr)
-                .map_err(|err| CompileError::ConstEval(err))?;
+                .map_err(CompileError::ConstEval)?;
 
             consts.push(value);
         }
@@ -349,16 +349,16 @@ impl Runtime {
         let mut cost_factor = 1.0;
 
         if let Some(expr) = &self.node_penalty {
-            penalty += self.evaluate_expression(&expr, source_node_tags)?;
-            penalty += self.evaluate_expression(&expr, target_node_tags)?;
+            penalty += self.evaluate_expression(expr, source_node_tags)?;
+            penalty += self.evaluate_expression(expr, target_node_tags)?;
         }
 
         if let Some(expr) = &self.way_penalty {
-            penalty += self.evaluate_expression(&expr, way_tags)?;
+            penalty += self.evaluate_expression(expr, way_tags)?;
         }
 
         if let Some(expr) = &self.cost_factor {
-            cost_factor += self.evaluate_expression(&expr, way_tags)?;
+            cost_factor += self.evaluate_expression(expr, way_tags)?;
         }
 
         Ok(EdgeScore {
