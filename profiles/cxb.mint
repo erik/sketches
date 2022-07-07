@@ -6,7 +6,15 @@ profile "cxb - gravel optimized" {
     left-turn-cost = 150
   }
 
+  node-penalty {
+    0
+  }
+
   way-penalty {
+    0
+  }
+
+  cost-factor {
     define {
         cycleway-on-right? = when {
             [reversedirection=yes] => [cycleway:left=track|lane|shared_lane]

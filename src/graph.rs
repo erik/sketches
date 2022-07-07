@@ -87,20 +87,23 @@ pub struct OsmGraph {
 
 impl OsmGraph {
     // TODO: edge score needs to include nodes
-    fn score_edge(&self, edge: EdgeReference<'_, EdgeData>) -> u32 {
-        let edge_data = edge.weight();
-        let source_node_data = self
+    fn score_edge(&self, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
+        let edge = edge_ref.weight();
+        let source_node = self
             .inner
-            .node_weight(edge.source())
+            .node_weight(edge_ref.source())
             .expect("edge source node not in graph");
-        let target_node_data = self
+        let target_node = self
             .inner
-            .node_weight(edge.target())
+            .node_weight(edge_ref.target())
             .expect("edge target node not in graph");
 
-        let score = self.runtime.score_way(&edge_data.tags).expect("score way");
+        let score = self
+            .runtime
+            .score(&source_node.tags, &target_node.tags, &edge.tags)
+            .expect("error while computing score");
 
-        edge_data.dist + (edge_data.dist as f64 * score as f64) as u32
+        score.penalty + (edge.dist as f32 * score.cost_factor)
     }
 
     pub fn find_route(&self, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
@@ -121,8 +124,8 @@ impl OsmGraph {
             |node_id| {
                 self.inner
                     .node_weight(node_id)
-                    .map(|n| n.point.dist_to(&dest_node.point) as u32)
-                    .unwrap_or(0)
+                    .map(|n| n.point.dist_to(&dest_node.point))
+                    .unwrap_or(0.0)
             },
         )?;
 

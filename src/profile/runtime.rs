@@ -336,45 +336,74 @@ impl Runtime {
         Ok(consts)
     }
 
-    fn constant_ctx(&self) -> EvalContext<'_, EmptyTagSource> {
-        EvalContext::constant(&self.constants)
-    }
-
-    fn expr_ctx<'a, T>(&'a self, expr: &RunnableExpr, tag_source: &'a T) -> EvalContext<'a, T>
+    pub fn score<T>(
+        &self,
+        source_node_tags: &T,
+        target_node_tags: &T,
+        way_tags: &T,
+    ) -> Result<EdgeScore, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
     {
-        EvalContext::with_tag_source(&self.constants, expr.variables.next_id as usize, tag_source)
+        let mut penalty = 0.0;
+        let mut cost_factor = 1.0;
+
+        if let Some(expr) = &self.node_penalty {
+            penalty += self.evaluate_expression(&expr, source_node_tags)?;
+            penalty += self.evaluate_expression(&expr, target_node_tags)?;
+        }
+
+        if let Some(expr) = &self.way_penalty {
+            penalty += self.evaluate_expression(&expr, way_tags)?;
+        }
+
+        if let Some(expr) = &self.cost_factor {
+            cost_factor += self.evaluate_expression(&expr, way_tags)?;
+        }
+
+        Ok(EdgeScore {
+            penalty,
+            cost_factor,
+        })
     }
 
-    pub fn score_way<T>(&self, tags: &T) -> Result<f32, RuntimeError>
+    fn evaluate_expression<T>(
+        &self,
+        expr: &RunnableExpr,
+        tag_source: &T,
+    ) -> Result<f32, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
     {
-        match &self.way_penalty {
-            None => Ok(0.0),
-            Some(expr) => {
-                let mut context = self.expr_ctx(expr, tags);
+        let mut context = EvalContext::with_tag_source(
+            &self.constants,
+            expr.variables.next_id as usize,
+            tag_source,
+        );
 
-                let val = match context.evaluate(&expr.expr) {
-                    Err(RuntimeError::EarlyReturn(val)) => Ok(val),
-                    res => res,
-                }?;
+        let val = match context.evaluate(&expr.expr) {
+            Err(RuntimeError::EarlyReturn(val)) => Ok(val),
+            res => res,
+        }?;
 
-                match val {
-                    Value::Number(score) => Ok(score),
-                    // TODO: Formally specify this somehow. Result<Option<f32>>?
-                    // TODO: Can easily overflow.
-                    Value::Invalid => Ok(500_000.0),
-                    // TODO: recover, don't panic
-                    val => Err(RuntimeError::TypeError {
-                        have: format!("{:?}", val),
-                        expected: "number|invalid".into(),
-                    }),
-                }
-            }
+        match val {
+            Value::Number(score) => Ok(score),
+            // TODO: Formally specify this somehow. Result<Option<f32>>?
+            // TODO: Can easily overflow.
+            Value::Invalid => Ok(500_000.0),
+            // TODO: recover, don't panic
+            val => Err(RuntimeError::TypeError {
+                have: format!("{:?}", val),
+                expected: "number|invalid".into(),
+            }),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct EdgeScore {
+    pub penalty: f32,
+    pub cost_factor: f32,
 }
 
 struct EvalContext<'a, T> {
