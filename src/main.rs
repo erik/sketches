@@ -10,6 +10,7 @@ mod tags;
 use std::path::Path;
 use std::time::Instant;
 
+use rocket::fs::FileServer;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
@@ -91,7 +92,7 @@ mod routes {
 
     #[rocket::get("/")]
     pub fn index() -> RawHtml<String> {
-        let html = std::fs::read_to_string("src/index.html").unwrap();
+        let html = std::fs::read_to_string("web/index.html").unwrap();
         RawHtml(html)
     }
 
@@ -114,9 +115,11 @@ mod routes {
 #[rocket::launch]
 fn launch_server() -> _ {
     let graph = load_graph().expect("graph loading failed");
+
     let server = rocket::build()
         .manage(graph)
-        .mount("/", rocket::routes![routes::index, routes::route]);
+        .mount("/", rocket::routes![routes::index, routes::route])
+        .mount("/static", FileServer::from("web/"));
 
     println!("Ready to go!");
 
