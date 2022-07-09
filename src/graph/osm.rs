@@ -76,7 +76,6 @@ enum NodeKind {
 }
 
 struct SecondPassNode {
-    kind: NodeKind,
     point: LatLng,
     index: Option<NodeIndex<u32>>,
 }
@@ -253,7 +252,7 @@ where
                             })),
                         };
 
-                        node_map.insert(node.id, SecondPassNode { kind, point, index });
+                        node_map.insert(node.id, SecondPassNode { point, index });
                     }
                 }
 

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
@@ -43,10 +41,6 @@ impl Timer {
             elapsed.as_millis(),
             total_elapsed.as_millis()
         );
-    }
-
-    fn reset(&mut self) {
-        self.last_marker_at = Instant::now();
     }
 }
 

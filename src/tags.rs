@@ -1,9 +1,6 @@
+use std::collections::HashMap;
 use std::convert::From;
-use std::fs::File;
 use std::hash::Hash;
-use std::io::{BufRead, BufReader, ErrorKind};
-use std::path::Path;
-use std::{collections::HashMap, io::Error};
 
 use osmpbfreader::Tags as OsmTags;
 use smartstring::{Compact, SmartString};
@@ -84,31 +81,6 @@ impl TagDict<CompactString> {
         TagDict::with_unknown("unknown".into())
     }
 
-    // TODO: serialization
-    fn load(path: &Path) -> Result<Self, Error> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-
-        let mut dict = TagDict::with_unknown("unknown".into());
-
-        // TODO: size header to avoid allocations
-        // TODO: escape separator chars
-
-        for line in reader.lines() {
-            let line = line?;
-            let (key, vals) = line
-                .split_once(' ')
-                .ok_or_else(|| Error::new(ErrorKind::Other, "bad format"))?;
-
-            dict.insert(key.into());
-            for val in vals.split(';') {
-                dict.insert(val.into());
-            }
-        }
-
-        Ok(dict)
-    }
-
     pub fn from_osm(&mut self, osm_tags: &OsmTags) -> CompactTags {
         let mut keys = Vec::with_capacity(osm_tags.len());
 
@@ -133,10 +105,6 @@ impl TagDict<CompactString> {
         keys.sort_by_cached_key(|tag| tag.key);
 
         CompactTags { keys }
-    }
-
-    pub fn tag_source<'a>(&'a self, tags: &'a CompactTags) -> CompactTagSource {
-        CompactTagSource { dict: self, tags }
     }
 }
 
