@@ -90,21 +90,19 @@ mod routes {
     use super::*;
 
     #[rocket::get("/")]
-    pub fn index() -> RawHtml<&'static [u8]> {
-        RawHtml(include_bytes!("index.html"))
+    pub fn index() -> RawHtml<String> {
+        let html = std::fs::read_to_string("index.html").unwrap();
+        RawHtml(html)
     }
 
     #[rocket::post("/route", format = "json", data = "<req>")]
-    pub fn route(
-        graph: &State<OsmGraph>,
-        runtime: &State<Runtime>,
-        req: Json<RouteRequest>,
-    ) -> Json<RouteResponse> {
+    pub fn route(graph: &State<OsmGraph>, req: Json<RouteRequest>) -> Json<RouteResponse> {
         println!("Request: {:?}", req.0);
 
-        let mut timer = Timer::new();
-        let route = graph.find_route(&runtime, req.0.from.into(), req.0.to.into());
+        let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
 
+        let mut timer = Timer::new();
+        let route = graph.find_route(&rt, req.0.from.into(), req.0.to.into());
         timer.elapsed("find route");
 
         Json(RouteResponse {
@@ -116,11 +114,8 @@ mod routes {
 #[rocket::launch]
 fn launch_server() -> _ {
     let graph = load_graph().expect("graph loading failed");
-    let runtime = load_profile(&graph.tag_dict).expect("failed to load profile");
-
     let server = rocket::build()
         .manage(graph)
-        .manage(runtime)
         .mount("/", rocket::routes![routes::index, routes::route]);
 
     println!("Ready to go!");
@@ -128,8 +123,9 @@ fn launch_server() -> _ {
     server
 }
 
-fn load_profile(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
-    let profile = Profile::parse(include_str!("../profiles/cxb.mint")).expect("parse profile");
+fn load_runtime(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
+    let source = std::fs::read_to_string("../profiles/cxb.mint")?;
+    let profile = Profile::parse(&source).expect("parse profile");
     Ok(Runtime::from(&profile, &tag_dict).unwrap())
 }
 
