@@ -47,7 +47,7 @@ impl<I, C> IndexedCoordinate<I, C> {
     }
 }
 
-const MAX_POINTS_PER_LEAF_NODE: usize = 8;
+const MAX_POINTS_PER_LEAF_NODE: usize = 32;
 
 impl<I, C> SpatialIndex<I, C>
 where

@@ -104,8 +104,8 @@ impl OsmGraph {
     }
 
     pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
-        let from = self.index.find_nearest_within(from.into(), 500.0)?;
-        let to = self.index.find_nearest_within(to.into(), 500.0)?;
+        let from = self.index.find_nearest_within(from.into(), 50.0)?;
+        let to = self.index.find_nearest_within(to.into(), 50.0)?;
 
         self.find_route_from_nodes(rt, from, to)
     }
