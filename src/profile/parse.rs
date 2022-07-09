@@ -5,7 +5,7 @@ use crate::tags::CompactString;
 
 #[derive(Parser)]
 #[grammar = "profile/grammar.pest"]
-pub struct ProfileParser;
+struct Grammar;
 
 #[derive(Debug, Clone)]
 pub enum TagPattern<T> {
@@ -57,7 +57,7 @@ pub struct WhenClause {
 }
 
 #[derive(Debug)]
-pub struct Profile {
+pub struct ProfileParser {
     pub name: String,
     pub constant_defs: Definitions,
 
@@ -66,16 +66,16 @@ pub struct Profile {
     pub cost_factor: Option<Expression>,
 }
 
-impl Profile {
-    pub fn parse(source: &str) -> Result<Profile, Error<Rule>> {
-        let mut syntax_tree = ProfileParser::parse(Rule::top_level, source)?;
+impl ProfileParser {
+    pub fn parse(source: &str) -> Result<ProfileParser, Error<Rule>> {
+        let mut syntax_tree = Grammar::parse(Rule::top_level, source)?;
         let root_node = syntax_tree.next().unwrap();
 
         Ok(parse_profile(root_node.into_inner()))
     }
 }
 
-fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
+fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> ProfileParser {
     let profile_name = parse_as_str(pairs.next().unwrap());
     let mut defs = Definitions::new();
     let mut node_penalty = None;
@@ -109,7 +109,7 @@ fn parse_profile(mut pairs: pest::iterators::Pairs<Rule>) -> Profile {
         }
     }
 
-    Profile {
+    ProfileParser {
         name: profile_name.into(),
         constant_defs: defs,
 
@@ -277,7 +277,7 @@ profile "kitchen sink" {
 }
 "#;
 
-        let parsed = ProfileParser::parse(Rule::top_level, &input).expect("parse okay");
+        let parsed = Grammar::parse(Rule::top_level, &input).expect("parse okay");
 
         for pair in parsed {
             println!("---> {:?}", pair);
@@ -325,7 +325,7 @@ profile "test" {
 }
 "#;
 
-        let profile = Profile::parse(input).expect("parse success");
+        let profile = ProfileParser::parse(input).expect("parse success");
         assert_eq!(profile.name, "test");
     }
 }

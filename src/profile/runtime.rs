@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use crate::tags::{CompactString, EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
 
-use super::parse::{Definitions, Expression, Profile, TagPattern, Value};
+use super::parse::{Definitions, Expression, ProfileParser, Rule, TagPattern, Value};
 
 #[derive(Debug)]
 pub struct NestedScope<K, V>(Vec<HashMap<K, V>>);
@@ -268,6 +268,7 @@ pub enum CompileError {
     UnknownBlockTy(String),
     UnknownIdent(String),
     ConstEval(RuntimeError),
+    Syntax(pest::error::Error<Rule>),
 }
 
 #[derive(Debug)]
@@ -289,8 +290,17 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn from(
-        profile: &Profile,
+    pub fn from_source(
+        source: &str,
+        tag_dict: &TagDict<CompactString>,
+    ) -> Result<Self, CompileError> {
+        let parsed = ProfileParser::parse(&source).map_err(CompileError::Syntax)?;
+
+        Self::from_parsed(&parsed, tag_dict)
+    }
+
+    fn from_parsed(
+        profile: &ProfileParser,
         tag_dict: &TagDict<CompactString>,
     ) -> Result<Self, CompileError> {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
@@ -584,14 +594,13 @@ mod tests {
     #[test]
     fn build_full_runtime() {
         let input = include_str!("../../profiles/cxb.mint");
-        let profile = Profile::parse(input).expect("parse success");
 
         let mut tag_dict = TagDict::new();
         for &tag in &common_tags() {
             tag_dict.insert(tag.into());
         }
 
-        Runtime::from(&profile, &tag_dict).expect("create runtime");
+        Runtime::from_source(&input, &tag_dict).expect("create runtime");
     }
 
     #[test]
@@ -609,14 +618,12 @@ profile "test" {
     }
 }
 "#;
-        let profile = Profile::parse(input).expect("parse success");
-
         let mut tag_dict = TagDict::new();
         for &tag in &common_tags() {
             tag_dict.insert(tag.into());
         }
 
-        let runtime = Runtime::from(&profile, &tag_dict).expect("create runtime");
+        let runtime = Runtime::from_source(&input, &tag_dict).expect("create runtime");
 
         let expected = vec![
             Value::Number(1.0),

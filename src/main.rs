@@ -14,7 +14,7 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
 use crate::graph::OsmGraph;
-use crate::profile::{Profile, Runtime};
+use crate::profile::Runtime;
 use crate::tags::{CompactString, TagDict};
 
 struct Timer {
@@ -125,8 +125,7 @@ fn launch_server() -> _ {
 
 fn load_runtime(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
     let source = std::fs::read_to_string("../profiles/cxb.mint")?;
-    let profile = Profile::parse(&source).expect("parse profile");
-    Ok(Runtime::from(&profile, &tag_dict).unwrap())
+    Ok(Runtime::from_source(&source, &tag_dict).unwrap())
 }
 
 fn load_graph() -> Result<OsmGraph, std::io::Error> {
