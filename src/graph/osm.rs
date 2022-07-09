@@ -285,7 +285,7 @@ where
                                         dist: dist as u32,
                                         tags: self.tag_dict.from_osm(&way.tags),
                                         // Approx 1m precision at equator.
-                                        geometry: simplify(&way_geo, 1e-5),
+                                        geometry: simplify(&way_geo, 1e-6),
                                     },
                                 );
 
