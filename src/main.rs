@@ -91,7 +91,7 @@ mod routes {
 
     #[rocket::get("/")]
     pub fn index() -> RawHtml<String> {
-        let html = std::fs::read_to_string("index.html").unwrap();
+        let html = std::fs::read_to_string("src/index.html").unwrap();
         RawHtml(html)
     }
 
@@ -124,7 +124,7 @@ fn launch_server() -> _ {
 }
 
 fn load_runtime(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
-    let source = std::fs::read_to_string("../profiles/cxb.mint")?;
+    let source = std::fs::read_to_string("profiles/cxb.mint")?;
     Ok(Runtime::from_source(&source, &tag_dict).unwrap())
 }
 
