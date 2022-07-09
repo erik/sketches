@@ -111,7 +111,7 @@ where
         nearest_so_far: &mut (f32, Option<I>),
     ) {
         if tree.len() <= MAX_POINTS_PER_LEAF_NODE {
-            for &pt in &tree[..] {
+            for &pt in tree {
                 let dist = query_point.distance(pt.coord);
 
                 if dist < nearest_so_far.0 {

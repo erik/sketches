@@ -81,13 +81,11 @@ pub struct OsmGraph {
     pub inner: Graph<NodeData, EdgeData, Undirected>,
     pub index: SpatialIndex<NodeIndex, Point2D>,
     pub tag_dict: TagDict<SmartString<Compact>>,
-    // TODO: This doesn't belong here
-    pub runtime: Runtime,
 }
 
 impl OsmGraph {
     // TODO: edge score needs to include nodes
-    fn score_edge(&self, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
+    fn score_edge(&self, rt: &Runtime, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
         let edge = edge_ref.weight();
         let source_node = self
             .inner
@@ -98,29 +96,33 @@ impl OsmGraph {
             .node_weight(edge_ref.target())
             .expect("edge target node not in graph");
 
-        let score = self
-            .runtime
+        let score = rt
             .score(&source_node.tags, &target_node.tags, &edge.tags)
             .expect("error while computing score");
 
         score.penalty + (edge.dist as f32 * score.cost_factor)
     }
 
-    pub fn find_route(&self, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
+    pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
         let from = self.index.find_nearest_within(from.into(), 500.0)?;
         let to = self.index.find_nearest_within(to.into(), 500.0)?;
 
-        self.find_route_from_nodes(from, to)
+        self.find_route_from_nodes(rt, from, to)
     }
 
-    fn find_route_from_nodes(&self, from: NodeIndex, to: NodeIndex) -> Option<Vec<LatLng>> {
+    fn find_route_from_nodes(
+        &self,
+        rt: &Runtime,
+        from: NodeIndex,
+        to: NodeIndex,
+    ) -> Option<Vec<LatLng>> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
         let (cost, path) = astar(
             &self.inner,
             from,
             |node_id| node_id == to,
-            |e| self.score_edge(e),
+            |e| self.score_edge(rt, e),
             |node_id| {
                 self.inner
                     .node_weight(node_id)

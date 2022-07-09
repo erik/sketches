@@ -14,6 +14,8 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
 use crate::graph::OsmGraph;
+use crate::profile::{Profile, Runtime};
+use crate::tags::{CompactString, TagDict};
 
 struct Timer {
     started_at: Instant,
@@ -93,11 +95,15 @@ mod routes {
     }
 
     #[rocket::post("/route", format = "json", data = "<req>")]
-    pub fn route(graph: &State<OsmGraph>, req: Json<RouteRequest>) -> Json<RouteResponse> {
+    pub fn route(
+        graph: &State<OsmGraph>,
+        runtime: &State<Runtime>,
+        req: Json<RouteRequest>,
+    ) -> Json<RouteResponse> {
         println!("Request: {:?}", req.0);
 
         let mut timer = Timer::new();
-        let route = graph.find_route(req.0.from.into(), req.0.to.into());
+        let route = graph.find_route(&runtime, req.0.from.into(), req.0.to.into());
 
         timer.elapsed("find route");
 
@@ -110,14 +116,21 @@ mod routes {
 #[rocket::launch]
 fn launch_server() -> _ {
     let graph = load_graph().expect("graph loading failed");
+    let runtime = load_profile(&graph.tag_dict).expect("failed to load profile");
 
     let server = rocket::build()
         .manage(graph)
+        .manage(runtime)
         .mount("/", rocket::routes![routes::index, routes::route]);
 
     println!("Ready to go!");
 
     server
+}
+
+fn load_profile(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
+    let profile = Profile::parse(include_str!("../profiles/cxb.mint")).expect("parse profile");
+    Ok(Runtime::from(&profile, &tag_dict).unwrap())
 }
 
 fn load_graph() -> Result<OsmGraph, std::io::Error> {

@@ -10,7 +10,6 @@ use petgraph::{graph::Graph, graph::NodeIndex};
 
 use crate::graph::{EdgeData, LatLng, NodeData, OsmGraph};
 use crate::index::{IndexedCoordinate, SpatialIndex};
-use crate::profile::{Profile, Runtime};
 use crate::tags::{CompactString, TagDict};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
@@ -323,16 +322,10 @@ impl OsmGraph {
                 .collect::<Vec<_>>(),
         );
 
-        // TODO: Remove from here
-        let profile =
-            Profile::parse(include_str!("../../profiles/cxb.mint")).expect("parse profile");
-        let runtime = Runtime::from(&profile, &tag_dict).expect("load new profile");
-
         Ok(OsmGraph {
             inner: graph,
             index,
             tag_dict,
-            runtime,
         })
     }
 }
