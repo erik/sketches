@@ -25,6 +25,10 @@
     <body>
         <div id="map"></div>
 
-        <script type="module" src="/static/js/main.js"></script>
+        <script type="module">
+          import { MapContainer } from '/static/js/main.js';
+
+          new MapContainer('map');
+        </script>
     </body>
 </html>
