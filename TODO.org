@@ -32,3 +32,4 @@
 - [[https://arxiv.org/pdf/1504.05140.pdf][Route Planning in Transportation Networks]]
 - [[https://drops.dagstuhl.de/opus/volltexte/2015/5458/][Speedups for Multi-Criteria Urban Bicycle Routing]]
 - [[http://ieeexplore.ieee.org/document/7519077/][Practical Multicriteria Urban Bicycle Routing]]
+- [[https://blog.mapbox.com/fast-geodesic-approximations-with-cheap-ruler-106f229ad016][Fast Geodesic Approximation with Cheap Ruler]]
