@@ -9,7 +9,7 @@ use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
 use crate::graph::{EdgeData, LatLng, NodeData, OsmGraph};
-use crate::index::{IndexedCoordinate, SpatialIndex};
+use crate::index::SpatialIndex;
 use crate::tags::{CompactString, TagDict};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
@@ -315,12 +315,7 @@ impl OsmGraph {
         let reader = OsmPbfReader::new(file);
 
         let (graph, tag_dict) = OsmGraphBuilder::new(reader).load_graph()?;
-        let index = SpatialIndex::build(
-            &graph
-                .node_indices()
-                .map(|ix| IndexedCoordinate::new(ix, graph[ix].point.into()))
-                .collect::<Vec<_>>(),
-        );
+        let index = SpatialIndex::build(&graph);
 
         Ok(OsmGraph {
             inner: graph,

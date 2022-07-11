@@ -11,7 +11,7 @@ use petgraph::{
 };
 use smartstring::{Compact, SmartString};
 
-use crate::index::{Point2D, SpatialIndex};
+use crate::index::SpatialIndex;
 use crate::profile::Runtime;
 use crate::tags::{CompactTags, TagDict};
 
@@ -27,7 +27,7 @@ pub struct LatLng {
 impl LatLng {
     // Haversine, returns meters
     // TODO: unchecked
-    fn dist_to(&self, other: &Self) -> f32 {
+    pub fn dist_to(&self, other: &Self) -> f32 {
         let dt_lon = self.lon - other.lon;
         let dt_lat = self.lat - other.lat;
 
@@ -52,15 +52,9 @@ impl From<&OsmNode> for LatLng {
     }
 }
 
-impl From<LatLng> for Point2D {
-    fn from(pt: LatLng) -> Point2D {
-        (pt.lat, pt.lon)
-    }
-}
-
 #[derive(Debug)]
 pub struct NodeData {
-    point: LatLng,
+    pub point: LatLng,
     tags: CompactTags,
 }
 
@@ -72,14 +66,14 @@ pub struct EdgeData {
     tags: CompactTags,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
-    geometry: Vec<LatLng>,
+    pub geometry: Vec<LatLng>,
 }
 
 pub struct OsmGraph {
     // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
     // TODO: Use a directed graph so we can represent one ways etc.
     pub inner: Graph<NodeData, EdgeData, Undirected>,
-    pub index: SpatialIndex<NodeIndex, Point2D>,
+    pub index: SpatialIndex,
     pub tag_dict: TagDict<SmartString<Compact>>,
 }
 
@@ -104,10 +98,16 @@ impl OsmGraph {
     }
 
     pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
-        let from = self.index.find_nearest_within(from.into(), 50.0)?;
-        let to = self.index.find_nearest_within(to.into(), 50.0)?;
+        let from = self.snap_to_node(from.into())?;
+        let to = self.snap_to_node(to.into())?;
 
         self.find_route_from_nodes(rt, from, to)
+    }
+
+    fn snap_to_node(&self, pt: LatLng) -> Option<NodeIndex> {
+        let (node_id, _edge_id) = self.index.find_nearest_within(&self.inner, pt, 50.0)?;
+
+        Some(node_id)
     }
 
     fn find_route_from_nodes(
