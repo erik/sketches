@@ -127,10 +127,7 @@ export class MapContainer {
         .then(res => {
           console.log('routing response', res);
           if (res.route) {
-            this.lastPoint = [
-              res.route[res.route.length - 1].lon,
-              res.route[res.route.length - 1].lat,
-            ];
+            this.lastPoint = res.route[res.route.length - 1];
 
             segment.loading = false;
             segment.geometry = res.route;

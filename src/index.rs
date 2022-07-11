@@ -44,7 +44,7 @@ impl SpatialIndex {
         point: LatLng,
         radius: f32,
     ) -> Option<(NodeIndex, EdgeIndex)> {
-        let mut closest = (f32::MAX, None, None);
+        let mut closest = (radius, None, None);
         let query = (point.lon, point.lat);
 
         for edge in self.tree.locate_within_distance(query, radius * radius) {
