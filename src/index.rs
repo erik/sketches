@@ -45,29 +45,24 @@ impl SpatialIndex {
         radius_meters: f32,
     ) -> Option<(NodeIndex, EdgeIndex)> {
         let radius = 0.0000089 * radius_meters;
-        let mut closest = (radius, None, None);
-        let mut num_edges = 0;
-        let mut num_points = 0;
+
+        let mut closest = (radius_meters, None, None);
 
         let query = (point.lon.to_degrees(), point.lat.to_degrees());
 
-        for edge in self.tree.locate_within_distance(query, radius * radius) {
-            num_edges += 1;
+        for edge in self.tree.locate_within_distance(query, radius) {
             let edge_id = edge.data;
             let edge_weight = graph
                 .edge_weight(edge_id)
                 .expect("index out of sync with graph");
 
             for edge_pt in &edge_weight.geometry {
-                num_points += 1;
                 let dist = point.dist_to(edge_pt);
                 if dist < closest.0 {
                     closest = (dist, Some(edge_pt), Some(edge_id));
                 }
             }
         }
-
-        println!("edges => {:?}, points => {}", num_edges, num_points);
 
         match closest {
             (_, Some(_pt), Some(edge_id)) => {
