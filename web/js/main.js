@@ -8,7 +8,8 @@ export class MapContainer {
       container: elem,
       style: 'https://tiles.stadiamaps.com/styles/outdoors.json',
       center: [12, 53],
-      zoom: 4
+      zoom: 4,
+      hash: true,
     });
 
     // Add zoom and rotation controls to the map.
