@@ -105,7 +105,7 @@ impl OsmGraph {
     }
 
     fn snap_to_node(&self, pt: LatLng) -> Option<NodeIndex> {
-        let (node_id, _edge_id) = self.index.find_nearest_within(&self.inner, pt, 10.0)?;
+        let (node_id, _edge_id) = self.index.find_nearest_within(&self.inner, pt, 100.0)?;
 
         Some(node_id)
     }
