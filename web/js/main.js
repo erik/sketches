@@ -127,16 +127,24 @@ export class MapContainer {
         .then(res => res.json())
         .then(res => {
           console.log('routing response', res);
-          if (res.route) {
-            this.lastPoint = res.route[res.route.length - 1];
 
-            segment.loading = false;
-            segment.geometry = res.route;
-            segment.marker.setLngLat(this.lastPoint);
-            this.redraw();
-          } else {
+          if (res === null) {
             this.popSegment();
+            return;
           }
+
+          this.lastPoint = res.geometry[res.geometry.length - 1];
+
+          segment.loading = false;
+          segment.geometry = res.geometry;
+          segment.marker
+            .setLngLat(this.lastPoint)
+            .setPopup(new mapboxgl.Popup().setHTML(`
+                  <ul>
+                    <li>distance: ${res.distance_meters} meters</li>
+                    <li>cost    : ${res.route_cost}</li>
+                  </ul>`));
+          this.redraw();
         })
         .catch(err => {
           console.error('something went wrong', err);

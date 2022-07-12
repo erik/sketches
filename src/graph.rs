@@ -78,7 +78,6 @@ pub struct OsmGraph {
 }
 
 impl OsmGraph {
-    // TODO: edge score needs to include nodes
     fn score_edge(&self, rt: &Runtime, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
         let edge = edge_ref.weight();
         let source_node = self
@@ -97,7 +96,7 @@ impl OsmGraph {
         score.penalty + (edge.dist as f32 * score.cost_factor)
     }
 
-    pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<Vec<LatLng>> {
+    pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<RouteResponse> {
         let from = self.snap_to_node(from.into())?;
         let to = self.snap_to_node(to.into())?;
 
@@ -115,7 +114,7 @@ impl OsmGraph {
         rt: &Runtime,
         from: NodeIndex,
         to: NodeIndex,
-    ) -> Option<Vec<LatLng>> {
+    ) -> Option<RouteResponse> {
         let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
 
         let (cost, path) = astar(
@@ -131,13 +130,11 @@ impl OsmGraph {
             },
         )?;
 
-        println!("Total Cost = {:?} km (equiv)", cost as f32 / 1000.0);
-
-        let path_geom = self.build_geometry(&path);
-        Some(path_geom)
+        Some(self.build_route_response(cost, &path))
     }
 
-    fn build_geometry(&self, node_ids: &[NodeIndex]) -> Vec<LatLng> {
+    fn build_route_response(&self, cost: f32, node_ids: &[NodeIndex]) -> RouteResponse {
+        let mut dist_meters = 0;
         let mut geometry = Vec::with_capacity(node_ids.len());
 
         for (i, &node_id) in node_ids[1..].iter().enumerate() {
@@ -149,6 +146,7 @@ impl OsmGraph {
                 .find_edge_undirected(prev_node_id, node_id)
                 .and_then(|(edge_idx, direction)| {
                     let edge = self.inner.edge_weight(edge_idx)?;
+                    dist_meters += edge.dist;
 
                     match direction {
                         Incoming => geometry.extend(&edge.geometry),
@@ -160,6 +158,31 @@ impl OsmGraph {
                 .expect("no edge between given nodes");
         }
 
-        geometry
+        RouteResponse {
+            cost,
+            dist_meters,
+            geometry,
+            // surfaces: todo!(),
+        }
     }
+}
+
+// enum SimpleSurface {
+//     Asphalt,
+//     Unpaved,
+//     Cobblestone,
+// }
+
+// struct Interval<T> {
+//     begin_index: usize,
+//     end_index: usize,
+//     value: T,
+// }
+
+pub struct RouteResponse {
+    pub dist_meters: u32,
+    pub cost: f32,
+    pub geometry: Vec<LatLng>,
+    // surfaces: Vec<Interval<SimpleSurface>>,
+    // TODO: highway kind, elevation
 }

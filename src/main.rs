@@ -80,8 +80,10 @@ pub struct RouteRequest {
 
 #[derive(Serialize, Debug)]
 #[serde(crate = "rocket::serde")]
-pub struct RouteResponse {
-    route: Option<Vec<JsonLatLng>>,
+pub struct RouteResponseBody {
+    distance_meters: u32,
+    route_cost: f32,
+    geometry: Vec<JsonLatLng>,
 }
 
 mod routes {
@@ -97,7 +99,10 @@ mod routes {
     }
 
     #[rocket::post("/route", format = "json", data = "<req>")]
-    pub fn route(graph: &State<OsmGraph>, req: Json<RouteRequest>) -> Json<RouteResponse> {
+    pub fn route(
+        graph: &State<OsmGraph>,
+        req: Json<RouteRequest>,
+    ) -> Json<Option<RouteResponseBody>> {
         println!("Request: {:?}", req.0);
 
         let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
@@ -106,9 +111,11 @@ mod routes {
         let route = graph.find_route(&rt, req.0.from.into(), req.0.to.into());
         timer.elapsed("find route");
 
-        Json(RouteResponse {
-            route: route.map(|points| points.into_iter().map(|pt| pt.into()).collect()),
-        })
+        Json(route.map(|route| RouteResponseBody {
+            distance_meters: route.dist_meters,
+            route_cost: route.cost,
+            geometry: route.geometry.into_iter().map(|pt| pt.into()).collect(),
+        }))
     }
 }
 
