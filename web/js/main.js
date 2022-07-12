@@ -1,7 +1,7 @@
 export class MapContainer {
   constructor(elem) {
     this.segments = [];
-    this.pendingReq = Promise.resolve();
+    this.pendingReq = null;
     this.lastPoint = null;
 
     this.map = new mapboxgl.Map({
@@ -93,7 +93,12 @@ export class MapContainer {
   }
 
   handleClick(e) {
-    let point = {
+    // It's too annoying to have multiple (fallible) requests in flight at once.
+    if (this.pendingReq !== null) {
+      return;
+    }
+
+    const point = {
       lat: e.lngLat.lat,
       lon: e.lngLat.lng,
     };
@@ -111,7 +116,7 @@ export class MapContainer {
         marker: marker,
       };
 
-      this.pendingReq.then(() => {
+      this.pendingReq = Promise.resolve().then(() => {
         this.segments.push(segment);
         this.redraw();
 
@@ -149,7 +154,11 @@ export class MapContainer {
         .catch(err => {
           console.error('something went wrong', err);
           this.popSegment();
+        })
+        .finally(() => {
+          this.pendingReq = null;
         });
+
     } else {
       this.lastPoint = point;
     }
