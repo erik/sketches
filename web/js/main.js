@@ -216,6 +216,26 @@ export class MapContainer {
     this.map
       .addSource('control-points', { type: 'geojson', data: featureCollection() })
       .addSource('segments', { type: 'geojson', data: featureCollection() })
+      .addSource('elevation', {
+        type: 'raster-dem',
+        tiles: [
+          'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+        ],
+        minzoom: 0,
+        maxzoom: 16,
+        tileSize: 256,
+        encoding: 'terrarium',
+      })
+      .addLayer({
+        id: 'elevation',
+        type: 'hillshade',
+        source: 'elevation',
+        paint: {
+          "hillshade-shadow-color": "hsl(39, 21%, 33%)",
+          "hillshade-illumination-direction": 315,
+          "hillshade-exaggeration": 0.3
+        }
+      })
       .addLayer({
         id: 'route-outline',
         type: 'line',
