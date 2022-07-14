@@ -131,8 +131,6 @@ export class MapContainer {
   constructor(elem) {
     this.controlPoints = [];
     this.segments = [];
-    this.splitMarker = new mapboxgl.Marker({color: '#fff'});
-    this.hoveredSegment = null;
 
     this.map = new mapboxgl.Map({
       container: elem,
@@ -147,75 +145,73 @@ export class MapContainer {
       .addControl(new UndoMapControl(this))
       .on('load', () => this.attachSources())
       .on('click', (e) => this.handleClick(e))
-    // TODO: refactor this. not really how it's meant to work.
-      .on('mousemove', 'route', (e) => this.handleMouseMove(e))
-      .on('mouseleave', 'route', (e) => this.handleMouseMove(e))
-      .on('mousedown', 'route', (e) => {
-        e.preventDefault();
-        this.map.getCanvasContainer().style.cursor = 'grabbing';
-
-        // FIXME: this is shit
-        const cb = this.handleDragSplit.bind(this);
-        function handler(e) { return cb(e); }
-
-        this.map
-          .on('mousemove', handler)
-          .once('mouseup', (e) => {
-            this.map.off('mousemove', handler);
-            this.handleDragSplitEnd(e);
-          });
-      });
+      // TODO: pull this out to helpers
+      .on('mouseenter', 'route', (e) => {
+        this.map.getCanvasContainer().style.cursor = 'grab';
+        this.map.setLayoutProperty('segment-split-marker', 'visibility', 'visible');
+        this.map.getSource('segment-split-marker').setData(featurePoint(e.lngLat));
+      })
+      .on('mousemove', 'route', (e) => {
+        this.map.getSource('segment-split-marker').setData(featurePoint(e.lngLat));
+      })
+      .on('mouseleave', 'route', (e) => {
+        if (this.map.getCanvasContainer().style.cursor !== 'grabbing')
+          this.map.setLayoutProperty('segment-split-marker', 'visibility', 'none');
+      })
+      .on('mousedown', 'route', (e) => { this.handleSplitSegment(e); });
 
   }
 
-  handleDragSplit(e) {
-    if (this.hoveredSegment === null) return;
+  handleSplitSegment(e) {
+    e.preventDefault();
 
-    this.splitMarker.setLngLat(e.lngLat);
-  }
+    const segmentId = e.features[0].properties.id;
+    const segment = this.segments.find(it => it.id === segmentId);
+    const splitIndex = this.segments.indexOf(segment);
 
-  handleDragSplitEnd(e) {
-    if (this.hoveredSegment === null) return;
-    this.map.getCanvasContainer().style.cursor = '';
+    const canvas = this.map.getCanvasContainer();
 
-    const point = new ControlPoint(e.lngLat);
-    const splitIndex = this.segments.indexOf(this.hoveredSegment);
+    canvas.style.cursor = 'grabbing';
+    this.map.setLayoutProperty('segment-split-marker', 'visibility', 'visible');
 
-    this.controlPoints.splice(splitIndex + 1, 0, point);
+    const splitMarkerSource = this.map.getSource('segment-split-marker');
 
-    this.segments = [
-      ...this.segments.slice(0, splitIndex),
-      ...this.hoveredSegment.splitAt(point),
-      ...this.segments.slice(splitIndex + 1),
-    ];
 
-    this.splitMarker.remove();
-    this.hoveredSegment = null;
-
-    this.reroute();
-  }
-
-  handleMouseMove(e) {
-    if (this.segments.length === 0) return;
-
-    const items = this.map.queryRenderedFeatures(e.point, {layers: ['route-outline']});
-    if (items.length === 0) {
-      this.splitMarker.remove();
-      this.hoveredSegment = null;
-      return;
+    function onMove(e) {
+      splitMarkerSource.setData(featurePoint(e.lngLat));
     }
 
-    this.hoveredSegment = this.segments.find(it => it.id === items[0].properties.id);
+    // TODO: be better at JS
+    const that = this;
+    function onFinish(e) {
+      canvas.style.cursor = '';
 
-    this.splitMarker
-      .setLngLat(e.lngLat)
-      .addTo(this.map);
+      that.map.off('mousemove', onMove);
+      that.map.setLayoutProperty('segment-split-marker', 'visibility', 'none');
+
+      const point = new ControlPoint(e.lngLat);
+      that.controlPoints.splice(splitIndex + 1, 0, point);
+
+      that.segments = [
+        ...that.segments.slice(0, splitIndex),
+        ...segment.splitAt(point),
+        ...that.segments.slice(splitIndex + 1),
+      ];
+
+      that.reroute();
+    }
+
+    this.map
+      .on('mousemove', onMove)
+      .once('mouseup', onFinish);
+
   }
 
   attachSources() {
     this.map
       .addSource('control-points', { type: 'geojson', data: featureCollection() })
       .addSource('segments', { type: 'geojson', data: featureCollection() })
+      .addSource('segment-split-marker', { type: 'geojson', data: featurePoint({ lat: 0, lng: 0 }) })
       .addSource('elevation', {
         type: 'raster-dem',
         tiles: [
@@ -247,8 +243,12 @@ export class MapContainer {
         id: 'route',
         type: 'line',
         source: 'segments',
-        layout: {'line-join': 'round', 'line-cap': 'round'},
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round'
+        },
         paint: {
+          'line-dasharray': [1, 2],
           'line-color': ['get', 'color'],
           'line-width': ['get', 'width'],
         }
@@ -262,6 +262,20 @@ export class MapContainer {
           'circle-stroke-color': '#a3f',
           'circle-stroke-width': 6,
           'circle-radius': 6,
+        }
+      })
+      .addLayer({
+        id: 'segment-split-marker',
+        type: 'circle',
+        source: 'segment-split-marker',
+        layout: {
+          visibility: 'none',
+        },
+        paint: {
+          'circle-color': '#fff',
+          'circle-stroke-color': '#f3f',
+          'circle-stroke-width': 5,
+          'circle-radius': 5,
         }
       });
     ;
