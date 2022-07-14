@@ -33,8 +33,10 @@ class ControlPoint {
     this.point = pt;
   }
 
-  asGeoJSON() {
-    return featurePoint(this.point, {});
+  asGeoJSON(index) {
+    return featurePoint(this.point, {
+      label: index.toString()
+    });
   }
 }
 
@@ -260,8 +262,21 @@ export class MapContainer {
         paint: {
           'circle-color': '#fff',
           'circle-stroke-color': '#a3f',
-          'circle-stroke-width': 6,
-          'circle-radius': 6,
+          'circle-stroke-width': 4,
+          'circle-radius': 8,
+        }
+      })
+      .addLayer({
+        id: 'control-point-labels',
+        type: 'symbol',
+        source: 'control-points',
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': ['Open Sans Bold'],
+          'text-size': 12,
+        },
+        paint: {
+          'text-color': '#777',
         }
       })
       .addLayer({
@@ -282,7 +297,7 @@ export class MapContainer {
   }
 
   setData() {
-    const controlPoints = featureCollection(this.controlPoints.map(it => it.asGeoJSON()));
+    const controlPoints = featureCollection(this.controlPoints.map((it, i) => it.asGeoJSON(i)));
     const segments = featureCollection(this.segments.map(it => it.asGeoJSON()));
 
     this.map.getSource('control-points')
