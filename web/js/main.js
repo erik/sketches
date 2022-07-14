@@ -132,7 +132,7 @@ export class MapContainer {
     this.controlPoints = [];
     this.segments = [];
 
-    this.map = new mapboxgl.Map({
+    this.map = new maplibregl.Map({
       container: elem,
       style: 'https://tiles.stadiamaps.com/styles/outdoors.json',
       center: [12, 53],
@@ -141,7 +141,7 @@ export class MapContainer {
     });
 
     // Add zoom and rotation controls to the map.
-    this.map.addControl(new mapboxgl.NavigationControl())
+    this.map.addControl(new maplibregl.NavigationControl())
       .addControl(new UndoMapControl(this))
       .on('load', () => this.attachSources())
       .on('click', (e) => this.handleClick(e))
@@ -340,7 +340,7 @@ class UndoMapControl {
   onAdd(map) {
     this._map = map;
     this._elem = document.createElement('button');
-    this._elem.className = 'mapboxgl-ctrl';
+    this._elem.className = 'maplibregl-ctrl';
     this._elem.textContent = '🔙';
     this._elem.onclick = () => this.onClick();
     return this._elem;
