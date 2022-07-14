@@ -35,6 +35,7 @@ class ControlPoint {
 
   asGeoJSON(index) {
     return featurePoint(this.point, {
+      id: this.id,
       label: index.toString()
     });
   }
@@ -48,6 +49,10 @@ class Segment {
     this.from = from;
     this.to = to;
 
+    this.reset();
+  }
+
+  reset() {
     this.state = 'start';
     this.geometry = [this.from.point, this.to.point];
   }
@@ -133,6 +138,7 @@ export class MapContainer {
   constructor(elem) {
     this.controlPoints = [];
     this.segments = [];
+    this.dragging = false;
 
     this.map = new maplibregl.Map({
       container: elem,
@@ -150,22 +156,61 @@ export class MapContainer {
       // TODO: pull this out to helpers
       .on('mouseenter', 'route', (e) => {
         this.map.getCanvasContainer().style.cursor = 'grab';
-        this.map.setLayoutProperty('segment-split-marker', 'visibility', 'visible');
-        this.map.getSource('segment-split-marker').setData(featurePoint(e.lngLat));
+        this.map.setLayoutProperty('drag-marker', 'visibility', 'visible');
+        this.map.getSource('drag-marker').setData(featurePoint(e.lngLat));
       })
       .on('mousemove', 'route', (e) => {
-        this.map.getSource('segment-split-marker').setData(featurePoint(e.lngLat));
+        this.map.getSource('drag-marker').setData(featurePoint(e.lngLat));
       })
       .on('mouseleave', 'route', (e) => {
         if (this.map.getCanvasContainer().style.cursor !== 'grabbing')
-          this.map.setLayoutProperty('segment-split-marker', 'visibility', 'none');
+          this.map.setLayoutProperty('drag-marker', 'visibility', 'none');
       })
-      .on('mousedown', 'route', (e) => { this.handleSplitSegment(e); });
+      .on('mousedown', 'control-points', (e) => this.handleRepositionPoint(e))
+      .on('mousedown', 'route', (e) => this.handleSplitSegment(e));
+  }
 
+  handleRepositionPoint(e) {
+    e.preventDefault();
+
+    this.draggingPoint = true;
+
+    const id = e.features[0].properties.id;
+    const controlPoint = this.controlPoints.find(it => it.id === id);
+    const canvas = this.map.getCanvasContainer();
+
+    canvas.style.cursor = 'grabbing';
+
+    // TODO: be better at JS
+    const that = this;
+    function onMove(e) {
+      controlPoint.reposition(e.lngLat);
+      that.setData();
+    }
+
+    function onFinish(e) {
+      canvas.style.cursor = '';
+
+      that.draggingPoint = false;
+      that.map.off('mousemove', onMove);
+
+      that.segments
+        .filter(it => it.from === controlPoint || it.to === controlPoint)
+        .forEach(it => it.reset());
+
+      that.reroute();
+    }
+
+    this.map
+      .on('mousemove', onMove)
+      .once('mouseup', onFinish);
   }
 
   handleSplitSegment(e) {
     e.preventDefault();
+
+    // Bail if we're already dragging a control point.
+    if (this.draggingPoint) { return; }
 
     const segmentId = e.features[0].properties.id;
     const segment = this.segments.find(it => it.id === segmentId);
@@ -174,9 +219,9 @@ export class MapContainer {
     const canvas = this.map.getCanvasContainer();
 
     canvas.style.cursor = 'grabbing';
-    this.map.setLayoutProperty('segment-split-marker', 'visibility', 'visible');
+    this.map.setLayoutProperty('drag-marker', 'visibility', 'visible');
 
-    const splitMarkerSource = this.map.getSource('segment-split-marker');
+    const splitMarkerSource = this.map.getSource('drag-marker');
 
 
     function onMove(e) {
@@ -189,7 +234,7 @@ export class MapContainer {
       canvas.style.cursor = '';
 
       that.map.off('mousemove', onMove);
-      that.map.setLayoutProperty('segment-split-marker', 'visibility', 'none');
+      that.map.setLayoutProperty('drag-marker', 'visibility', 'none');
 
       const point = new ControlPoint(e.lngLat);
       that.controlPoints.splice(splitIndex + 1, 0, point);
@@ -206,19 +251,16 @@ export class MapContainer {
     this.map
       .on('mousemove', onMove)
       .once('mouseup', onFinish);
-
   }
 
   attachSources() {
     this.map
       .addSource('control-points', { type: 'geojson', data: featureCollection() })
       .addSource('segments', { type: 'geojson', data: featureCollection() })
-      .addSource('segment-split-marker', { type: 'geojson', data: featurePoint({ lat: 0, lng: 0 }) })
+      .addSource('drag-marker', { type: 'geojson', data: featurePoint({ lat: 0, lng: 0 }) })
       .addSource('elevation', {
         type: 'raster-dem',
-        tiles: [
-          'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-        ],
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         minzoom: 0,
         maxzoom: 16,
         tileSize: 256,
@@ -280,9 +322,9 @@ export class MapContainer {
         }
       })
       .addLayer({
-        id: 'segment-split-marker',
+        id: 'drag-marker',
         type: 'circle',
-        source: 'segment-split-marker',
+        source: 'drag-marker',
         layout: {
           visibility: 'none',
         },
