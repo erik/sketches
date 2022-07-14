@@ -150,7 +150,7 @@ export class MapContainer {
 
     // Add zoom and rotation controls to the map.
     this.map.addControl(new maplibregl.NavigationControl())
-      .addControl(new UndoMapControl(this))
+      .addControl(new MapControl(this, '🔙', () => this.popControlPoint()))
       .on('load', () => this.attachSources())
       .on('click', 'control-points', (e)=> this.handleRemovePoint(e))
       .on('click', (e) => this.handleClick(e))
@@ -439,24 +439,21 @@ export class MapContainer {
   }
 }
 
-class UndoMapControl {
-  constructor(container) {
+class MapControl {
+  constructor(container, label, onClick) {
     this._container = container;
+    this._label = label;
+    this._onClick = onClick;
   }
 
   onAdd(map) {
     this._map = map;
-    this._elem = document.createElement('button');
-    this._elem.className = 'maplibregl-ctrl';
-    this._elem.textContent = '🔙';
-    this._elem.onclick = () => this.onClick();
+    this._elem = document.createElement('div');
+    this._elem.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this._elem.innerHTML = `<button>${this._label}</button>`;
+    this._elem.onclick = () => this._onClick();
     return this._elem;
   }
-
-  onClick() {
-    this._container.popControlPoint();
-  }
-
 
   onRemove() {
     this._elem.parentNode.removeChild(this._elem);
