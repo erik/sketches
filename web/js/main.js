@@ -60,6 +60,11 @@ class Segment {
   async fetch() {
     this.state = 'load';
 
+    if (this.inflight) {
+      this.inflight.abort();
+    }
+
+    this.inflight = new AbortController();
     const res = await fetch('/route', {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
@@ -73,6 +78,7 @@ class Segment {
           lat: this.to.point.lat,
         }
       }),
+      signal: this.inflight.signal,
     }).catch(err => {
         console.error('something went wrong', err);
         this.state = 'error';
