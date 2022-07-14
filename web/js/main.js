@@ -138,7 +138,7 @@ export class MapContainer {
   constructor(elem) {
     this.controlPoints = [];
     this.segments = [];
-    this.dragging = false;
+    this.lastEvent = null;
 
     this.map = new maplibregl.Map({
       container: elem,
@@ -152,6 +152,7 @@ export class MapContainer {
     this.map.addControl(new maplibregl.NavigationControl())
       .addControl(new UndoMapControl(this))
       .on('load', () => this.attachSources())
+      .on('click', 'control-points', (e)=> this.handleRemovePoint(e))
       .on('click', (e) => this.handleClick(e))
       // TODO: pull this out to helpers
       .on('mouseenter', 'route', (e) => {
@@ -170,10 +171,53 @@ export class MapContainer {
       .on('mousedown', 'route', (e) => this.handleSplitSegment(e));
   }
 
+  alreadyHandled(e) {
+    if (this.lastEvent === e) {
+      return true;
+    }
+
+    this.lastEvent = e;
+    return false;
+  }
+
+  handleRemovePoint(e) {
+    e.preventDefault();
+    if (this.alreadyHandled(e)) return;
+
+    const id = e.features[0].properties.id;
+    const controlPoint = this.controlPoints.find(it => it.id === id);
+    const index = this.controlPoints.indexOf(controlPoint);
+
+    this.controlPoints.splice(index, 1);
+
+    const newSegments = [];
+    let prevPoint = null;
+
+    for (let i = 0; i < this.segments.length; ++i) {
+      const seg = this.segments[i];
+
+      // a--1--b--2--c
+      // delete a: remove segment 1
+      // delete b: merge segment 1 and 2
+      // delete c: remove segment 2
+      if (seg.from === controlPoint) {
+        if (prevPoint !== null) {
+          newSegments.push(new Segment(prevPoint, seg.to));
+        }
+      } else if (seg.to === controlPoint) {
+        prevPoint = seg.from;
+      } else {
+        newSegments.push(seg);
+      }
+    }
+
+    this.segments = newSegments;
+    this.reroute();
+  }
+
   handleRepositionPoint(e) {
     e.preventDefault();
-
-    this.draggingPoint = true;
+    if (this.alreadyHandled(e)) return;
 
     const id = e.features[0].properties.id;
     const controlPoint = this.controlPoints.find(it => it.id === id);
@@ -181,9 +225,12 @@ export class MapContainer {
 
     canvas.style.cursor = 'grabbing';
 
+    let moved = false;
+
     // TODO: be better at JS
     const that = this;
     function onMove(e) {
+      moved = true;
       controlPoint.reposition(e.lngLat);
       that.setData();
     }
@@ -194,11 +241,13 @@ export class MapContainer {
       that.draggingPoint = false;
       that.map.off('mousemove', onMove);
 
-      that.segments
-        .filter(it => it.from === controlPoint || it.to === controlPoint)
-        .forEach(it => it.reset());
+      if (moved) {
+        that.segments
+          .filter(it => it.from === controlPoint || it.to === controlPoint)
+          .forEach(it => it.reset());
 
-      that.reroute();
+        that.reroute();
+      }
     }
 
     this.map
@@ -209,8 +258,7 @@ export class MapContainer {
   handleSplitSegment(e) {
     e.preventDefault();
 
-    // Bail if we're already dragging a control point.
-    if (this.draggingPoint) { return; }
+    if (this.alreadyHandled(e)) return;
 
     const segmentId = e.features[0].properties.id;
     const segment = this.segments.find(it => it.id === segmentId);
@@ -360,6 +408,8 @@ export class MapContainer {
   }
 
   handleClick(e) {
+    if (this.alreadyHandled(e)) return;
+
     const cp = new ControlPoint(e.lngLat);
     this.pushControlPoint(cp);
   }
