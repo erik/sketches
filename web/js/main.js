@@ -429,11 +429,13 @@ export class MapContainer {
           .flat();
     const data = `\
 <?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.0">
-  <name>panamint export</name>
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd"
+     creator="panamint"
+     version="1.1">
   <trk>
     <name>panamint export</name>
-    <number>1</number>
     <trkseg>
         ${trackPoints.join('\n')}
     </trkseg>
