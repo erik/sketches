@@ -317,7 +317,7 @@ export class MapContainer {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         minzoom: 0,
-        maxzoom: 16,
+        maxzoom: 15,
         tileSize: 256,
         encoding: 'terrarium',
       })
