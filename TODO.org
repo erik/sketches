@@ -1,12 +1,13 @@
 * Customizability
 - Preprocessing: which ways to consider
+- brouter-compatible API so we can use existing frontends (gpx.studio)
 
 
 * Completeness / correctness
 - Ingest DEM (SRTM) data for elevation consideration
+- Route from offset along edge rather than vertex to vertex
 - Turn restrictions
 - One way streets etc. (directed graph)
-- Route from offset along edge rather than vertex to vertex
 
 
 * "real-world" stuff
