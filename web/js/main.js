@@ -157,6 +157,7 @@ export class MapContainer {
     // Add zoom and rotation controls to the map.
     this.map.addControl(new maplibregl.NavigationControl())
       .addControl(new MapControl(this, '🔙', () => this.popControlPoint()))
+      .addControl(new MapControl(this, '⬇️', () => this.downloadGPX()))
       .on('load', () => this.attachSources())
       .on('click', 'control-points', (e)=> this.handleRemovePoint(e))
       .on('click', (e) => this.handleClick(e))
@@ -418,6 +419,37 @@ export class MapContainer {
 
     const cp = new ControlPoint(e.lngLat);
     this.pushControlPoint(cp);
+  }
+
+  downloadGPX() {
+    const trackPoints = this.segments
+          .map(it => it.geometry.map(pt =>
+            `<trkpt lat="${pt.lat}" lon="${pt.lng}"></trkpt>`)
+          )
+          .flat();
+    const data = `\
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.0">
+  <name>panamint export</name>
+  <trk>
+    <name>panamint export</name>
+    <number>1</number>
+    <trkseg>
+        ${trackPoints.join('\n')}
+    </trkseg>
+  </trk>
+</gpx>`;
+
+    const element = document.createElement('a');
+    element.setAttribute('href', 'data:application/gpx+xml,' + encodeURIComponent(data));
+    element.setAttribute('download', 'route.gpx');
+
+    element.style.display = 'none';
+    document.body.appendChild(element);
+
+    element.click();
+
+    document.body.removeChild(element);
   }
 
   pushControlPoint(cp) {
