@@ -4,13 +4,14 @@ use std::fs::File;
 use std::io::{Error, Read, Seek};
 use std::path::Path;
 
-use osmpbfreader::{objects::NodeId as OsmNodeId, Node, OsmObj, OsmPbfReader, Way};
+use osmpbfreader::{objects::NodeId as OsmNodeId, Node, OsmObj, OsmPbfReader, Tags, Way};
 use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
-use crate::graph::{EdgeData, LatLng, NodeData, OsmGraph};
 use crate::index::SpatialIndex;
 use crate::tags::{CompactString, TagDict};
+
+use super::{EdgeData, EdgeDirection, LatLng, NodeData, OsmGraph};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
@@ -28,6 +29,12 @@ const NODE_HIGHWAY_ROUTING_VALUES: &[&str] = &[
 ];
 
 const NODE_ROUTING_TAGS: &[&str] = &["ford", "bicycle", "access", "barrier", "junction"];
+
+#[inline]
+fn has_one_of(tags: &Tags, k: &str, vals: &[&str]) -> bool {
+    tags.get(k)
+        .map_or(false, |val| vals.contains(&val.as_str()))
+}
 
 fn is_routable_node(node: &Node) -> bool {
     match node.tags.get("highway") {
@@ -284,6 +291,7 @@ where
                                     EdgeData {
                                         dist: dist as u32,
                                         tags: self.tag_dict.from_osm(&way.tags),
+                                        direction: EdgeDirection::infer(&way.tags),
                                         // Approx 1m precision at equator.
                                         geometry: simplify(&way_geo, 1e-6),
                                     },
@@ -365,5 +373,39 @@ fn simplify_inner(geo: &[LatLng], epsilon: f32, result: &mut Vec<LatLng>) {
         simplify_inner(&geo[index..], epsilon, result);
     } else {
         result.push(last);
+    }
+}
+
+impl EdgeDirection {
+    // TODO: This seriously needs a review
+    fn infer(tags: &Tags) -> Self {
+        let is_oneway = tags.contains("junction", "roundabout")
+            || has_one_of(&tags, "oneway", &["yes", "-1"])
+            || has_one_of(&tags, "oneway:bicycle", &["yes", "-1"])
+            || tags.contains_key("vehicle:backward")
+            || tags.contains_key("bicycle:backward")
+            || tags.contains_key("vehicle:forward")
+            || tags.contains_key("bicycle:forward");
+
+        let is_bike_exempt = tags.contains("oneway:bicycle", "no")
+            || tags.contains("bicycle:backward", "yes")
+            || has_one_of(&tags, "cycleway", &["opposite", "opposite_lane"])
+            || has_one_of(&tags, "cycleway:left", &["opposite", "opposite_lane"])
+            || has_one_of(&tags, "cycleway:right", &["opposite", "opposite_lane"]);
+
+        if is_oneway && !is_bike_exempt {
+            let is_reversed = tags.contains("oneway", "-1")
+                || tags.contains("oneway:bicycle", "-1")
+                || tags.contains("vehicle:forward", "no")
+                || tags.contains("bicycle:forward", "no");
+
+            if is_reversed {
+                EdgeDirection::Reversed
+            } else {
+                EdgeDirection::Forward
+            }
+        } else {
+            EdgeDirection::Both
+        }
     }
 }

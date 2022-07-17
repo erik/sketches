@@ -58,12 +58,20 @@ pub struct NodeData {
     tags: CompactTags,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EdgeDirection {
+    Forward,
+    Reversed,
+    Both,
+}
+
 #[derive(Debug, Clone)]
 pub struct EdgeData {
     // meters
     // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
     tags: CompactTags,
+    direction: EdgeDirection,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
     pub geometry: Vec<LatLng>,
@@ -142,20 +150,22 @@ impl OsmGraph {
 
             // TODO: How do we figure out which edge was taken in the case of parallel ones?
             // There's another function: edges_connecting, which might be relevant.
-            self.inner
+            let (edge_idx, direction) = self
+                .inner
                 .find_edge_undirected(prev_node_id, node_id)
-                .and_then(|(edge_idx, direction)| {
-                    let edge = self.inner.edge_weight(edge_idx)?;
-                    dist_meters += edge.dist;
-
-                    match direction {
-                        Incoming => geometry.extend(&edge.geometry),
-                        Outgoing => geometry.extend(edge.geometry.iter().rev()),
-                    };
-
-                    Some(())
-                })
                 .expect("no edge between given nodes");
+
+            let edge = self
+                .inner
+                .edge_weight(edge_idx)
+                .expect("missing edge weight");
+
+            dist_meters += edge.dist;
+
+            match direction {
+                Incoming => geometry.extend(&edge.geometry),
+                Outgoing => geometry.extend(edge.geometry.iter().rev()),
+            }
         }
 
         RouteResponse {
