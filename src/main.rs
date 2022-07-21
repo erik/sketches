@@ -135,7 +135,7 @@ fn launch_server() -> _ {
 
 fn load_runtime(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
     let source = std::fs::read_to_string("profiles/cxb.mint")?;
-    Ok(Runtime::from_source(&source, &tag_dict).unwrap())
+    Ok(Runtime::from_source(&source, tag_dict).unwrap())
 }
 
 fn load_graph() -> Result<OsmGraph, std::io::Error> {

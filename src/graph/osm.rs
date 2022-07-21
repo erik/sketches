@@ -72,7 +72,7 @@ fn is_routable_way(way: &Way) -> bool {
     };
 
     // If we don't have a highway=*, we need to at least have a junction
-    return way.tags.contains_key("junction");
+    way.tags.contains_key("junction")
 }
 
 #[derive(Copy, Clone)]
@@ -380,8 +380,8 @@ impl EdgeDirection {
     // TODO: This seriously needs a review
     fn infer(tags: &Tags) -> Self {
         let is_oneway = tags.contains("junction", "roundabout")
-            || has_one_of(&tags, "oneway", &["yes", "-1"])
-            || has_one_of(&tags, "oneway:bicycle", &["yes", "-1"])
+            || has_one_of(tags, "oneway", &["yes", "-1"])
+            || has_one_of(tags, "oneway:bicycle", &["yes", "-1"])
             || tags.contains_key("vehicle:backward")
             || tags.contains_key("bicycle:backward")
             || tags.contains_key("vehicle:forward")
@@ -389,9 +389,9 @@ impl EdgeDirection {
 
         let is_bike_exempt = tags.contains("oneway:bicycle", "no")
             || tags.contains("bicycle:backward", "yes")
-            || has_one_of(&tags, "cycleway", &["opposite", "opposite_lane"])
-            || has_one_of(&tags, "cycleway:left", &["opposite", "opposite_lane"])
-            || has_one_of(&tags, "cycleway:right", &["opposite", "opposite_lane"]);
+            || has_one_of(tags, "cycleway", &["opposite", "opposite_lane"])
+            || has_one_of(tags, "cycleway:left", &["opposite", "opposite_lane"])
+            || has_one_of(tags, "cycleway:right", &["opposite", "opposite_lane"]);
 
         if is_oneway && !is_bike_exempt {
             let is_reversed = tags.contains("oneway", "-1")

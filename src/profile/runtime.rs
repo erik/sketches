@@ -294,7 +294,7 @@ impl Runtime {
         source: &str,
         tag_dict: &TagDict<CompactString>,
     ) -> Result<Self, CompileError> {
-        let parsed = ProfileParser::parse(&source).map_err(CompileError::Syntax)?;
+        let parsed = ProfileParser::parse(source).map_err(CompileError::Syntax)?;
 
         Self::from_parsed(&parsed, tag_dict)
     }

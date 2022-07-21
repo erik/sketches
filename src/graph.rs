@@ -106,8 +106,8 @@ impl OsmGraph {
     }
 
     pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<RouteResponse> {
-        let from = self.snap_to_node(from.into())?;
-        let to = self.snap_to_node(to.into())?;
+        let from = self.snap_to_node(from)?;
+        let to = self.snap_to_node(to)?;
 
         self.find_route_from_nodes(rt, from, to)
     }
