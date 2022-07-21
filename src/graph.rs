@@ -11,7 +11,7 @@ use petgraph::{
 };
 use smartstring::{Compact, SmartString};
 
-use crate::index::SpatialIndex;
+use crate::index::{SnappedTo, SpatialIndex};
 use crate::profile::Runtime;
 use crate::tags::{CompactTags, TagDict};
 
@@ -71,6 +71,7 @@ pub struct EdgeData {
     // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
     dist: u32,
     tags: CompactTags,
+    #[allow(unused)]
     direction: EdgeDirection,
     // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
     // TODO: Alternatively - polyline, without ASCII representation
@@ -112,9 +113,13 @@ impl OsmGraph {
     }
 
     fn snap_to_node(&self, pt: LatLng) -> Option<NodeIndex> {
-        let (node_id, _edge_id) = self.index.find_nearest_within(&self.inner, pt, 100.0)?;
+        let snap = self.index.snap_point(&self.inner, pt, 100.0)?;
 
-        Some(node_id)
+        match snap {
+            SnappedTo::Node(node_id) => Some(node_id),
+            // TODO: properly handle this.
+            SnappedTo::Edge { node_id, .. } => Some(node_id),
+        }
     }
 
     fn find_route_from_nodes(

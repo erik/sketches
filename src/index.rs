@@ -15,6 +15,15 @@ pub struct SpatialIndex {
     tree: RTree<IndexedRect<EdgeIndex>>,
 }
 
+pub enum SnappedTo {
+    Node(NodeIndex),
+    Edge {
+        edge_id: EdgeIndex,
+        node_id: NodeIndex,
+        offset: usize,
+    },
+}
+
 impl SpatialIndex {
     pub fn build(graph: &Graph<NodeData, EdgeData, Undirected>) -> Self {
         let bboxes = graph
@@ -38,56 +47,61 @@ impl SpatialIndex {
         }
     }
 
-    pub fn find_nearest_within(
+    pub fn snap_point(
         &self,
         graph: &Graph<NodeData, EdgeData, Undirected>,
-        point: LatLng,
+        query_pt: LatLng,
         radius_meters: f32,
-    ) -> Option<(NodeIndex, EdgeIndex)> {
-        let radius = 0.0000089 * radius_meters;
+    ) -> Option<SnappedTo> {
+        // TODO: Clean this up, this is degrees / meter at equator.
+        const DEGREES_PER_METER: f32 = 0.0000089;
+        let radius_degrees = DEGREES_PER_METER * radius_meters;
 
-        let mut closest = (radius_meters, None, None);
+        let mut snap: Option<SnappedTo> = None;
+        let mut min_dist = radius_meters;
 
-        let query = (point.lon.to_degrees(), point.lat.to_degrees());
-
-        for edge in self.tree.locate_within_distance(query, radius) {
+        let query = (query_pt.lon.to_degrees(), query_pt.lat.to_degrees());
+        for edge in self.tree.locate_within_distance(query, radius_degrees) {
             let edge_id = edge.data;
+
             let edge_weight = graph
                 .edge_weight(edge_id)
                 .expect("index out of sync with graph");
 
-            for edge_pt in &edge_weight.geometry {
-                let dist = point.dist_to(edge_pt);
-                if dist < closest.0 {
-                    closest = (dist, Some(edge_pt), Some(edge_id));
+            let (from_node_id, to_node_id) = graph
+                .edge_endpoints(edge_id)
+                .expect("index out of sync with graph");
+
+            for (i, pt) in edge_weight.geometry.iter().enumerate() {
+                let dist = query_pt.dist_to(pt);
+                if dist >= min_dist {
+                    continue;
                 }
-            }
-        }
 
-        match closest {
-            (_, Some(_pt), Some(edge_id)) => {
-                let (from_node_id, to_node_id) = graph
-                    .edge_endpoints(edge_id)
-                    .expect("index out of sync with graph");
+                min_dist = dist;
 
-                let from = graph
-                    .node_weight(from_node_id)
-                    .expect("index out of sync with graph");
-                let to = graph
-                    .node_weight(to_node_id)
-                    .expect("index out of sync with graph");
-
-                let from_dist = from.point.dist_to(&point);
-                let to_dist = to.point.dist_to(&point);
-
-                if from_dist < to_dist {
-                    Some((from_node_id, edge_id))
+                snap = if i == 0 {
+                    Some(SnappedTo::Node(from_node_id))
+                } else if i == edge_weight.geometry.len() - 1 {
+                    Some(SnappedTo::Node(to_node_id))
                 } else {
-                    Some((to_node_id, edge_id))
-                }
-            }
+                    let dist_from = pt.dist_to(&edge_weight.geometry[0]);
+                    let dist_to = pt.dist_to(&edge_weight.geometry[edge_weight.geometry.len() - 1]);
+                    let nearest_node = if dist_from < dist_to {
+                        from_node_id
+                    } else {
+                        to_node_id
+                    };
 
-            _ => None,
+                    Some(SnappedTo::Edge {
+                        edge_id,
+                        node_id: nearest_node,
+                        offset: i,
+                    })
+                };
+            }
         }
+
+        snap
     }
 }
