@@ -1,14 +1,13 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 
-use crate::tags::{CompactString, EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
+use crate::tags::{EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
 
 use super::parse::{Definitions, Expression, ProfileParser, Rule, TagPattern, Value};
 
 #[derive(Debug)]
-pub struct NestedScope<K, V>(Vec<HashMap<K, V>>);
+pub struct NestedScope<V>(Vec<HashMap<String, V>>);
 
-impl<K: Eq + Hash, V> NestedScope<K, V> {
+impl<V> NestedScope<V> {
     pub fn empty() -> Self {
         NestedScope(vec![HashMap::new()])
     }
@@ -17,18 +16,19 @@ impl<K: Eq + Hash, V> NestedScope<K, V> {
         self.0.push(HashMap::new())
     }
 
-    pub fn pop(&mut self) -> HashMap<K, V> {
+    pub fn pop(&mut self) -> HashMap<String, V> {
         self.0.pop().expect("scope stack is empty!")
     }
 
-    pub fn set(&mut self, k: K, v: V) {
+    pub fn set(&mut self, k: String, v: V) {
         self.0
             .last_mut()
             .expect("scope stack is empty")
             .insert(k, v);
     }
 
-    pub fn get(&self, k: &K) -> Option<&V> {
+    pub fn get<'a, K: Into<&'a str>>(&self, k: K) -> Option<&V> {
+        let k = k.into();
         self.0.iter().rev().find_map(|map| map.get(k))
     }
 }
@@ -77,9 +77,9 @@ type VariableId = u16;
 
 struct VariableMapping {
     // ident -> id
-    ids: NestedScope<CompactString, VariableId>,
+    ids: NestedScope<VariableId>,
     // ident -> definition
-    defs: NestedScope<CompactString, Expr>,
+    defs: NestedScope<Expr>,
 
     next_id: VariableId,
 }
@@ -107,33 +107,33 @@ impl VariableMapping {
         self.defs.pop();
     }
 
-    fn add_variable(&mut self, ident: &CompactString) -> VariableId {
+    fn add_variable(&mut self, ident: String) -> VariableId {
         let new_id = self.next_id;
-        self.ids.set(ident.clone(), new_id);
+        self.ids.set(ident, new_id);
         self.next_id += 1;
 
         new_id
     }
 
-    fn get_or_assign_id(&mut self, ident: &CompactString) -> VariableId {
+    fn get_or_assign_id(&mut self, ident: &str) -> VariableId {
         match self.ids.get(ident) {
             Some(&id) => id,
-            None => self.add_variable(ident),
+            None => self.add_variable(ident.into()),
         }
     }
 
-    fn add_definition(&mut self, ident: &CompactString, expr: Expr) {
-        self.defs.set(ident.clone(), expr);
+    fn add_definition(&mut self, ident: &str, expr: Expr) {
+        self.defs.set(ident.into(), expr);
     }
 
-    fn get_definition(&self, ident: &CompactString) -> Option<&Expr> {
+    fn get_definition(&self, ident: &str) -> Option<&Expr> {
         self.defs.get(ident)
     }
 }
 
 // TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
-    constants: HashMap<CompactString, u8>,
+    constants: HashMap<String, u8>,
     tag_dict: &'a TagDict,
     variables: VariableMapping,
 }
@@ -147,11 +147,13 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn compact_tag(&self, key: &CompactString) -> TagDictId {
-        self.tag_dict.to_compact(key).unwrap_or(UNKNOWN_TAG_ID)
+    fn compact_tag(&self, key: &str) -> TagDictId {
+        self.tag_dict
+            .to_compact(&key.into())
+            .unwrap_or(UNKNOWN_TAG_ID)
     }
 
-    fn build_const_map(defs: &Definitions) -> HashMap<CompactString, u8> {
+    fn build_const_map(defs: &Definitions) -> HashMap<String, u8> {
         if defs.len() >= (u8::MAX as usize) {
             panic!("Too many constants defined")
         }

@@ -1,8 +1,6 @@
 use pest::error::Error;
 use pest::Parser;
 
-use crate::tags::CompactString;
-
 #[derive(Parser)]
 #[grammar = "profile/grammar.pest"]
 struct Grammar;
@@ -31,13 +29,13 @@ impl Value {
 #[derive(Debug, Clone)]
 pub enum Expression {
     Literal(Value),
-    Ident(CompactString),
-    TagPattern(Vec<TagPattern<CompactString>>),
+    Ident(String),
+    TagPattern(Vec<TagPattern<String>>),
     Block(Block),
     WhenBlock(WhenBlock),
 }
 
-pub(super) type Def = (CompactString, Expression);
+pub(super) type Def = (String, Expression);
 pub(super) type Definitions = Vec<Def>;
 
 #[derive(Debug, Clone)]
@@ -194,7 +192,7 @@ fn parse_block(mut pairs: pest::iterators::Pairs<Rule>) -> Block {
     Block { defs, name, body }
 }
 
-fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern<CompactString>> {
+fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern<String>> {
     let mut exprs = vec![];
 
     for node in pairs {
