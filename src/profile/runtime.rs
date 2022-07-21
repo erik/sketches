@@ -134,12 +134,12 @@ impl VariableMapping {
 // TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
     constants: HashMap<CompactString, u8>,
-    tag_dict: &'a TagDict<CompactString>,
+    tag_dict: &'a TagDict,
     variables: VariableMapping,
 }
 
 impl<'a> Builder<'a> {
-    fn new(constants: &Definitions, tag_dict: &'a TagDict<CompactString>) -> Self {
+    fn new(constants: &Definitions, tag_dict: &'a TagDict) -> Self {
         Self {
             tag_dict,
             variables: VariableMapping::new(),
@@ -290,19 +290,13 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn from_source(
-        source: &str,
-        tag_dict: &TagDict<CompactString>,
-    ) -> Result<Self, CompileError> {
+    pub fn from_source(source: &str, tag_dict: &TagDict) -> Result<Self, CompileError> {
         let parsed = ProfileParser::parse(source).map_err(CompileError::Syntax)?;
 
         Self::from_parsed(&parsed, tag_dict)
     }
 
-    fn from_parsed(
-        profile: &ProfileParser,
-        tag_dict: &TagDict<CompactString>,
-    ) -> Result<Self, CompileError> {
+    fn from_parsed(profile: &ProfileParser, tag_dict: &TagDict) -> Result<Self, CompileError> {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
 
         Ok(Self {

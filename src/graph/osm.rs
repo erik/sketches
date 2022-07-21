@@ -9,7 +9,7 @@ use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
 use crate::index::SpatialIndex;
-use crate::tags::{CompactString, TagDict};
+use crate::tags::TagDict;
 
 use super::{EdgeData, EdgeDirection, LatLng, NodeData, OsmGraph};
 
@@ -150,14 +150,14 @@ struct OsmGraphBuilder<'a, R> {
     reader: OsmPbfReader<R>,
     node_kind: HashMap<OsmNodeId, NodeKind>,
     graph: Graph<NodeData, EdgeData, Undirected>,
-    tag_dict: &'a mut TagDict<CompactString>,
+    tag_dict: &'a mut TagDict,
 }
 
 impl<'a, R> OsmGraphBuilder<'a, R>
 where
     R: Read + Seek,
 {
-    fn new(reader: OsmPbfReader<R>, tag_dict: &'a mut TagDict<CompactString>) -> Self {
+    fn new(reader: OsmPbfReader<R>, tag_dict: &'a mut TagDict) -> Self {
         OsmGraphBuilder {
             reader,
             tag_dict,

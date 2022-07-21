@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::convert::From;
-use std::hash::Hash;
 
 use osmpbfreader::Tags as OsmTags;
 use smartstring::{Compact, SmartString};
@@ -9,15 +8,19 @@ pub const UNKNOWN_TAG_ID: TagDictId = 0;
 pub type TagDictId = u16;
 pub type CompactString = SmartString<Compact>;
 
-pub struct TagDict<S> {
+pub struct TagDict {
     max_id: TagDictId,
     // TODO: Wasteful to store two copies of the key, maybe Rc<S> it
-    forward: HashMap<S, TagDictId>,
-    backward: HashMap<TagDictId, S>,
+    forward: HashMap<CompactString, TagDictId>,
+    backward: HashMap<TagDictId, CompactString>,
 }
 
-impl<S: Eq + Hash + Clone> TagDict<S> {
-    fn with_unknown(unknown_value: S) -> Self {
+impl TagDict {
+    pub fn new() -> Self {
+        TagDict::with_unknown("unknown".into())
+    }
+
+    fn with_unknown(unknown_value: CompactString) -> Self {
         TagDict {
             max_id: UNKNOWN_TAG_ID,
             forward: HashMap::from([(unknown_value.clone(), UNKNOWN_TAG_ID)]),
@@ -25,7 +28,33 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
         }
     }
 
-    pub fn insert(&mut self, key: S) -> TagDictId {
+    pub fn from_osm(&mut self, osm_tags: &OsmTags) -> CompactTags {
+        let mut keys = Vec::with_capacity(osm_tags.len());
+
+        for (k, v) in osm_tags.iter() {
+            // FIXME: this is a dumb hack. OSM reader crate is using
+            // an older version of smartstring.
+            let (k, v) = (k.as_str().into(), v.as_str().into());
+
+            if ignore_osm_tag(&k, &v) {
+                continue;
+            }
+
+            // TODO: Don't insert here, use pre-built tag set to pare it down.
+            keys.push(CompactTag {
+                key: self.insert(k),
+                val: self.insert(v),
+            });
+        }
+
+        // We need to store the keys in ascending order so that our
+        // binary search during lookup works.
+        keys.sort_by_cached_key(|tag| tag.key);
+
+        CompactTags { keys }
+    }
+
+    pub fn insert(&mut self, key: CompactString) -> TagDictId {
         match self.forward.get(&key) {
             Some(&existing) => existing,
             None => {
@@ -37,11 +66,11 @@ impl<S: Eq + Hash + Clone> TagDict<S> {
         }
     }
 
-    pub fn to_compact(&self, key: &S) -> Option<TagDictId> {
+    pub fn to_compact(&self, key: &CompactString) -> Option<TagDictId> {
         self.forward.get(key).copied()
     }
 
-    fn from_compact(&self, key: &TagDictId) -> Option<&S> {
+    fn from_compact(&self, key: &TagDictId) -> Option<&CompactString> {
         self.backward.get(key)
     }
 }
@@ -76,38 +105,6 @@ fn ignore_osm_tag(key: &CompactString, _val: &CompactString) -> bool {
             .any(|prefix| key.starts_with(prefix))
 }
 
-impl TagDict<CompactString> {
-    pub fn new() -> Self {
-        TagDict::with_unknown("unknown".into())
-    }
-
-    pub fn from_osm(&mut self, osm_tags: &OsmTags) -> CompactTags {
-        let mut keys = Vec::with_capacity(osm_tags.len());
-
-        for (k, v) in osm_tags.iter() {
-            // FIXME: this is a dumb hack. OSM reader crate is using
-            // an older version of smartstring.
-            let (k, v) = (k.as_str().into(), v.as_str().into());
-
-            if ignore_osm_tag(&k, &v) {
-                continue;
-            }
-
-            // TODO: Don't insert here, use pre-built tag set to pare it down.
-            keys.push(CompactTag {
-                key: self.insert(k),
-                val: self.insert(v),
-            });
-        }
-
-        // We need to store the keys in ascending order so that our
-        // binary search during lookup works.
-        keys.sort_by_cached_key(|tag| tag.key);
-
-        CompactTags { keys }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CompactTag {
     key: TagDictId,
@@ -120,17 +117,13 @@ pub struct CompactTags {
 }
 
 impl CompactTags {
-    pub fn contains_key<S: Eq + Hash + Clone>(&self, dict: &TagDict<S>, key: &S) -> bool {
+    pub fn contains_key(&self, dict: &TagDict, key: &CompactString) -> bool {
         dict.to_compact(key)
             .and_then(|k| self.get_compact_key(k))
             .is_some()
     }
 
-    pub fn get_key<'a, S: Eq + Hash + Clone>(
-        &self,
-        dict: &'a TagDict<S>,
-        key: &S,
-    ) -> Option<&'a S> {
+    pub fn get_key<'a>(&self, dict: &'a TagDict, key: &CompactString) -> Option<&'a CompactString> {
         let compact_key = dict.to_compact(key)?;
         let val = self.get_compact_key(compact_key)?;
 
@@ -163,7 +156,7 @@ impl<K, V> TagSource<K, V> for EmptyTagSource {
 }
 
 pub struct CompactTagSource<'a> {
-    dict: &'a TagDict<CompactString>,
+    dict: &'a TagDict,
     tags: &'a CompactTags,
 }
 

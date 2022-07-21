@@ -16,7 +16,7 @@ use rocket::State;
 
 use crate::graph::OsmGraph;
 use crate::profile::Runtime;
-use crate::tags::{CompactString, TagDict};
+use crate::tags::TagDict;
 
 struct Timer {
     started_at: Instant,
@@ -133,7 +133,7 @@ fn launch_server() -> _ {
     server
 }
 
-fn load_runtime(tag_dict: &TagDict<CompactString>) -> Result<Runtime, std::io::Error> {
+fn load_runtime(tag_dict: &TagDict) -> Result<Runtime, std::io::Error> {
     let source = std::fs::read_to_string("profiles/cxb.mint")?;
     Ok(Runtime::from_source(&source, tag_dict).unwrap())
 }

@@ -9,7 +9,6 @@ use petgraph::{
     graph::{EdgeReference, Graph},
     Undirected,
 };
-use smartstring::{Compact, SmartString};
 
 use crate::index::{SnappedTo, SpatialIndex};
 use crate::profile::Runtime;
@@ -83,7 +82,7 @@ pub struct OsmGraph {
     // TODO: Use a directed graph so we can represent one ways etc.
     pub inner: Graph<NodeData, EdgeData, Undirected>,
     pub index: SpatialIndex,
-    pub tag_dict: TagDict<SmartString<Compact>>,
+    pub tag_dict: TagDict,
 }
 
 impl OsmGraph {
