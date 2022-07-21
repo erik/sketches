@@ -146,40 +146,31 @@ impl ProgressTracker {
     }
 }
 
-struct OsmGraphBuilder<R> {
+struct OsmGraphBuilder<'a, R> {
     reader: OsmPbfReader<R>,
     node_kind: HashMap<OsmNodeId, NodeKind>,
     graph: Graph<NodeData, EdgeData, Undirected>,
-    tag_dict: TagDict<CompactString>,
+    tag_dict: &'a mut TagDict<CompactString>,
 }
 
-impl<R> OsmGraphBuilder<R>
+impl<'a, R> OsmGraphBuilder<'a, R>
 where
     R: Read + Seek,
 {
-    fn new(reader: OsmPbfReader<R>) -> Self {
+    fn new(reader: OsmPbfReader<R>, tag_dict: &'a mut TagDict<CompactString>) -> Self {
         OsmGraphBuilder {
             reader,
+            tag_dict,
             node_kind: HashMap::new(),
             graph: Graph::new_undirected(),
-            tag_dict: TagDict::new(),
         }
     }
 
-    fn load_graph(
-        mut self,
-    ) -> Result<
-        (
-            Graph<NodeData, EdgeData, Undirected>,
-            TagDict<CompactString>,
-        ),
-        Error,
-    > {
+    fn load_graph(mut self) -> Result<Graph<NodeData, EdgeData, Undirected>, Error> {
         self.categorize_nodes()?;
         self.construct_graph()?;
 
-        // TODO: Change this, super weird response format
-        Ok((self.graph, self.tag_dict))
+        Ok(self.graph)
     }
 
     fn categorize_nodes(&mut self) -> Result<(), Error> {
@@ -322,7 +313,9 @@ impl OsmGraph {
         let file = File::open(path)?;
         let reader = OsmPbfReader::new(file);
 
-        let (graph, tag_dict) = OsmGraphBuilder::new(reader).load_graph()?;
+        let mut tag_dict = TagDict::new();
+
+        let graph = OsmGraphBuilder::new(reader, &mut tag_dict).load_graph()?;
         let index = SpatialIndex::build(&graph);
 
         Ok(OsmGraph {
