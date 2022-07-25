@@ -9,9 +9,9 @@ use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
 use crate::index::SpatialIndex;
-use crate::tags::TagDict;
+use crate::tags::{CompactTags, TagDict};
 
-use super::{EdgeData, EdgeDirection, LatLng, NodeData, OsmGraph};
+use super::{EdgeData, EdgeDirection, EdgeGeometry, LatLng, NodeData, OsmGraph, TagSetId};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
@@ -146,21 +146,48 @@ impl ProgressTracker {
     }
 }
 
-struct OsmGraphBuilder<'a, R> {
+// TODO: call it a deduplicator or something
+struct TagSetBuilder<'a> {
+    tag_dict: &'a mut TagDict,
+    tags: Vec<CompactTags>,
+}
+
+impl<'a> TagSetBuilder<'a> {
+    fn new(tag_dict: &'a mut TagDict) -> Self {
+        Self {
+            tag_dict,
+            tags: Vec::new(),
+        }
+    }
+
+    fn insert(&mut self, tags: &Tags) -> TagSetId {
+        let tags = self.tag_dict.from_osm(tags);
+        // TODO: actually de-dupe
+        self.tags.push(tags);
+
+        TagSetId(self.tags.len() - 1)
+    }
+
+    fn collect(&mut self) -> Vec<CompactTags> {
+        std::mem::replace(&mut self.tags, Vec::new())
+    }
+}
+
+struct OsmGraphBuilder<'a, 'b, R> {
     reader: OsmPbfReader<R>,
     node_kind: HashMap<OsmNodeId, NodeKind>,
     graph: Graph<NodeData, EdgeData, Undirected>,
-    tag_dict: &'a mut TagDict,
+    tags: &'a mut TagSetBuilder<'b>,
 }
 
-impl<'a, R> OsmGraphBuilder<'a, R>
+impl<'a, 'b, R> OsmGraphBuilder<'a, 'b, R>
 where
     R: Read + Seek,
 {
-    fn new(reader: OsmPbfReader<R>, tag_dict: &'a mut TagDict) -> Self {
+    fn new(reader: OsmPbfReader<R>, tags: &'a mut TagSetBuilder<'b>) -> Self {
         OsmGraphBuilder {
             reader,
-            tag_dict,
+            tags,
             node_kind: HashMap::new(),
             graph: Graph::new_undirected(),
         }
@@ -245,7 +272,7 @@ where
                             NodeKind::Geometry => None,
                             NodeKind::Routing => Some(self.graph.add_node(NodeData {
                                 point,
-                                tags: self.tag_dict.from_osm(&node.tags),
+                                tag_id: self.tags.insert(&node.tags),
                             })),
                         };
 
@@ -280,11 +307,13 @@ where
                                     index,
                                     prev_id,
                                     EdgeData {
-                                        dist: dist as u32,
-                                        tags: self.tag_dict.from_osm(&way.tags),
+                                        tag_id: self.tags.insert(&way.tags),
                                         direction: EdgeDirection::infer(&way.tags),
-                                        // Approx 1m precision at equator.
-                                        geometry: simplify(&way_geo, 1e-6),
+                                        geometry: EdgeGeometry {
+                                            distance: dist as u32,
+                                            // Approx 1m precision at equator.
+                                            points: simplify(&way_geo, 1e-6),
+                                        },
                                     },
                                 );
 
@@ -314,14 +343,18 @@ impl OsmGraph {
         let reader = OsmPbfReader::new(file);
 
         let mut tag_dict = TagDict::new();
+        let mut tag_set_builder = TagSetBuilder::new(&mut tag_dict);
 
-        let graph = OsmGraphBuilder::new(reader, &mut tag_dict).load_graph()?;
+        let graph = OsmGraphBuilder::new(reader, &mut tag_set_builder).load_graph()?;
         let index = SpatialIndex::build(&graph);
+
+        let tag_sets = tag_set_builder.collect();
 
         Ok(OsmGraph {
             inner: graph,
             index,
             tag_dict,
+            tag_sets,
         })
     }
 }

@@ -33,6 +33,7 @@ impl SpatialIndex {
                 let geom = edge_ref
                     .weight()
                     .geometry
+                    .points
                     .iter()
                     .map(|ll| (ll.lon.to_degrees(), ll.lat.to_degrees()))
                     .collect::<Vec<_>>();
@@ -72,7 +73,7 @@ impl SpatialIndex {
                 .edge_endpoints(edge_id)
                 .expect("index out of sync with graph");
 
-            for (i, pt) in edge_weight.geometry.iter().enumerate() {
+            for (i, pt) in edge_weight.geometry.points.iter().enumerate() {
                 let dist = query_pt.dist_to(pt);
                 if dist >= min_dist {
                     continue;
@@ -82,11 +83,13 @@ impl SpatialIndex {
 
                 snap = if i == 0 {
                     Some(SnappedTo::Node(from_node_id))
-                } else if i == edge_weight.geometry.len() - 1 {
+                } else if i == edge_weight.geometry.points.len() - 1 {
                     Some(SnappedTo::Node(to_node_id))
                 } else {
-                    let dist_from = pt.dist_to(&edge_weight.geometry[0]);
-                    let dist_to = pt.dist_to(&edge_weight.geometry[edge_weight.geometry.len() - 1]);
+                    let dist_from = pt.dist_to(&edge_weight.geometry.points[0]);
+                    let dist_to = pt.dist_to(
+                        &edge_weight.geometry.points[edge_weight.geometry.points.len() - 1],
+                    );
                     let nearest_node = if dist_from < dist_to {
                         from_node_id
                     } else {

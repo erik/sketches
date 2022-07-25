@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::{
     algo::astar,
-    graph::NodeIndex,
+    graph::{EdgeIndex, NodeIndex},
     graph::{EdgeReference, Graph},
     Undirected,
 };
@@ -54,7 +54,7 @@ impl From<&OsmNode> for LatLng {
 #[derive(Debug)]
 pub struct NodeData {
     pub point: LatLng,
-    tags: CompactTags,
+    tag_id: TagSetId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,19 +66,26 @@ pub enum EdgeDirection {
 
 #[derive(Debug, Clone)]
 pub struct EdgeData {
-    // meters
-    // TODO: Can likely store this as dist / 10 and fit in u16 (max: 655km)
-    dist: u32,
-    tags: CompactTags,
+    tag_id: TagSetId,
     #[allow(unused)]
     direction: EdgeDirection,
-    // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
-    // TODO: Alternatively - polyline, without ASCII representation
-    pub geometry: Vec<LatLng>,
+    pub geometry: EdgeGeometry,
 }
 
+#[derive(Debug, Clone)]
+pub struct EdgeGeometry {
+    pub distance: u32,
+    pub points: Vec<LatLng>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct TagSetId(usize);
+
 pub struct OsmGraph {
-    // TODO: use Csr, but petgraph doesn't support parallel edges, which we need.
+    tag_sets: Vec<CompactTags>,
+    // TODO: Can delta-encode coordinates against start point to fit in (u16, u16)
+    // TODO: Alternatively - polyline, without ASCII representation
+
     // TODO: Use a directed graph so we can represent one ways etc.
     pub inner: Graph<NodeData, EdgeData, Undirected>,
     pub index: SpatialIndex,
@@ -86,22 +93,36 @@ pub struct OsmGraph {
 }
 
 impl OsmGraph {
-    fn score_edge(&self, rt: &Runtime, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
-        let edge = edge_ref.weight();
-        let source_node = self
-            .inner
-            .node_weight(edge_ref.source())
-            .expect("edge source node not in graph");
-        let target_node = self
-            .inner
-            .node_weight(edge_ref.target())
-            .expect("edge target node not in graph");
+    fn node_data(&self, id: NodeIndex) -> &NodeData {
+        self.inner
+            .node_weight(id)
+            .expect("edge source node not in graph")
+    }
 
+    fn edge_data(&self, id: EdgeIndex) -> &EdgeData {
+        self.inner
+            .edge_weight(id)
+            .expect("edge source node not in graph")
+    }
+
+    fn tags(&self, id: TagSetId) -> &CompactTags {
+        &self.tag_sets[id.0]
+    }
+
+    fn score_edge(&self, rt: &Runtime, edge_ref: EdgeReference<'_, EdgeData>) -> f32 {
+        let edge = self.edge_data(edge_ref.id());
+
+        let edge_tags = self.tags(edge.tag_id);
+        let source_tags = self.tags(self.node_data(edge_ref.source()).tag_id);
+        let target_tags = self.tags(self.node_data(edge_ref.target()).tag_id);
+
+        // TODO: we can cache the score for a given tag set. use an
+        // LRU or something.
         let score = rt
-            .score(&source_node.tags, &target_node.tags, &edge.tags)
+            .score(source_tags, target_tags, edge_tags)
             .expect("error while computing score");
 
-        score.penalty + (edge.dist as f32 * score.cost_factor)
+        score.penalty + (edge.geometry.distance as f32 * score.cost_factor)
     }
 
     pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<RouteResponse> {
@@ -116,7 +137,8 @@ impl OsmGraph {
 
         match snap {
             SnappedTo::Node(node_id) => Some(node_id),
-            // TODO: properly handle this.
+            // TODO: properly handle this, need to inject the fake
+            // edges to the graph.
             SnappedTo::Edge { node_id, .. } => Some(node_id),
         }
     }
@@ -127,19 +149,14 @@ impl OsmGraph {
         from: NodeIndex,
         to: NodeIndex,
     ) -> Option<RouteResponse> {
-        let dest_node = self.inner.node_weight(to).expect("Invalid `to` given.");
+        let dest_node = self.node_data(to);
 
         let (cost, path) = astar(
             &self.inner,
             from,
             |node_id| node_id == to,
-            |e| self.score_edge(rt, e),
-            |node_id| {
-                self.inner
-                    .node_weight(node_id)
-                    .map(|n| n.point.dist_to(&dest_node.point))
-                    .unwrap_or(0.0)
-            },
+            |edge_ref| self.score_edge(rt, edge_ref),
+            |node_id| self.node_data(node_id).point.dist_to(&dest_node.point),
         )?;
 
         Some(self.build_route_response(cost, &path))
@@ -159,16 +176,12 @@ impl OsmGraph {
                 .find_edge_undirected(prev_node_id, node_id)
                 .expect("no edge between given nodes");
 
-            let edge = self
-                .inner
-                .edge_weight(edge_idx)
-                .expect("missing edge weight");
-
-            dist_meters += edge.dist;
+            let edge = self.edge_data(edge_idx);
+            dist_meters += edge.geometry.distance;
 
             match direction {
-                Incoming => geometry.extend(&edge.geometry),
-                Outgoing => geometry.extend(edge.geometry.iter().rev()),
+                Incoming => geometry.extend(&edge.geometry.points),
+                Outgoing => geometry.extend(edge.geometry.points.iter().rev()),
             }
         }
 
