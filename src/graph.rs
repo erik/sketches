@@ -30,7 +30,7 @@ impl From<&OsmNode> for Point {
 #[derive(Debug)]
 pub struct NodeData {
     pub point: Point,
-    tag_id: TagSetId,
+    tag_id: TagDictId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,7 +42,7 @@ pub enum EdgeDirection {
 
 #[derive(Debug, Clone)]
 pub struct EdgeData {
-    tag_id: TagSetId,
+    tag_id: TagDictId,
     #[allow(unused)]
     direction: EdgeDirection,
     pub geometry: EdgeGeometry,
@@ -55,7 +55,7 @@ pub struct EdgeGeometry {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct TagSetId(usize);
+pub struct TagDictId(usize);
 
 pub struct OsmGraph {
     tag_sets: Vec<CompactTags>,
@@ -81,7 +81,7 @@ impl OsmGraph {
             .expect("edge source node not in graph")
     }
 
-    fn tags(&self, id: TagSetId) -> &CompactTags {
+    fn tags(&self, id: TagDictId) -> &CompactTags {
         &self.tag_sets[id.0]
     }
 

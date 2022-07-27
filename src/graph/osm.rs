@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
 use std::fs::File;
 use std::io::{Error, Read, Seek};
@@ -13,7 +13,7 @@ use crate::geo::Point;
 use crate::index::SpatialIndex;
 use crate::tags::{CompactTags, TagDict};
 
-use super::{EdgeData, EdgeDirection, EdgeGeometry, NodeData, OsmGraph, TagSetId};
+use super::{EdgeData, EdgeDirection, EdgeGeometry, NodeData, OsmGraph, TagDictId};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
@@ -148,30 +148,29 @@ impl ProgressTracker {
     }
 }
 
-// TODO: call it a deduplicator or something
-struct TagSetBuilder<'a> {
+struct TagDictDeduper<'a> {
     tag_dict: &'a mut TagDict,
-    tags: Vec<CompactTags>,
+    tags: HashSet<CompactTags>,
 }
 
-impl<'a> TagSetBuilder<'a> {
+impl<'a> TagDictDeduper<'a> {
     fn new(tag_dict: &'a mut TagDict) -> Self {
         Self {
             tag_dict,
-            tags: Vec::new(),
+            tags: HashSet::new(),
         }
     }
 
-    fn insert(&mut self, tags: &Tags) -> TagSetId {
+    fn insert(&mut self, tags: &Tags) -> TagDictId {
         let tags = self.tag_dict.from_osm(tags);
-        // TODO: actually de-dupe
-        self.tags.push(tags);
+        self.tags.insert(tags);
 
-        TagSetId(self.tags.len() - 1)
+        TagDictId(self.tags.len() - 1)
     }
 
     fn collect(&mut self) -> Vec<CompactTags> {
-        std::mem::replace(&mut self.tags, Vec::new())
+        let tags = std::mem::take(&mut self.tags);
+        tags.into_iter().collect()
     }
 }
 
@@ -179,14 +178,14 @@ struct OsmGraphBuilder<'a, 'b, R> {
     reader: OsmPbfReader<R>,
     node_kind: HashMap<OsmNodeId, NodeKind>,
     graph: Graph<NodeData, EdgeData, Undirected>,
-    tags: &'a mut TagSetBuilder<'b>,
+    tags: &'a mut TagDictDeduper<'b>,
 }
 
 impl<'a, 'b, R> OsmGraphBuilder<'a, 'b, R>
 where
     R: Read + Seek,
 {
-    fn new(reader: OsmPbfReader<R>, tags: &'a mut TagSetBuilder<'b>) -> Self {
+    fn new(reader: OsmPbfReader<R>, tags: &'a mut TagDictDeduper<'b>) -> Self {
         OsmGraphBuilder {
             reader,
             tags,
@@ -343,13 +342,16 @@ impl OsmGraph {
         let file = File::open(path)?;
         let reader = OsmPbfReader::new(file);
 
+        // TODO: fixed tag dict to avoid useless k/v pairs
         let mut tag_dict = TagDict::new();
-        let mut tag_set_builder = TagSetBuilder::new(&mut tag_dict);
+        let mut deduper = TagDictDeduper::new(&mut tag_dict);
 
-        let graph = OsmGraphBuilder::new(reader, &mut tag_set_builder).load_graph()?;
+        let graph = OsmGraphBuilder::new(reader, &mut deduper).load_graph()?;
         let index = SpatialIndex::build(&graph);
 
-        let tag_sets = tag_set_builder.collect();
+        let tag_sets = deduper.collect();
+
+        println!("distinct tag_sets = {}", tag_sets.len());
 
         Ok(OsmGraph {
             inner: graph,

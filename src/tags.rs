@@ -105,13 +105,13 @@ fn ignore_osm_tag(key: &CompactString, _val: &CompactString) -> bool {
             .any(|prefix| key.starts_with(prefix))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct CompactTag {
     key: TagDictId,
     val: TagDictId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct CompactTags {
     keys: Vec<CompactTag>,
 }
