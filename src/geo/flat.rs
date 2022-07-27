@@ -11,7 +11,7 @@ lazy_static! {
 }
 
 #[derive(PartialEq, Debug)]
-struct Ruler {
+pub struct Ruler {
     /// Meters per degree of longitude
     k_lng: f32,
     /// Meters per degree of latitude
@@ -19,12 +19,17 @@ struct Ruler {
 }
 
 impl Ruler {
-    fn for_lat(lat: f32) -> &'static Self {
+    pub fn for_lat(lat: f32) -> &'static Self {
         let lat = lat.abs() as usize;
         &RULERS[lat]
     }
 
-    fn new(lat: f32) -> Self {
+    #[inline]
+    pub fn for_point(p: &Point) -> &'static Self {
+        Self::for_lat(p.lat)
+    }
+
+    pub fn new(lat: f32) -> Self {
         let m = EARTH_RADIUS.to_radians();
         let cos_lat = (lat.to_radians()).cos();
         let w2 = 1.0 / (1.0 - E2 * (1.0 - cos_lat * cos_lat));
@@ -36,14 +41,14 @@ impl Ruler {
         }
     }
 
-    fn dist_cheap(&self, a: &Point, b: &Point) -> f32 {
+    pub fn dist_cheap(&self, a: &Point, b: &Point) -> f32 {
         let d_lng = wrap_degree(b.lng - a.lng) * self.k_lng;
         let d_lat = (b.lat - a.lat) * self.k_lat;
 
         d_lng.hypot(d_lat)
     }
 
-    fn meters_to_deg(&self, m: f32) -> f32 {
+    pub fn meters_to_deg(&self, m: f32) -> f32 {
         let deg_per_m = 1.0 / self.k_lng;
         m * deg_per_m
     }
@@ -118,7 +123,7 @@ mod tests {
         let ruler = Ruler::new(32.8351);
 
         for pt in points.iter() {
-            let haver_dist = base.dist_to(pt);
+            let haver_dist = base.haversine(pt);
             let cheap_dist = ruler.dist_cheap(base, pt);
 
             let delta = (haver_dist - cheap_dist).abs();

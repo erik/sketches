@@ -6,10 +6,10 @@ use petgraph::{
 use rstar::primitives::{GeomWithData, Rectangle};
 use rstar::{RTree, AABB};
 
-use crate::graph::{EdgeData, LatLng, NodeData};
+use crate::geo::{flat::Ruler, Point};
+use crate::graph::{EdgeData, NodeData};
 
-pub type RTreePoint = (f32, f32);
-pub type IndexedRect<I> = GeomWithData<Rectangle<RTreePoint>, I>;
+pub type IndexedRect<I> = GeomWithData<Rectangle<Point>, I>;
 
 pub struct SpatialIndex {
     tree: RTree<IndexedRect<EdgeIndex>>,
@@ -24,21 +24,41 @@ pub enum SnappedTo {
     },
 }
 
+impl rstar::Point for Point {
+    type Scalar = f32;
+    const DIMENSIONS: usize = 2;
+
+    fn generate(mut generator: impl FnMut(usize) -> Self::Scalar) -> Self {
+        Point {
+            lng: generator(0),
+            lat: generator(1),
+        }
+    }
+
+    fn nth(&self, index: usize) -> Self::Scalar {
+        match index {
+            0 => self.lng,
+            1 => self.lat,
+            _ => unreachable!(),
+        }
+    }
+
+    fn nth_mut(&mut self, index: usize) -> &mut Self::Scalar {
+        match index {
+            0 => &mut self.lng,
+            1 => &mut self.lat,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl SpatialIndex {
     pub fn build(graph: &Graph<NodeData, EdgeData, Undirected>) -> Self {
         let bboxes = graph
             .edge_references()
             .map(|edge_ref| {
-                // TODO: Remove unnecessary mapping/collection
-                let geom = edge_ref
-                    .weight()
-                    .geometry
-                    .points
-                    .iter()
-                    .map(|ll| (ll.lon.to_degrees(), ll.lat.to_degrees()))
-                    .collect::<Vec<_>>();
-
-                let aabb = AABB::from_points(&geom);
+                let geometry = edge_ref.weight().geometry.points.clone();
+                let aabb = AABB::from_points(&geometry);
                 GeomWithData::new(Rectangle::from_aabb(aabb), edge_ref.id())
             })
             .collect::<Vec<_>>();
@@ -51,18 +71,16 @@ impl SpatialIndex {
     pub fn snap_point(
         &self,
         graph: &Graph<NodeData, EdgeData, Undirected>,
-        query_pt: LatLng,
+        query: Point,
         radius_meters: f32,
     ) -> Option<SnappedTo> {
-        // TODO: Clean this up, this is degrees / meter at equator.
-        const DEGREES_PER_METER: f32 = 0.0000089;
-        let radius_degrees = DEGREES_PER_METER * radius_meters;
-
         let mut snap: Option<SnappedTo> = None;
         let mut min_dist = radius_meters;
 
-        let query = (query_pt.lon.to_degrees(), query_pt.lat.to_degrees());
-        for edge in self.tree.locate_within_distance(query, radius_degrees) {
+        let ruler = Ruler::for_point(&query);
+        let radius = ruler.meters_to_deg(radius_meters);
+
+        for edge in self.tree.locate_within_distance(query, radius) {
             let edge_id = edge.data;
 
             let edge_weight = graph
@@ -74,7 +92,8 @@ impl SpatialIndex {
                 .expect("index out of sync with graph");
 
             for (i, pt) in edge_weight.geometry.points.iter().enumerate() {
-                let dist = query_pt.dist_to(pt);
+                let dist = ruler.dist_cheap(&query, pt);
+
                 if dist >= min_dist {
                     continue;
                 }
@@ -86,10 +105,14 @@ impl SpatialIndex {
                 } else if i == edge_weight.geometry.points.len() - 1 {
                     Some(SnappedTo::Node(to_node_id))
                 } else {
-                    let dist_from = pt.dist_to(&edge_weight.geometry.points[0]);
-                    let dist_to = pt.dist_to(
+                    let (from, to) = (
+                        &edge_weight.geometry.points[0],
                         &edge_weight.geometry.points[edge_weight.geometry.points.len() - 1],
                     );
+
+                    let dist_from = ruler.dist_cheap(pt, from);
+                    let dist_to = ruler.dist_cheap(pt, to);
+
                     let nearest_node = if dist_from < dist_to {
                         from_node_id
                     } else {

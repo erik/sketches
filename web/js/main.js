@@ -70,11 +70,11 @@ class Segment {
       method: 'POST',
       body: JSON.stringify({
         from: {
-          lon: this.from.point.lng,
+          lng: this.from.point.lng,
           lat: this.from.point.lat,
         },
         to: {
-          lon: this.to.point.lng,
+          lng: this.to.point.lng,
           lat: this.to.point.lat,
         }
       }),
@@ -93,10 +93,7 @@ class Segment {
     }
 
     this.state = 'done';
-    this.geometry = json.geometry.map(it => ({
-      lng: it.lon,
-      lat: it.lat,
-    }));
+    this.geometry = json.geometry;
 
     if (this.geometry.length >= 2) {
       this.from.reposition(this.geometry[0]);

@@ -17,6 +17,7 @@ use rocket::fs::FileServer;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::State;
 
+use crate::geo::Point;
 use crate::graph::OsmGraph;
 use crate::profile::Runtime;
 use crate::tags::TagDict;
@@ -50,35 +51,11 @@ impl Timer {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(crate = "rocket::serde")]
-struct JsonLatLng {
-    lat: f32,
-    lon: f32,
-}
-
-impl From<crate::graph::LatLng> for JsonLatLng {
-    fn from(ll: crate::graph::LatLng) -> JsonLatLng {
-        JsonLatLng {
-            lat: ll.lat.to_degrees(),
-            lon: ll.lon.to_degrees(),
-        }
-    }
-}
-impl From<JsonLatLng> for crate::graph::LatLng {
-    fn from(json: JsonLatLng) -> crate::graph::LatLng {
-        crate::graph::LatLng {
-            lat: json.lat.to_radians(),
-            lon: json.lon.to_radians(),
-        }
-    }
-}
-
 #[derive(Deserialize, Debug)]
 #[serde(crate = "rocket::serde")]
 pub struct RouteRequest {
-    from: JsonLatLng,
-    to: JsonLatLng,
+    from: Point,
+    to: Point,
 }
 
 #[derive(Serialize, Debug)]
@@ -86,7 +63,7 @@ pub struct RouteRequest {
 pub struct RouteResponseBody {
     distance_meters: u32,
     route_cost: f32,
-    geometry: Vec<JsonLatLng>,
+    geometry: Vec<Point>,
 }
 
 mod routes {
@@ -111,13 +88,13 @@ mod routes {
         let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
 
         let mut timer = Timer::new();
-        let route = graph.find_route(&rt, req.0.from.into(), req.0.to.into());
+        let route = graph.find_route(&rt, req.0.from, req.0.to);
         timer.elapsed("find route");
 
         Json(route.map(|route| RouteResponseBody {
             distance_meters: route.dist_meters,
             route_cost: route.cost,
-            geometry: route.geometry.into_iter().map(|pt| pt.into()).collect(),
+            geometry: route.geometry,
         }))
     }
 }

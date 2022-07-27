@@ -8,10 +8,12 @@ use osmpbfreader::{objects::NodeId as OsmNodeId, Node, OsmObj, OsmPbfReader, Tag
 use petgraph::Undirected;
 use petgraph::{graph::Graph, graph::NodeIndex};
 
+use crate::geo;
+use crate::geo::Point;
 use crate::index::SpatialIndex;
 use crate::tags::{CompactTags, TagDict};
 
-use super::{EdgeData, EdgeDirection, EdgeGeometry, LatLng, NodeData, OsmGraph, TagSetId};
+use super::{EdgeData, EdgeDirection, EdgeGeometry, NodeData, OsmGraph, TagSetId};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
@@ -82,7 +84,7 @@ enum NodeKind {
 }
 
 struct SecondPassNode {
-    point: LatLng,
+    point: Point,
     index: Option<NodeIndex<u32>>,
 }
 
@@ -267,7 +269,7 @@ where
 
                     if let Some(&kind) = self.node_kind.get(&node.id) {
                         trk.node();
-                        let point = LatLng::from(&node);
+                        let point = Point::from(&node);
                         let index = match kind {
                             NodeKind::Geometry => None,
                             NodeKind::Routing => Some(self.graph.add_node(NodeData {
@@ -284,7 +286,7 @@ where
                     trk.way();
 
                     let mut dist = 0.0;
-                    let mut way_geo: Vec<LatLng> = vec![];
+                    let mut way_geo: Vec<Point> = vec![];
 
                     let mut prev_node_id: Option<NodeIndex> = None;
 
@@ -292,7 +294,7 @@ where
                         let node = node_map.get(id).expect("Missing node info from way");
 
                         if let Some(prev) = way_geo.last() {
-                            dist += prev.dist_to(&node.point);
+                            dist += prev.haversine(&node.point);
                         }
 
                         way_geo.push(node.point);
@@ -311,8 +313,7 @@ where
                                         direction: EdgeDirection::infer(&way.tags),
                                         geometry: EdgeGeometry {
                                             distance: dist as u32,
-                                            // Approx 1m precision at equator.
-                                            points: simplify(&way_geo, 1e-6),
+                                            points: geo::simplify_line(&way_geo, 1e-6),
                                         },
                                     },
                                 );
@@ -356,49 +357,6 @@ impl OsmGraph {
             tag_dict,
             tag_sets,
         })
-    }
-}
-
-// Ramer-Douglas-Peucker line simplification
-// TODO: needs tests, not checked
-fn simplify(geo: &[LatLng], epsilon: f32) -> Vec<LatLng> {
-    let mut result = Vec::with_capacity(geo.len());
-    result.push(geo[0]);
-    simplify_inner(geo, epsilon, &mut result);
-    result
-}
-
-// TODO: Probably shouldn't be working in radians here...
-fn simplify_inner(geo: &[LatLng], epsilon: f32, result: &mut Vec<LatLng>) {
-    if geo.len() < 2 {
-        return;
-    }
-
-    let (first, last) = (geo[0], geo[geo.len() - 1]);
-
-    let dy = last.lat - first.lat;
-    let dx = last.lon - first.lon;
-
-    let mut max_dist = 0.0;
-    let mut index = 0;
-
-    for i in 1..geo.len() - 1 {
-        let p = geo[i];
-        // Distance from `point` to line [first, last]
-        let d = (p.lon * dy - p.lat * dx) + (last.lon * first.lat - last.lat * first.lon);
-        let dist = d.abs() / dx.hypot(dy);
-
-        if dist > max_dist {
-            max_dist = dist;
-            index = i;
-        }
-    }
-
-    if max_dist > epsilon {
-        simplify_inner(&geo[..=index], epsilon, result);
-        simplify_inner(&geo[index..], epsilon, result);
-    } else {
-        result.push(last);
     }
 }
 

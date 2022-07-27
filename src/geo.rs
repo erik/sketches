@@ -1,36 +1,40 @@
+// TODO: real serde
+use rocket::serde::{Deserialize, Serialize};
+
 pub mod flat;
 
 /// Radius of the earth at equator, meters
 const EARTH_RADIUS: f32 = 6_378_137.0;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[serde(crate = "rocket::serde")]
 pub struct Point {
     pub lat: f32,
     pub lng: f32,
 }
 
 impl Point {
-    // Haversine, returns meters
-    pub fn dist_to(&self, other: &Self) -> f32 {
+    // Haversine distance, returns meters
+    pub fn haversine(&self, other: &Self) -> f32 {
         let (lat1, lng1) = (self.lat.to_radians(), self.lng.to_radians());
         let (lat2, lng2) = (other.lat.to_radians(), other.lng.to_radians());
 
         let dt_lng = (lng1 - lng2).abs();
         let dt_lat = (lat1 - lat2).abs();
 
-        let a = (dt_lat / 2.0_f32).sin();
-        let b = (dt_lng / 2.0_f32).sin();
+        let a = (dt_lat / 2.0).sin();
+        let b = (dt_lng / 2.0).sin();
         let c = lat1.cos() * lat2.cos();
         let d = (a * a) + ((b * b) * c);
         let e = d.sqrt().asin();
 
-        2_f32 * EARTH_RADIUS * e
+        2.0 * EARTH_RADIUS * e
     }
 }
 
 // Ramer-Douglas-Peucker line simplification
 // TODO: needs tests, not checked
-pub fn simplify(geo: &[Point], epsilon: f32) -> Vec<Point> {
+pub fn simplify_line(geo: &[Point], epsilon: f32) -> Vec<Point> {
     let mut result = Vec::with_capacity(geo.len());
     result.push(geo[0]);
     simplify_inner(geo, epsilon, &mut result);

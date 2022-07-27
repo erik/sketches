@@ -10,50 +10,26 @@ use petgraph::{
     Undirected,
 };
 
+use crate::geo::flat::Ruler;
+use crate::geo::Point;
 use crate::index::{SnappedTo, SpatialIndex};
 use crate::profile::Runtime;
 use crate::tags::{CompactTags, TagDict};
 
 pub mod osm;
 
-/// In radians
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct LatLng {
-    pub lat: f32,
-    pub lon: f32,
-}
-
-impl LatLng {
-    // Haversine, returns meters
-    // TODO: unchecked
-    pub fn dist_to(&self, other: &Self) -> f32 {
-        let dt_lon = self.lon - other.lon;
-        let dt_lat = self.lat - other.lat;
-
-        let a = (dt_lat / 2.0_f32).sin();
-        let b = (dt_lon / 2.0_f32).sin();
-        let c = self.lat.cos() * other.lat.cos();
-        let d = (a * a) + ((b * b) * c);
-        let e = d.sqrt().asin();
-
-        2_f32 * 6_372_800_f32 * e
-    }
-}
-
-impl From<&OsmNode> for LatLng {
-    fn from(node: &OsmNode) -> LatLng {
-        let (lat, lon) = (node.lat() as f32, node.lon() as f32);
-
-        LatLng {
-            lat: lat.to_radians(),
-            lon: lon.to_radians(),
+impl From<&OsmNode> for Point {
+    fn from(node: &OsmNode) -> Self {
+        Point {
+            lat: node.lat() as f32,
+            lng: node.lon() as f32,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct NodeData {
-    pub point: LatLng,
+    pub point: Point,
     tag_id: TagSetId,
 }
 
@@ -75,7 +51,7 @@ pub struct EdgeData {
 #[derive(Debug, Clone)]
 pub struct EdgeGeometry {
     pub distance: u32,
-    pub points: Vec<LatLng>,
+    pub points: Vec<Point>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -125,14 +101,14 @@ impl OsmGraph {
         score.penalty + (edge.geometry.distance as f32 * score.cost_factor)
     }
 
-    pub fn find_route(&self, rt: &Runtime, from: LatLng, to: LatLng) -> Option<RouteResponse> {
+    pub fn find_route(&self, rt: &Runtime, from: Point, to: Point) -> Option<RouteResponse> {
         let from = self.snap_to_node(from)?;
         let to = self.snap_to_node(to)?;
 
         self.find_route_from_nodes(rt, from, to)
     }
 
-    fn snap_to_node(&self, pt: LatLng) -> Option<NodeIndex> {
+    fn snap_to_node(&self, pt: Point) -> Option<NodeIndex> {
         let snap = self.index.snap_point(&self.inner, pt, 100.0)?;
 
         match snap {
@@ -150,13 +126,14 @@ impl OsmGraph {
         to: NodeIndex,
     ) -> Option<RouteResponse> {
         let dest_node = self.node_data(to);
+        let ruler = Ruler::for_point(&dest_node.point);
 
         let (cost, path) = astar(
             &self.inner,
             from,
             |node_id| node_id == to,
             |edge_ref| self.score_edge(rt, edge_ref),
-            |node_id| self.node_data(node_id).point.dist_to(&dest_node.point),
+            |node_id| ruler.dist_cheap(&self.node_data(node_id).point, &dest_node.point),
         )?;
 
         Some(self.build_route_response(cost, &path))
@@ -209,7 +186,7 @@ impl OsmGraph {
 pub struct RouteResponse {
     pub dist_meters: u32,
     pub cost: f32,
-    pub geometry: Vec<LatLng>,
+    pub geometry: Vec<Point>,
     // surfaces: Vec<Interval<SimpleSurface>>,
     // TODO: highway kind, elevation
 }
