@@ -12,7 +12,9 @@ lazy_static! {
 
 #[derive(PartialEq, Debug)]
 struct Ruler {
+    /// Meters per degree of longitude
     k_lng: f32,
+    /// Meters per degree of latitude
     k_lat: f32,
 }
 
@@ -39,6 +41,11 @@ impl Ruler {
         let d_lat = (b.lat - a.lat) * self.k_lat;
 
         d_lng.hypot(d_lat)
+    }
+
+    fn meters_to_deg(&self, m: f32) -> f32 {
+        let deg_per_m = 1.0 / self.k_lng;
+        m * deg_per_m
     }
 }
 
@@ -70,6 +77,23 @@ mod tests {
 
         let earth_circ = EARTH_RADIUS * 2.0 * std::f32::consts::PI;
         assert_eq!(ruler.dist_cheap(a, b), earth_circ / 2.0);
+    }
+
+    #[test]
+    fn meters_to_degrees_at_equator() {
+        let ruler = Ruler::new(0.0);
+
+        let expected = 0.000_008_9;
+        let actual = ruler.meters_to_deg(1.0);
+        let delta = (actual - expected).abs();
+
+        assert!(
+            delta < 1e-7,
+            "actual = {}, expected = {}, delta = {}",
+            actual,
+            expected,
+            delta
+        );
     }
 
     #[test]
