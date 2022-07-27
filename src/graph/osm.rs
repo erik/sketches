@@ -174,6 +174,15 @@ impl<'a> TagDictDeduper<'a> {
     }
 }
 
+impl From<&Node> for Point {
+    fn from(node: &Node) -> Self {
+        Point {
+            lat: node.lat() as f32,
+            lng: node.lon() as f32,
+        }
+    }
+}
+
 struct OsmGraphBuilder<'a, 'b, R> {
     reader: OsmPbfReader<R>,
     node_kind: HashMap<OsmNodeId, NodeKind>,

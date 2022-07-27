@@ -13,9 +13,14 @@ mod tags;
 use std::path::Path;
 use std::time::Instant;
 
+use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::FileServer;
+use rocket::http::Header;
+use rocket::response::content::RawHtml;
+use rocket::response::Responder;
+use rocket::serde::json::Json;
 use rocket::serde::{Deserialize, Serialize};
-use rocket::State;
+use rocket::{Request, Response, State};
 
 use crate::geo::Point;
 use crate::graph::OsmGraph;
@@ -66,36 +71,153 @@ pub struct RouteResponseBody {
     geometry: Vec<Point>,
 }
 
-mod routes {
-    use rocket::response::content::RawHtml;
-    use rocket::serde::json::Json;
+#[derive(Responder)]
+pub enum BrouterResponse<R, E> {
+    Err(E),
 
-    use super::*;
+    #[response(content_type = "application/vnd.geo+json; charset=utf-8")]
+    Ok(Json<R>),
+}
 
-    #[rocket::get("/")]
-    pub fn index() -> RawHtml<String> {
-        let html = std::fs::read_to_string("web/index.html").unwrap();
-        RawHtml(html)
+#[derive(Serialize, Debug)]
+#[serde(crate = "rocket::serde")]
+pub struct BrouterProperties {
+    creator: &'static str,
+    #[serde(rename = "track-length")]
+    track_length: String,
+    cost: String,
+    // Other, currently unsupported bits:
+    //
+    //   - filtered ascend [sic]
+    //   - plain-ascend
+    //   - total-time
+    //   - total-energy
+    //   - messages
+    //   - times
+}
+
+#[derive(Serialize, Debug)]
+#[serde(crate = "rocket::serde", tag = "type")]
+pub struct FeatureCollection<P> {
+    features: Vec<Feature<P>>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(crate = "rocket::serde", tag = "type")]
+pub struct Feature<P> {
+    properties: P,
+    geometry: Geometry,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(crate = "rocket::serde", tag = "type")]
+pub enum Geometry {
+    LineString { coordinates: Vec<(f32, f32, f32)> },
+}
+
+#[rocket::get("/")]
+pub fn route_index() -> RawHtml<String> {
+    let html = std::fs::read_to_string("web/index.html").unwrap();
+    RawHtml(html)
+}
+
+#[rocket::post("/api/route", format = "json", data = "<req>")]
+pub fn route_api(
+    graph: &State<OsmGraph>,
+    req: Json<RouteRequest>,
+) -> Json<Option<RouteResponseBody>> {
+    println!("Request: {:?}", req.0);
+
+    let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
+
+    let mut timer = Timer::new();
+    let route = graph.find_route(&rt, req.0.from, req.0.to);
+    timer.elapsed("find route");
+
+    Json(route.map(|route| RouteResponseBody {
+        distance_meters: route.dist_meters,
+        route_cost: route.cost,
+        geometry: route.geometry,
+    }))
+}
+
+#[rocket::get("/api/brouter?<lonlats>&<format>")]
+pub fn route_api_brouter(
+    lonlats: &str,
+    format: &str,
+    graph: &State<OsmGraph>,
+) -> BrouterResponse<FeatureCollection<BrouterProperties>, String> {
+    assert_eq!(
+        format, "geojson",
+        "only `geojson` is supported for `format`"
+    );
+
+    let coords = lonlats
+        .split('|')
+        .map(|s| {
+            let (lng, lat) = s.split_once(',')?;
+
+            Some(Point {
+                lng: lng.parse::<f32>().ok()?,
+                lat: lat.parse::<f32>().ok()?,
+            })
+        })
+        .into_iter()
+        .collect::<Option<Vec<Point>>>();
+
+    let (from, to) = match coords {
+        Some(points) if points.len() == 2 => (points[0], points[1]),
+        _ => panic!("improper format given for `lonlats`"),
+    };
+
+    let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
+
+    let mut timer = Timer::new();
+    let route = graph.find_route(&rt, from, to);
+    timer.elapsed("find route");
+
+    let route = match route {
+        Some(route) => route,
+        None => return BrouterResponse::Err("no valid route".into()),
+    };
+
+    BrouterResponse::Ok(Json(FeatureCollection {
+        features: vec![Feature {
+            properties: BrouterProperties {
+                creator: "panamint",
+                track_length: route.dist_meters.to_string(),
+                cost: route.cost.to_string(),
+            },
+            geometry: Geometry::LineString {
+                coordinates: route
+                    .geometry
+                    .iter()
+                    .map(|pt| (pt.lng, pt.lat, 0.0))
+                    .collect(),
+            },
+        }],
+    }))
+}
+
+pub struct CORS;
+
+#[rocket::async_trait]
+impl Fairing for CORS {
+    fn info(&self) -> Info {
+        Info {
+            name: "Attaching CORS headers to responses",
+            kind: Kind::Response,
+        }
     }
 
-    #[rocket::post("/route", format = "json", data = "<req>")]
-    pub fn route(
-        graph: &State<OsmGraph>,
-        req: Json<RouteRequest>,
-    ) -> Json<Option<RouteResponseBody>> {
-        println!("Request: {:?}", req.0);
-
-        let rt = load_runtime(&graph.tag_dict).expect("failed to load profile");
-
-        let mut timer = Timer::new();
-        let route = graph.find_route(&rt, req.0.from, req.0.to);
-        timer.elapsed("find route");
-
-        Json(route.map(|route| RouteResponseBody {
-            distance_meters: route.dist_meters,
-            route_cost: route.cost,
-            geometry: route.geometry,
-        }))
+    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
+        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "POST, GET, PATCH, OPTIONS",
+        ));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
 }
 
@@ -105,7 +227,11 @@ fn launch_server() -> _ {
 
     let server = rocket::build()
         .manage(graph)
-        .mount("/", rocket::routes![routes::index, routes::route])
+        .attach(CORS)
+        .mount(
+            "/",
+            rocket::routes![route_index, route_api, route_api_brouter],
+        )
         .mount("/static", FileServer::from("web/"));
 
     println!("Ready to go!");

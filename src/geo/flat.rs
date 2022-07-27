@@ -3,7 +3,7 @@
 use super::{Point, EARTH_RADIUS};
 
 /// Inverse flattening of earth sphere
-const FE: f32 = 1.0 / 298.257223563;
+const FE: f32 = 1.0 / 298.257_23;
 const E2: f32 = FE * (2.0 - FE);
 
 lazy_static! {

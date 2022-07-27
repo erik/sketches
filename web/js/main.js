@@ -65,7 +65,7 @@ class Segment {
     }
 
     this.inflight = new AbortController();
-    const res = await fetch('/route', {
+    const res = await fetch('/api/route', {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({

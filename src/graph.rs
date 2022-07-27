@@ -1,6 +1,3 @@
-use std::convert::From;
-
-use osmpbfreader::objects::Node as OsmNode;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::{
@@ -17,15 +14,6 @@ use crate::profile::Runtime;
 use crate::tags::{CompactTags, TagDict};
 
 pub mod osm;
-
-impl From<&OsmNode> for Point {
-    fn from(node: &OsmNode) -> Self {
-        Point {
-            lat: node.lat() as f32,
-            lng: node.lon() as f32,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct NodeData {
