@@ -41,7 +41,6 @@ pub fn simplify_line(geo: &[Point], epsilon: f32) -> Vec<Point> {
     result
 }
 
-// TODO: Probably shouldn't be working in radians here...
 fn simplify_inner(geo: &[Point], epsilon: f32, result: &mut Vec<Point>) {
     if geo.len() < 2 {
         return;

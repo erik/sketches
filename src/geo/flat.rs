@@ -41,9 +41,17 @@ impl Ruler {
         }
     }
 
-    pub fn dist_cheap(&self, a: &Point, b: &Point) -> f32 {
+    /// (lng, lat) delta between two points, in meters.
+    #[inline]
+    fn dist_xy(&self, a: &Point, b: &Point) -> (f32, f32) {
         let d_lng = wrap_degree(b.lng - a.lng) * self.k_lng;
         let d_lat = (b.lat - a.lat) * self.k_lat;
+
+        (d_lng, d_lat)
+    }
+
+    pub fn dist_cheap(&self, a: &Point, b: &Point) -> f32 {
+        let (d_lng, d_lat) = self.dist_xy(a, b);
 
         d_lng.hypot(d_lat)
     }
@@ -51,6 +59,32 @@ impl Ruler {
     pub fn meters_to_deg(&self, m: f32) -> f32 {
         let deg_per_m = 1.0 / self.k_lng;
         m * deg_per_m
+    }
+
+    /// Shortest distance from a point to a line
+    pub fn dist_point_to_line(&self, pt: &Point, line: &(Point, Point)) -> f32 {
+        let (a, b) = line;
+        let line_pt = {
+            // Line length
+            let (dx, dy) = self.dist_xy(a, b);
+            // Dist from point to start of line
+            let (dpx, dpy) = self.dist_xy(a, pt);
+
+            let t = (dx * dpx + dy * dpy) / (dx * dx + dy * dy);
+            if t > 1.0 {
+                *b
+            } else if t > 0.0 {
+                Point {
+                    lng: a.lng + (dx / self.k_lng) * t,
+                    lat: a.lat + (dy / self.k_lat) * t,
+                }
+            } else {
+                *a
+            }
+        };
+
+        let (dx, dy) = self.dist_xy(pt, &line_pt);
+        dx.hypot(dy)
     }
 }
 
@@ -141,5 +175,32 @@ mod tests {
         let ruler2 = Ruler::for_lat(90.5);
 
         assert_eq!(ruler1, *ruler2);
+    }
+
+    #[test]
+    fn dist_point_to_line() {
+        let ruler = Ruler::new(32.8351);
+
+        let pt = Point {
+            lat: 38.882017,
+            lng: -77.034076,
+        };
+
+        let line = (
+            Point {
+                lat: 38.878605,
+                lng: -77.031669,
+            },
+            Point {
+                lat: 38.881946,
+                lng: -77.029609,
+            },
+        );
+
+        let actual = ruler.dist_point_to_line(&pt, &line);
+        let expected = 374.6;
+
+        let delta = (actual - expected).abs();
+        assert!(delta < 0.5, "expected: {}, actual: {}", expected, actual);
     }
 }
