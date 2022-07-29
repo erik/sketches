@@ -8,6 +8,7 @@ mod geo;
 mod graph;
 mod index;
 mod profile;
+mod raster;
 mod tags;
 
 use std::path::Path;
