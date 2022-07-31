@@ -82,8 +82,10 @@ const IGNORED_KEY_PREFIXES: &[&str] = &[
     "network:",
     "operator:",
     "tiger:",
+    "survey",
     "wiki",
 ];
+
 // TODO: lazy_static! HashSet might be faster as this grows.
 // roughly sorted by usage.
 const IGNORED_KEYS: &[&str] = &[
@@ -97,6 +99,8 @@ const IGNORED_KEYS: &[&str] = &[
     "note",
     "network",
     "operator",
+    "mapillary",
+    "postal_code",
 ];
 
 fn ignore_osm_tag(key: &CompactString, val: &CompactString) -> bool {
