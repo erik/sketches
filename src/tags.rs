@@ -82,6 +82,7 @@ const IGNORED_KEY_PREFIXES: &[&str] = &[
     "network:",
     "operator:",
     "tiger:",
+    "wiki",
 ];
 // TODO: lazy_static! HashSet might be faster as this grows.
 // roughly sorted by usage.
@@ -98,11 +99,14 @@ const IGNORED_KEYS: &[&str] = &[
     "operator",
 ];
 
-fn ignore_osm_tag(key: &CompactString, _val: &CompactString) -> bool {
-    IGNORED_KEYS.iter().any(|k| key == k)
+fn ignore_osm_tag(key: &CompactString, val: &CompactString) -> bool {
+    let key = key.to_lowercase();
+
+    val.len() > 30 // long values are exceptionally likely to be high entropy.
+        || IGNORED_KEYS.iter().any(|&k| k == key)
         || IGNORED_KEY_PREFIXES
             .iter()
-            .any(|prefix| key.starts_with(prefix))
+            .any(|&prefix| key.starts_with(prefix))
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
