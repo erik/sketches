@@ -146,6 +146,21 @@ impl CompactTags {
             .map(|idx| &self.keys[idx].val)
             .ok()
     }
+
+    pub fn decode<'a>(
+        &self,
+        tag_dict: &'a TagDict,
+    ) -> HashMap<&'a CompactString, &'a CompactString> {
+        self.keys
+            .iter()
+            .map(|tag| {
+                let key = tag_dict.from_compact(&tag.key).unwrap();
+                let val = tag_dict.from_compact(&tag.val).unwrap();
+
+                (key, val)
+            })
+            .collect()
+    }
 }
 
 pub trait TagSource<K, V> {

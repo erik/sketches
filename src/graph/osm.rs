@@ -361,6 +361,9 @@ impl OsmGraph {
         let tag_sets = deduper.collect();
 
         println!("distinct tag_sets = {}", tag_sets.len());
+        // for t in tag_sets.iter() {
+        //     println!("t: {:?}", t.decode(&tag_dict));
+        // }
 
         Ok(OsmGraph {
             inner: graph,
