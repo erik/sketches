@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+image = "*"
 lazy_static = "1.4.0"
 osmpbfreader = "0.15.2"
 pest = "*"
