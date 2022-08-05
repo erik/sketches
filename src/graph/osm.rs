@@ -11,6 +11,7 @@ use petgraph::{graph::Graph, graph::NodeIndex};
 use crate::geo;
 use crate::geo::Point;
 use crate::index::SpatialIndex;
+use crate::raster::{mapper, XYZTileSampler};
 use crate::tags::{CompactTags, TagDict};
 
 use super::{EdgeData, EdgeDirection, NodeData, OsmGraph, TagDictId};
@@ -267,6 +268,15 @@ where
         let mut node_map =
             HashMap::<OsmNodeId, SecondPassNode>::with_capacity(self.node_kind.len());
 
+        let global_heat = XYZTileSampler::new(
+            "https://strava-heatmap-proxy.rkprc.workers.dev/global/orange/all/{z}/{x}/{y}.png",
+            Path::new("./data/tiles/global/"),
+        );
+        let personal_heat = XYZTileSampler::new(
+            "https://strava-heatmap-proxy.rkprc.workers.dev/personal/orange/all/{z}/{x}/{y}.png",
+            Path::new("./data/tiles/personal/"),
+        );
+
         for obj in self.reader.par_iter() {
             let obj = obj.expect("encountered unexpected object reading PBF");
             trk.object();
@@ -313,6 +323,8 @@ where
                                 // - https://www.openstreetmap.org/way/1060404609
                                 // - https://www.openstreetmap.org/way/1060404608
 
+                                let geometry = geo::simplify_line(&way_geo, 1e-6);
+
                                 self.graph.add_edge(
                                     index,
                                     prev_id,
@@ -320,7 +332,21 @@ where
                                         tag_id: self.tags.insert(&way.tags),
                                         direction: EdgeDirection::infer(&way.tags),
                                         distance: dist as u32,
-                                        points: geo::simplify_line(&way_geo, 1e-6),
+                                        popularity_global: global_heat
+                                            .sample(&geometry, mapper::strava_orange)
+                                            .map(|values| {
+                                                values.iter().map(|x| x.unwrap_or(0.0)).sum::<f32>()
+                                                    / geometry.len() as f32
+                                            })
+                                            .unwrap(),
+                                        popularity_self: personal_heat
+                                            .sample(&geometry, mapper::strava_orange)
+                                            .map(|values| {
+                                                values.iter().map(|x| x.unwrap_or(0.0)).sum::<f32>()
+                                                    / geometry.len() as f32
+                                            })
+                                            .unwrap(),
+                                        points: geometry,
                                     },
                                 );
 

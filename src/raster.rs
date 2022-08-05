@@ -2,7 +2,7 @@
 
 use std::f32::consts::PI;
 use std::fs::File;
-use std::io::Result;
+use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 
 use image::RgbaImage;
@@ -18,7 +18,7 @@ struct XYZTile {
 
 impl XYZTile {
     fn from_point(point: Point, z: usize) -> Self {
-        let pow = (2 << z) as f32;
+        let pow = (2 << (z - 1)) as f32;
         let lat_rad = point.lat.to_radians();
 
         Self {
@@ -30,14 +30,15 @@ impl XYZTile {
 
     /// Project [pt] to this tile
     fn pixel_offset(&self, pt: Point) -> Option<(u32, u32)> {
-        let tile_size = 256;
+        let tile_size = 512;
 
-        let size = (tile_size * (2 << self.z)) as f32 / (PI * 2.0);
+        let pow = 2 << (self.z - 1);
+        let size = (tile_size * pow) as f32 / (PI * 2.0);
 
         let x = (size * (PI + pt.lng)) as u32;
         let y = (size * (PI - (PI / 4.0 + pt.lat / 2.0).tan().ln())) as u32;
 
-        if (0..tile_size).contains(&x) || (0..tile_size).contains(&y) {
+        if (0..tile_size).contains(&x) && (0..tile_size).contains(&y) {
             Some((x, y))
         } else {
             None
@@ -69,13 +70,20 @@ pub mod mapper {
     }
 }
 
-struct XYZTileSampler {
+pub struct XYZTileSampler {
     tile_url: String,
     tile_dir: PathBuf,
     fixed_zoom: usize,
 }
 
 impl XYZTileSampler {
+    pub fn new(tile_url: &str, tile_dir: &Path) -> Self {
+        Self {
+            tile_url: tile_url.into(),
+            tile_dir: tile_dir.into(),
+            fixed_zoom: 11,
+        }
+    }
     // TODO: use correct Result type here
     fn fetch_tile(&self, xyz: XYZTile, path: &Path) -> Result<()> {
         let url = self
@@ -84,11 +92,14 @@ impl XYZTileSampler {
             .replace("{y}", &xyz.y.to_string())
             .replace("{z}", &xyz.z.to_string());
 
-        println!("[info] fetching {}...", url);
+        println!("[info] fetching {:?}...", xyz);
 
-        let mut res = reqwest::blocking::get(url).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap())?;
         let mut file = File::create(path)?;
-        res.copy_to(&mut file).unwrap();
+
+        let res = minreq::get(url).send().unwrap();
+
+        file.write_all(res.as_bytes())?;
 
         Ok(())
     }
@@ -103,11 +114,14 @@ impl XYZTileSampler {
             self.fetch_tile(xyz, &tile_path)?;
         }
 
-        let image = image::open(tile_path).unwrap().into_rgba8();
+        let image = image::open(tile_path)
+            .map(|img| img.into_rgba8())
+            .unwrap_or(RgbaImage::default());
+
         Ok(image)
     }
 
-    fn sample<F>(&mut self, points: &[Point], pixel_mapper: F) -> Result<Vec<Option<f32>>>
+    pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<Vec<Option<f32>>>
     where
         F: Fn(image::Rgba<u8>) -> f32,
     {

@@ -35,6 +35,8 @@ pub struct EdgeData {
     direction: EdgeDirection,
     pub distance: u32,
     pub points: Vec<Point>,
+    pub popularity_global: f32,
+    pub popularity_self: f32,
 }
 
 #[derive(Copy, Clone, Debug)]
