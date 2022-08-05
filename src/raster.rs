@@ -1,8 +1,9 @@
 #![allow(dead_code, unused_variables)]
 
 use std::f32::consts::PI;
+use std::fs::File;
 use std::io::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use image::RgbaImage;
 
@@ -69,13 +70,41 @@ pub mod mapper {
 }
 
 struct XYZTileSampler {
+    tile_url: String,
     tile_dir: PathBuf,
     fixed_zoom: usize,
 }
 
 impl XYZTileSampler {
+    // TODO: use correct Result type here
+    fn fetch_tile(&self, xyz: XYZTile, path: &Path) -> Result<()> {
+        let url = self
+            .tile_url
+            .replace("{x}", &xyz.x.to_string())
+            .replace("{y}", &xyz.y.to_string())
+            .replace("{z}", &xyz.z.to_string());
+
+        println!("[info] fetching {}...", url);
+
+        let mut res = reqwest::blocking::get(url).unwrap();
+        let mut file = File::create(path)?;
+        res.copy_to(&mut file).unwrap();
+
+        Ok(())
+    }
+
     fn load_tile(&self, xyz: XYZTile) -> Result<RgbaImage> {
-        todo!()
+        // TODO: not necessarily PNG
+        let tile_path = self
+            .tile_dir
+            .join(format!("{}/{}/{}.png", xyz.z, xyz.x, xyz.y));
+
+        if !tile_path.exists() {
+            self.fetch_tile(xyz, &tile_path)?;
+        }
+
+        let image = image::open(tile_path).unwrap().into_rgba8();
+        Ok(image)
     }
 
     fn sample<F>(&mut self, points: &[Point], pixel_mapper: F) -> Result<Vec<Option<f32>>>
