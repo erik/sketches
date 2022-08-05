@@ -13,7 +13,7 @@ use crate::geo::Point;
 use crate::index::SpatialIndex;
 use crate::tags::{CompactTags, TagDict};
 
-use super::{EdgeData, EdgeDirection, EdgeGeometry, NodeData, OsmGraph, TagDictId};
+use super::{EdgeData, EdgeDirection, NodeData, OsmGraph, TagDictId};
 
 const WAY_PERMITTED_ACCESS_VALUES: &[&str] =
     &["yes", "permissive", "designated", "destination", "public"];
@@ -319,10 +319,8 @@ where
                                     EdgeData {
                                         tag_id: self.tags.insert(&way.tags),
                                         direction: EdgeDirection::infer(&way.tags),
-                                        geometry: EdgeGeometry {
-                                            distance: dist as u32,
-                                            points: geo::simplify_line(&way_geo, 1e-6),
-                                        },
+                                        distance: dist as u32,
+                                        points: geo::simplify_line(&way_geo, 1e-6),
                                     },
                                 );
 

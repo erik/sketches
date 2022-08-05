@@ -57,7 +57,7 @@ impl SpatialIndex {
         let bboxes = graph
             .edge_references()
             .map(|edge_ref| {
-                let geometry = edge_ref.weight().geometry.points.clone();
+                let geometry = edge_ref.weight().points.clone();
                 let aabb = AABB::from_points(&geometry);
                 GeomWithData::new(Rectangle::from_aabb(aabb), edge_ref.id())
             })
@@ -91,7 +91,7 @@ impl SpatialIndex {
                 .edge_endpoints(edge_id)
                 .expect("index out of sync with graph");
 
-            for (i, pt) in edge_weight.geometry.points.iter().enumerate() {
+            for (i, pt) in edge_weight.points.iter().enumerate() {
                 let dist = ruler.dist_cheap(&query, pt);
 
                 if dist >= min_dist {
@@ -102,12 +102,12 @@ impl SpatialIndex {
 
                 snap = if i == 0 {
                     Some(SnappedTo::Node(from_node_id))
-                } else if i == edge_weight.geometry.points.len() - 1 {
+                } else if i == edge_weight.points.len() - 1 {
                     Some(SnappedTo::Node(to_node_id))
                 } else {
                     let (from, to) = (
-                        &edge_weight.geometry.points[0],
-                        &edge_weight.geometry.points[edge_weight.geometry.points.len() - 1],
+                        &edge_weight.points[0],
+                        &edge_weight.points[edge_weight.points.len() - 1],
                     );
 
                     let dist_from = ruler.dist_cheap(pt, from);

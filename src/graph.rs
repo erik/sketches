@@ -33,11 +33,6 @@ pub struct EdgeData {
     tag_id: TagDictId,
     #[allow(unused)]
     direction: EdgeDirection,
-    pub geometry: EdgeGeometry,
-}
-
-#[derive(Debug, Clone)]
-pub struct EdgeGeometry {
     pub distance: u32,
     pub points: Vec<Point>,
 }
@@ -80,13 +75,20 @@ impl OsmGraph {
         let source_tags = self.tags(self.node_data(edge_ref.source()).tag_id);
         let target_tags = self.tags(self.node_data(edge_ref.target()).tag_id);
 
+        let global_lookup = |key: &str| match key {
+            "way.length" => Some(edge.distance as f32),
+            "way.popularity-global" => todo!(),
+            "way.popularity-local" => todo!(),
+            _ => None,
+        };
+
         // TODO: we can cache the score for a given tag set. use an
         // LRU or something.
         let score = rt
-            .score(source_tags, target_tags, edge_tags, &|_global| None)
+            .score(source_tags, target_tags, edge_tags, &global_lookup)
             .expect("error while computing score");
 
-        score.penalty + (edge.geometry.distance as f32 * score.cost_factor)
+        score.penalty + (edge.distance as f32 * score.cost_factor)
     }
 
     pub fn find_route(&self, rt: &Runtime, from: Point, to: Point) -> Option<RouteResponse> {
@@ -142,11 +144,11 @@ impl OsmGraph {
                 .expect("no edge between given nodes");
 
             let edge = self.edge_data(edge_idx);
-            dist_meters += edge.geometry.distance;
+            dist_meters += edge.distance;
 
             match direction {
-                Incoming => geometry.extend(&edge.geometry.points),
-                Outgoing => geometry.extend(edge.geometry.points.iter().rev()),
+                Incoming => geometry.extend(&edge.points),
+                Outgoing => geometry.extend(edge.points.iter().rev()),
             }
         }
 

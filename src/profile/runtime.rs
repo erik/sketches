@@ -338,7 +338,7 @@ impl Runtime {
         global_lookup: &G,
     ) -> Result<Vec<Value>, CompileError>
     where
-        G: Fn(&str) -> Option<Value>,
+        G: Fn(&str) -> Option<f32>,
     {
         let mut consts = vec![];
 
@@ -365,7 +365,7 @@ impl Runtime {
     ) -> Result<EdgeScore, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
-        G: Fn(&str) -> Option<Value>,
+        G: Fn(&str) -> Option<f32>,
     {
         let mut penalty = 0.0;
         let mut cost_factor = 1.0;
@@ -398,7 +398,7 @@ impl Runtime {
     ) -> Result<f32, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
-        G: Fn(&str) -> Option<Value>,
+        G: Fn(&str) -> Option<f32>,
     {
         let mut context = EvalContext::create(
             &self.constants,
@@ -455,7 +455,7 @@ impl<'a, G> EvalContext<'a, EmptyTagSource, G> {
 impl<'a, T, G> EvalContext<'a, T, G>
 where
     T: TagSource<TagDictId, TagDictId>,
-    G: Fn(&str) -> Option<Value>,
+    G: Fn(&str) -> Option<f32>,
 {
     fn create(
         constants: &'a [Value],
@@ -481,9 +481,11 @@ where
                 })
             }
 
-            Expr::LookupGlobal(ident) => (self.global_lookup)(&ident).ok_or_else(|| {
-                RuntimeError::Internal(format!("bad global reference: {:?}", ident))
-            }),
+            Expr::LookupGlobal(ident) => (self.global_lookup)(&ident)
+                .map(Value::Number)
+                .ok_or_else(|| {
+                    RuntimeError::Internal(format!("bad global reference: {:?}", ident))
+                }),
 
             Expr::LookupOrCompute(id, def) => {
                 let id = *id as usize;
