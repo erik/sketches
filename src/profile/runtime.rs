@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::tags::{EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
 
@@ -68,6 +68,8 @@ enum Expr {
     Literal(Value),
     LookupConstant(u8),
     LookupOrCompute(u16, Box<Expr>),
+    // TODO: should this be an index?
+    LookupDerived(String),
     Block(BlockTy, Vec<Expr>),
     When(Vec<WhenBlockClause>),
     TagPattern(Vec<TagPattern<TagDictId>>),
@@ -134,6 +136,7 @@ impl VariableMapping {
 // TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
     constants: HashMap<String, u8>,
+    derived_values: HashSet<String>,
     tag_dict: &'a TagDict,
     variables: VariableMapping,
 }
@@ -144,6 +147,7 @@ impl<'a> Builder<'a> {
             tag_dict,
             variables: VariableMapping::new(),
             constants: Self::build_const_map(constants),
+            derived_values: HashSet::new(),
         }
     }
 
@@ -179,6 +183,11 @@ impl<'a> Builder<'a> {
                 } else {
                     Err(CompileError::UnknownIdent(ident.as_str().into()))
                 }
+            }
+
+            Expression::DerivedIdent(ident) => {
+                self.derived_values.insert(ident.clone());
+                Ok(Expr::LookupDerived(ident.into()))
             }
 
             Expression::TagPattern(patterns) => {
@@ -453,6 +462,8 @@ where
                     RuntimeError::Internal(format!("bad constant reference: {:?}", id))
                 })
             }
+
+            Expr::LookupDerived(_ident) => todo!(),
 
             Expr::LookupOrCompute(id, def) => match self.variables[*id as usize] {
                 Some(val) => Ok(val),

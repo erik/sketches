@@ -4,10 +4,13 @@ COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
 invalid      = @{ "invalid" }
 else_        = @{ "else" }
 bool         = @{ "true" | "false" }
+// TODO: negative numbers
 number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
 ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" | ":" | "!" }
 ident        = @{ ident_char+ }
+// TODO: figure out what the right syntax and name for this is, doesn't feel right
+derived_ident = @{ "way." ~ ident }
 
 top_level = _{
        SOI
@@ -75,6 +78,7 @@ expr = _{
     | when_block
     | named_block
     | ident
+    | derived_ident
 }
 
 tag_expr = {
