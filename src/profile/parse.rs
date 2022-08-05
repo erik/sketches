@@ -30,7 +30,6 @@ impl Value {
 pub enum Expression {
     Literal(Value),
     Ident(String),
-    DerivedIdent(String),
     TagPattern(Vec<TagPattern<String>>),
     Block(Block),
     WhenBlock(WhenBlock),
@@ -150,7 +149,6 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expression {
         Rule::when_block => WhenBlock(parse_when_block(pair.into_inner())),
         Rule::named_block => Block(parse_block(pair.into_inner())),
         Rule::ident => Ident(parse_as_str(pair).into()),
-        Rule::derived_ident => DerivedIdent(parse_as_str(pair).into()),
 
         rule => panic!("unexpected rule: {:?}", rule),
     }

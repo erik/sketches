@@ -69,7 +69,7 @@ enum Expr {
     LookupConstant(u8),
     LookupOrCompute(u16, Box<Expr>),
     // TODO: should this be an index?
-    LookupDerived(String),
+    LookupGlobal(String),
     Block(BlockTy, Vec<Expr>),
     When(Vec<WhenBlockClause>),
     TagPattern(Vec<TagPattern<TagDictId>>),
@@ -136,7 +136,7 @@ impl VariableMapping {
 // TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
     constants: HashMap<String, u8>,
-    derived_values: HashSet<String>,
+    globals: HashSet<String>,
     tag_dict: &'a TagDict,
     variables: VariableMapping,
 }
@@ -147,7 +147,8 @@ impl<'a> Builder<'a> {
             tag_dict,
             variables: VariableMapping::new(),
             constants: Self::build_const_map(constants),
-            derived_values: HashSet::new(),
+            // TODO: pass in valid globals here.
+            globals: HashSet::new(),
         }
     }
 
@@ -180,14 +181,11 @@ impl<'a> Builder<'a> {
                     Ok(Expr::LookupOrCompute(var_id, def))
                 } else if let Some(const_id) = self.constants.get(ident) {
                     Ok(Expr::LookupConstant(*const_id))
+                } else if self.globals.contains(ident) {
+                    Ok(Expr::LookupGlobal(ident.into()))
                 } else {
                     Err(CompileError::UnknownIdent(ident.as_str().into()))
                 }
-            }
-
-            Expression::DerivedIdent(ident) => {
-                self.derived_values.insert(ident.clone());
-                Ok(Expr::LookupDerived(ident.into()))
             }
 
             Expression::TagPattern(patterns) => {
@@ -311,18 +309,21 @@ impl Runtime {
         let mut builder = Builder::new(&profile.constant_defs, tag_dict);
 
         Ok(Self {
-            constants: Self::evaluate_constants(&mut builder, &profile.constant_defs)?,
+            // TODO: should be able to look up globals here
+            constants: Self::evaluate_constants(&mut builder, &profile.constant_defs, &|_| None)?,
 
             way_penalty: profile
                 .way_penalty
                 .as_ref()
                 .map(|expr| builder.build(expr))
                 .transpose()?,
+
             node_penalty: profile
                 .node_penalty
                 .as_ref()
                 .map(|expr| builder.build(expr))
                 .transpose()?,
+
             cost_factor: profile
                 .cost_factor
                 .as_ref()
@@ -331,16 +332,20 @@ impl Runtime {
         })
     }
 
-    fn evaluate_constants(
+    fn evaluate_constants<G>(
         builder: &mut Builder,
         defs: &Definitions,
-    ) -> Result<Vec<Value>, CompileError> {
+        global_lookup: &G,
+    ) -> Result<Vec<Value>, CompileError>
+    where
+        G: Fn(&str) -> Option<Value>,
+    {
         let mut consts = vec![];
 
         for (_, def) in defs {
             let runnable = builder.build(def)?;
 
-            let mut context = EvalContext::constant(&consts);
+            let mut context = EvalContext::constant(&consts, global_lookup);
             let value = context
                 .evaluate(&runnable.expr)
                 .map_err(CompileError::ConstEval)?;
@@ -351,29 +356,32 @@ impl Runtime {
         Ok(consts)
     }
 
-    pub fn score<T>(
+    pub fn score<T, G>(
         &self,
         source_node_tags: &T,
         target_node_tags: &T,
         way_tags: &T,
+        global_lookup: &G,
     ) -> Result<EdgeScore, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
+        G: Fn(&str) -> Option<Value>,
     {
         let mut penalty = 0.0;
         let mut cost_factor = 1.0;
 
+        // TODO: can cache source/target node penalty since this will be recomputed
         if let Some(expr) = &self.node_penalty {
-            penalty += self.evaluate_expression(expr, source_node_tags)?;
-            penalty += self.evaluate_expression(expr, target_node_tags)?;
+            penalty += self.evaluate_expression(expr, source_node_tags, global_lookup)?;
+            penalty += self.evaluate_expression(expr, target_node_tags, global_lookup)?;
         }
 
         if let Some(expr) = &self.way_penalty {
-            penalty += self.evaluate_expression(expr, way_tags)?;
+            penalty += self.evaluate_expression(expr, way_tags, global_lookup)?;
         }
 
         if let Some(expr) = &self.cost_factor {
-            cost_factor += self.evaluate_expression(expr, way_tags)?;
+            cost_factor += self.evaluate_expression(expr, way_tags, global_lookup)?;
         }
 
         Ok(EdgeScore {
@@ -382,18 +390,21 @@ impl Runtime {
         })
     }
 
-    fn evaluate_expression<T>(
+    fn evaluate_expression<T, G>(
         &self,
         expr: &RunnableExpr,
         tag_source: &T,
+        global_lookup: &G,
     ) -> Result<f32, RuntimeError>
     where
         T: TagSource<TagDictId, TagDictId>,
+        G: Fn(&str) -> Option<Value>,
     {
-        let mut context = EvalContext::with_tag_source(
+        let mut context = EvalContext::create(
             &self.constants,
             expr.variables.next_id as usize,
             tag_source,
+            global_lookup,
         );
 
         let val = match context.evaluate(&expr.expr) {
@@ -406,7 +417,6 @@ impl Runtime {
             // TODO: Formally specify this somehow. Result<Option<f32>>?
             // TODO: Can easily overflow.
             Value::Invalid => Ok(500_000.0),
-            // TODO: recover, don't panic
             val => Err(RuntimeError::TypeError {
                 have: format!("{:?}", val),
                 expected: "number|invalid".into(),
@@ -421,33 +431,41 @@ pub struct EdgeScore {
     pub cost_factor: f32,
 }
 
-struct EvalContext<'a, T> {
+struct EvalContext<'a, T, G> {
     constants: &'a [Value],
     variables: Vec<Option<Value>>,
     tag_source: Option<&'a T>,
+    global_lookup: &'a G,
 }
 
-impl<'a> EvalContext<'a, EmptyTagSource> {
-    fn constant(constants: &'a [Value]) -> EvalContext<'a, EmptyTagSource> {
+impl<'a, G> EvalContext<'a, EmptyTagSource, G> {
+    fn constant(
+        constants: &'a [Value],
+        global_lookup: &'a G,
+    ) -> EvalContext<'a, EmptyTagSource, G> {
         EvalContext {
             constants,
+            global_lookup,
             variables: vec![],
             tag_source: None,
         }
     }
 }
 
-impl<'a, T> EvalContext<'a, T>
+impl<'a, T, G> EvalContext<'a, T, G>
 where
     T: TagSource<TagDictId, TagDictId>,
+    G: Fn(&str) -> Option<Value>,
 {
-    fn with_tag_source(
+    fn create(
         constants: &'a [Value],
         num_variables: usize,
         tag_source: &'a T,
-    ) -> EvalContext<'a, T> {
+        global_lookup: &'a G,
+    ) -> EvalContext<'a, T, G> {
         EvalContext {
             constants,
+            global_lookup,
             variables: vec![None; num_variables],
             tag_source: Some(tag_source),
         }
@@ -463,17 +481,23 @@ where
                 })
             }
 
-            Expr::LookupDerived(_ident) => todo!(),
+            Expr::LookupGlobal(ident) => (self.global_lookup)(&ident).ok_or_else(|| {
+                RuntimeError::Internal(format!("bad global reference: {:?}", ident))
+            }),
 
-            Expr::LookupOrCompute(id, def) => match self.variables[*id as usize] {
-                Some(val) => Ok(val),
-                None => {
-                    let val = self.evaluate(def)?;
-                    self.variables[*id as usize] = Some(val);
+            Expr::LookupOrCompute(id, def) => {
+                let id = *id as usize;
 
-                    Ok(val)
+                match self.variables[id] {
+                    Some(val) => Ok(val),
+                    None => {
+                        let val = self.evaluate(def)?;
+                        self.variables[id] = Some(val);
+
+                        Ok(val)
+                    }
                 }
-            },
+            }
 
             Expr::Block(ty, body) => self.evaluate_block(ty, body),
             Expr::When(clauses) => self.evaluate_when(clauses),

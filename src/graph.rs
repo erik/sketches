@@ -83,7 +83,7 @@ impl OsmGraph {
         // TODO: we can cache the score for a given tag set. use an
         // LRU or something.
         let score = rt
-            .score(source_tags, target_tags, edge_tags)
+            .score(source_tags, target_tags, edge_tags, &|_global| None)
             .expect("error while computing score");
 
         score.penalty + (edge.geometry.distance as f32 * score.cost_factor)
