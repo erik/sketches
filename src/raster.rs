@@ -5,9 +5,9 @@ use std::fs::File;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 
-use image::RgbaImage;
-
 use crate::Point;
+
+const TILE_SIZE: usize = 512;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 struct XYZTile {
@@ -29,16 +29,15 @@ impl XYZTile {
     }
 
     /// Project [pt] to this tile
-    fn pixel_offset(&self, pt: Point) -> Option<(u32, u32)> {
-        let tile_size = 512;
-
+    fn pixel_offset(&self, pt: Point) -> Option<(usize, usize)> {
         let pow = 2 << (self.z - 1);
-        let size = (tile_size * pow) as f32 / (PI * 2.0);
+        let size = (TILE_SIZE * pow) as f32 / (PI * 2.0);
 
-        let x = (size * (PI + pt.lng)) as u32;
-        let y = (size * (PI - (PI / 4.0 + pt.lat / 2.0).tan().ln())) as u32;
+        let x = (size * (PI + pt.lng)) as usize;
+        let y = (size * (PI - (PI / 4.0 + pt.lat / 2.0).tan().ln())) as usize;
 
-        if (0..tile_size).contains(&x) && (0..tile_size).contains(&y) {
+        let valid_range = 0..TILE_SIZE;
+        if valid_range.contains(&x) && valid_range.contains(&y) {
             Some((x, y))
         } else {
             None
@@ -46,11 +45,20 @@ impl XYZTile {
     }
 }
 
+// TODO: better name
+pub struct MappedTile(Vec<u8>);
+
+impl MappedTile {
+    fn at(&self, x: usize, y: usize) -> u8 {
+        self.0[y * TILE_SIZE + x]
+    }
+}
+
 pub mod mapper {
     use image::Pixel;
 
     // TODO: untested
-    pub fn strava_mobile_blue(pxl: image::Rgba<u8>) -> f32 {
+    pub fn strava_mobile_blue(pxl: image::Rgba<u8>) -> u8 {
         let pxl = pxl.to_rgb();
         let rgb = pxl.channels();
 
@@ -58,15 +66,17 @@ pub mod mapper {
         let min = rgb.iter().min().unwrap_or(&0);
 
         // Lightness
-        (max + min) as f32 / 2.0
+        let pct = (max + min) as f32 / 2.0;
+
+        (pct * 255.0) as u8
     }
 
     // TODO: untested
-    pub fn strava_orange(pxl: image::Rgba<u8>) -> f32 {
+    pub fn strava_orange(pxl: image::Rgba<u8>) -> u8 {
         let pxl = pxl.to_rgba();
         let rgba = pxl.channels();
 
-        rgba[3] as f32 / 256.0
+        rgba[3]
     }
 }
 
@@ -85,7 +95,10 @@ impl XYZTileSampler {
         }
     }
     // TODO: use correct Result type here
-    fn fetch_tile(&self, xyz: XYZTile, path: &Path) -> Result<()> {
+    fn fetch_tile<F>(&self, xyz: XYZTile, path: &Path, pixel_mapper: F) -> Result<()>
+    where
+        F: Fn(image::Rgba<u8>) -> u8,
+    {
         let url = self
             .tile_url
             .replace("{x}", &xyz.x.to_string())
@@ -98,52 +111,53 @@ impl XYZTileSampler {
         let mut file = File::create(path)?;
 
         let res = minreq::get(url).send().unwrap();
+        let img = image::load_from_memory(res.as_bytes())
+            .map(|i| i.into_rgba8())
+            .unwrap();
 
-        file.write_all(res.as_bytes())?;
+        let pixels: Vec<u8> = img.pixels().map(|&px| (pixel_mapper)(px)).collect();
+
+        file.write_all(&pixels)?;
 
         Ok(())
     }
 
-    fn load_tile(&self, xyz: XYZTile) -> Result<RgbaImage> {
-        // TODO: not necessarily PNG
+    fn load_tile<F>(&self, xyz: XYZTile, pixel_mapper: F) -> Result<MappedTile>
+    where
+        F: Fn(image::Rgba<u8>) -> u8,
+    {
         let tile_path = self
             .tile_dir
-            .join(format!("{}/{}/{}.png", xyz.z, xyz.x, xyz.y));
+            .join(format!("{}/{}/{}.tile", xyz.z, xyz.x, xyz.y));
 
         if !tile_path.exists() {
-            self.fetch_tile(xyz, &tile_path)?;
+            self.fetch_tile(xyz, &tile_path, pixel_mapper)?;
         }
 
-        let image = image::open(tile_path)
-            .map(|img| img.into_rgba8())
-            .unwrap_or(RgbaImage::default());
-
-        Ok(image)
+        let bytes = std::fs::read(tile_path)?;
+        Ok(MappedTile(bytes))
     }
 
-    pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<Vec<Option<f32>>>
+    pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<Vec<u8>>
     where
-        F: Fn(image::Rgba<u8>) -> f32,
+        F: Fn(image::Rgba<u8>) -> u8,
     {
         let mut values = Vec::with_capacity(points.len());
         let mut prev = None;
 
         for &pt in points {
             let tile = XYZTile::from_point(pt, self.fixed_zoom);
-            let image = match prev {
+            let pixels = match prev {
                 Some((prev_tile, image)) if tile == prev_tile => image,
-                _ => self.load_tile(tile)?,
+                _ => self.load_tile(tile, &pixel_mapper)?,
             };
 
-            let pixel_coord = tile.pixel_offset(pt);
-            let value = pixel_coord.map(|c| {
-                let pixel = image[c];
-                (pixel_mapper)(pixel)
-            });
+            if let Some((x, y)) = tile.pixel_offset(pt) {
+                let value = pixels.at(x, y);
+                values.push(value);
+            }
 
-            values.push(value);
-
-            prev = Some((tile, image));
+            prev = Some((tile, pixels));
         }
 
         Ok(values)

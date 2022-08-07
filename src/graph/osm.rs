@@ -335,16 +335,24 @@ where
                                         popularity_global: global_heat
                                             .sample(&geometry, mapper::strava_orange)
                                             .map(|values| {
-                                                values.iter().map(|x| x.unwrap_or(0.0)).sum::<f32>()
-                                                    / geometry.len() as f32
+                                                values
+                                                    .into_iter()
+                                                    .map(|x| x as usize)
+                                                    .sum::<usize>()
+                                                    / geometry.len()
                                             })
+                                            .map(|sum| sum as f32)
                                             .unwrap(),
                                         popularity_self: personal_heat
                                             .sample(&geometry, mapper::strava_orange)
                                             .map(|values| {
-                                                values.iter().map(|x| x.unwrap_or(0.0)).sum::<f32>()
-                                                    / geometry.len() as f32
+                                                values
+                                                    .into_iter()
+                                                    .map(|x| x as usize)
+                                                    .sum::<usize>()
+                                                    / geometry.len()
                                             })
+                                            .map(|sum| sum as f32)
                                             .unwrap(),
                                         points: geometry,
                                     },
