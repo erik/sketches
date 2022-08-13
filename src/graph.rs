@@ -77,10 +77,11 @@ impl OsmGraph {
         let source_tags = self.tags(self.node_data(edge_ref.source()).tag_id);
         let target_tags = self.tags(self.node_data(edge_ref.target()).tag_id);
 
+        // TODO: this isn't a sustainable approach to this.
         let global_lookup = |key: &str| match key {
             "way.length" => Some(edge.distance as f32),
-            "way.popularity-global" => todo!(),
-            "way.popularity-local" => todo!(),
+            "way.popularity-global" => Some(edge.popularity_global),
+            "way.popularity-local" => Some(edge.popularity_self),
             _ => None,
         };
 
