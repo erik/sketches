@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_variables)]
-
 use std::f32::consts::PI;
 use std::fs::File;
 use std::io::{Result, Write};
@@ -54,6 +52,7 @@ impl MappedTile {
     }
 }
 
+#[allow(unused)]
 pub mod mapper {
     use image::Pixel;
 
@@ -111,15 +110,33 @@ impl XYZTileSampler {
         let mut file = File::create(path)?;
 
         let res = minreq::get(url).send().unwrap();
-        let img = image::load_from_memory(res.as_bytes())
-            .map(|i| i.into_rgba8())
-            .unwrap();
 
-        let pixels: Vec<u8> = img.pixels().map(|&px| (pixel_mapper)(px)).collect();
+        match res.status_code {
+            200 => {
+                let img = image::load_from_memory(res.as_bytes())
+                    .map(|i| i.into_rgba8())
+                    .unwrap();
 
-        file.write_all(&pixels)?;
+                let pixels: Vec<u8> = img.pixels().map(|&px| (pixel_mapper)(px)).collect();
+                assert_eq!(pixels.len(), TILE_SIZE * TILE_SIZE);
 
-        Ok(())
+                file.write_all(&pixels)?;
+
+                Ok(())
+            }
+
+            // TODO: 404 could also indicate incorrectly configured
+            // URL. How to distinguish?
+            204 | 404 => {
+                file.write_all(&[0; TILE_SIZE * TILE_SIZE])?;
+                Ok(())
+            }
+
+            code => {
+                // TODO: return as error
+                panic!("Got error response: {}", code);
+            }
+        }
     }
 
     fn load_tile<F>(&self, xyz: XYZTile, pixel_mapper: F) -> Result<MappedTile>
