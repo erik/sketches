@@ -37,8 +37,11 @@ impl<V> NestedScope<V> {
 enum BlockTy {
     All,
     Any,
+    Div,
+    Mul,
     None,
     Return,
+    Sub,
     Sum,
 }
 
@@ -51,11 +54,14 @@ enum Arity {
 impl BlockTy {
     const fn arity(&self) -> Arity {
         match self {
-            BlockTy::Any => Arity::Variadic,
             BlockTy::All => Arity::Variadic,
+            BlockTy::Any => Arity::Variadic,
+            BlockTy::Div => Arity::Variadic,
+            BlockTy::Mul => Arity::Variadic,
             BlockTy::None => Arity::Variadic,
-            BlockTy::Sum => Arity::Variadic,
             BlockTy::Return => Arity::Unary,
+            BlockTy::Sub => Arity::Variadic,
+            BlockTy::Sum => Arity::Variadic,
         }
     }
 }
@@ -218,11 +224,14 @@ impl<'a> Builder<'a> {
                 }
 
                 let ty = match block.name.as_str() {
-                    "any?" => BlockTy::Any,
                     "all?" => BlockTy::All,
+                    "any?" => BlockTy::Any,
+                    "div" => BlockTy::Div,
+                    "mul" => BlockTy::Mul,
                     "none?" => BlockTy::None,
-                    "sum" => BlockTy::Sum,
                     "return!" => BlockTy::Return,
+                    "sub" => BlockTy::Sub,
+                    "sum" => BlockTy::Sum,
                     other => return Err(CompileError::UnknownBlockTy(other.into())),
                 };
 
@@ -507,6 +516,41 @@ where
         }
     }
 
+    fn fold_block<F>(&mut self, body: &[Expr], op: F) -> Result<Value, RuntimeError>
+    where
+        F: Fn(f32, f32) -> Result<f32, RuntimeError>,
+    {
+        if body.is_empty() {
+            return Err(RuntimeError::Internal("improper arity".into()));
+        }
+
+        let mut acc = match self.evaluate(&body[0])? {
+            Value::Invalid => return Ok(Value::Invalid),
+            Value::Number(n) => n,
+            other => {
+                return Err(RuntimeError::TypeError {
+                    have: format!("{:?}", other),
+                    expected: "invalid|number".into(),
+                })
+            }
+        };
+
+        for expr in &body[1..] {
+            match self.evaluate(expr)? {
+                Value::Invalid => return Ok(Value::Invalid),
+                Value::Number(n) => acc = (op)(acc, n)?,
+                other => {
+                    return Err(RuntimeError::TypeError {
+                        have: format!("{:?}", other),
+                        expected: "invalid|number".into(),
+                    })
+                }
+            }
+        }
+
+        Ok(Value::Number(acc))
+    }
+
     fn evaluate_block(&mut self, ty: &BlockTy, body: &[Expr]) -> Result<Value, RuntimeError> {
         match ty {
             BlockTy::Any => {
@@ -545,23 +589,10 @@ where
                 Err(RuntimeError::EarlyReturn(val))
             }
 
-            BlockTy::Sum => {
-                let mut acc = 0.0;
-                for expr in body {
-                    match self.evaluate(expr)? {
-                        Value::Invalid => return Ok(Value::Invalid),
-                        Value::Number(n) => acc += n,
-                        other => {
-                            return Err(RuntimeError::TypeError {
-                                have: format!("{:?}", other),
-                                expected: "invalid|number".into(),
-                            })
-                        }
-                    }
-                }
-
-                Ok(Value::Number(acc))
-            }
+            BlockTy::Sum => self.fold_block(&body, |a, b| Ok(a + b)),
+            BlockTy::Sub => self.fold_block(&body, |a, b| Ok(a - b)),
+            BlockTy::Mul => self.fold_block(&body, |a, b| Ok(a * b)),
+            BlockTy::Div => self.fold_block(&body, |a, b| Ok(a / b)),
         }
     }
 
