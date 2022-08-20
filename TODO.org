@@ -8,6 +8,7 @@
 - Route from offset along edge rather than vertex to vertex
 - Turn restrictions
 - One way streets etc. (directed graph)
+- Mechanism to abort requests that take too long.
 
 
 * "real-world" stuff
