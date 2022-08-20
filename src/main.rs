@@ -241,7 +241,7 @@ fn launch_server() -> _ {
 }
 
 fn load_runtime(tag_dict: &TagDict) -> Result<Runtime, std::io::Error> {
-    let source = std::fs::read_to_string("profiles/cxb.mint")?;
+    let source = std::fs::read_to_string("profiles/antipopularity.mint")?;
     Ok(Runtime::from_source(&source, tag_dict).unwrap())
 }
 

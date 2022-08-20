@@ -1,10 +1,14 @@
+use std::f32::consts::PI;
+
 // TODO: real serde
 use rocket::serde::{Deserialize, Serialize};
 
 pub mod flat;
 
 /// Radius of the earth at equator, meters
-const EARTH_RADIUS: f32 = 6_378_137.0;
+pub const EARTH_RADIUS: f32 = 6_378_137.0;
+/// Circumference of the earth at equator, meters
+pub const EARTH_CIRCUM: f32 = 2.0 * PI * EARTH_RADIUS;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 #[serde(crate = "rocket::serde")]
@@ -30,6 +34,25 @@ impl Point {
 
         2.0 * EARTH_RADIUS * e
     }
+
+    pub fn to_mercator(&self) -> Option<MercatorPoint> {
+        let x = EARTH_RADIUS * self.lng.to_radians();
+        let scale = x / self.lng;
+
+        let y = if self.lat <= -90.0 || self.lat >= 90.0 {
+            return None;
+        } else {
+            (180.0 / PI) * ((PI / 4.0) + self.lat.to_radians() / 2.0).tan().ln() * scale
+        };
+
+        Some(MercatorPoint { x, y })
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct MercatorPoint {
+    pub x: f32,
+    pub y: f32,
 }
 
 // Ramer-Douglas-Peucker line simplification

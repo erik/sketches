@@ -61,7 +61,9 @@ impl Ruler {
         m * deg_per_m
     }
 
+    // TODO: use this for simplification
     /// Shortest distance from a point to a line
+    #[allow(dead_code)]
     pub fn dist_point_to_line(&self, pt: &Point, line: &(Point, Point)) -> f32 {
         let (a, b) = line;
         let line_pt = {

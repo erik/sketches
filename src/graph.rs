@@ -81,8 +81,11 @@ impl OsmGraph {
         let global_lookup = |key: &str| match key {
             "way.length" => Some(edge.distance as f32),
             "way.popularity-global" => Some(edge.popularity_global),
-            "way.popularity-local" => Some(edge.popularity_self),
-            _ => None,
+            "way.popularity-self" => Some(edge.popularity_self),
+            other => {
+                println!("Looking up {:?}", other);
+                None
+            }
         };
 
         // TODO: we can cache the score for a given tag set. use an

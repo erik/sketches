@@ -269,11 +269,11 @@ where
             HashMap::<OsmNodeId, SecondPassNode>::with_capacity(self.node_kind.len());
 
         let global_heat = XYZTileSampler::new(
-            "https://strava-heatmap-proxy.rkprc.workers.dev/global/orange/all/{z}/{x}/{y}.png",
+            "https://strava-heatmap-proxy.rkprc.workers.dev/global/orange/all/{z}/{x}/{y}@small.png",
             Path::new("./data/tiles/global/"),
         );
         let personal_heat = XYZTileSampler::new(
-            "https://strava-heatmap-proxy.rkprc.workers.dev/personal/orange/all/{z}/{x}/{y}.png",
+            "https://strava-heatmap-proxy.rkprc.workers.dev/personal/orange/all/{z}/{x}/{y}@small.png",
             Path::new("./data/tiles/personal/"),
         );
 
@@ -333,26 +333,10 @@ where
                                         direction: EdgeDirection::infer(&way.tags),
                                         distance: dist as u32,
                                         popularity_global: global_heat
-                                            .sample(&geometry, mapper::strava_orange)
-                                            .map(|values| {
-                                                values
-                                                    .into_iter()
-                                                    .map(|x| x as usize)
-                                                    .sum::<usize>()
-                                                    / geometry.len()
-                                            })
-                                            .map(|sum| sum as f32)
+                                            .sample(&way_geo, mapper::strava_orange)
                                             .unwrap(),
                                         popularity_self: personal_heat
-                                            .sample(&geometry, mapper::strava_orange)
-                                            .map(|values| {
-                                                values
-                                                    .into_iter()
-                                                    .map(|x| x as usize)
-                                                    .sum::<usize>()
-                                                    / geometry.len()
-                                            })
-                                            .map(|sum| sum as f32)
+                                            .sample(&way_geo, mapper::strava_orange)
                                             .unwrap(),
                                         points: geometry,
                                     },

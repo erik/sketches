@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::tags::{EmptyTagSource, TagDict, TagDictId, TagSource, UNKNOWN_TAG_ID};
 
@@ -142,19 +142,18 @@ impl VariableMapping {
 // TODO: needs a better name, it's not really a builder, but a compiler
 struct Builder<'a> {
     constants: HashMap<String, u8>,
-    globals: HashSet<String>,
+    globals: &'a [&'a str],
     tag_dict: &'a TagDict,
     variables: VariableMapping,
 }
 
 impl<'a> Builder<'a> {
-    fn new(constants: &Definitions, tag_dict: &'a TagDict) -> Self {
+    fn new(constants: &Definitions, globals: &'a [&'a str], tag_dict: &'a TagDict) -> Self {
         Self {
             tag_dict,
+            globals,
             variables: VariableMapping::new(),
             constants: Self::build_const_map(constants),
-            // TODO: pass in valid globals here.
-            globals: HashSet::new(),
         }
     }
 
@@ -187,7 +186,7 @@ impl<'a> Builder<'a> {
                     Ok(Expr::LookupOrCompute(var_id, def))
                 } else if let Some(const_id) = self.constants.get(ident) {
                     Ok(Expr::LookupConstant(*const_id))
-                } else if self.globals.contains(ident) {
+                } else if self.globals.iter().any(|it| it == ident) {
                     Ok(Expr::LookupGlobal(ident.into()))
                 } else {
                     Err(CompileError::UnknownIdent(ident.as_str().into()))
@@ -315,7 +314,9 @@ impl Runtime {
     }
 
     fn from_parsed(profile: &ProfileParser, tag_dict: &TagDict) -> Result<Self, CompileError> {
-        let mut builder = Builder::new(&profile.constant_defs, tag_dict);
+        // TODO: this needs to be passed in
+        let globals = &["way.popularity-self", "way.popularity-global", "way.length"];
+        let mut builder = Builder::new(&profile.constant_defs, globals, tag_dict);
 
         Ok(Self {
             // TODO: should be able to look up globals here

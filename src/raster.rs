@@ -3,9 +3,13 @@ use std::fs::File;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 
+use image::imageops;
+
+use crate::geo::{MercatorPoint, EARTH_CIRCUM};
 use crate::Point;
 
-const TILE_SIZE: usize = 512;
+const TILE_SIZE: usize = 256;
+const ORIGIN_OFFSET: f32 = EARTH_CIRCUM / 2.0;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 struct XYZTile {
@@ -26,13 +30,41 @@ impl XYZTile {
         }
     }
 
-    /// Project [pt] to this tile
-    fn pixel_offset(&self, pt: Point) -> Option<(usize, usize)> {
-        let pow = 2 << (self.z - 1);
-        let size = (TILE_SIZE * pow) as f32 / (PI * 2.0);
+    fn ul_xy(&self) -> MercatorPoint {
+        let tile_size = EARTH_CIRCUM / (2 << (self.z - 1)) as f32;
+        let (x, y) = (self.x as f32, self.y as f32);
 
-        let x = (size * (PI + pt.lng)) as usize;
-        let y = (size * (PI - (PI / 4.0 + pt.lat / 2.0).tan().ln())) as usize;
+        MercatorPoint {
+            x: (x * tile_size - ORIGIN_OFFSET),
+            y: (-y * tile_size + ORIGIN_OFFSET),
+        }
+    }
+
+    fn br_xy(&self) -> MercatorPoint {
+        let tile = XYZTile {
+            x: self.x + 1,
+            y: self.y + 1,
+            z: self.z,
+        };
+
+        tile.ul_xy()
+    }
+
+    /// Return the pixel coordinates of `pt` on this tile (or None if out of bounds)
+    fn project(&self, pt: Point) -> Option<(usize, usize)> {
+        let point = pt.to_mercator()?;
+
+        // TODO: clean this up
+        let ul = self.ul_xy();
+        let br = self.br_xy();
+
+        let (width, height) = (br.x - ul.x, ul.y - br.y);
+        let (x, y) = ((point.x - ul.x) / width, (ul.y - point.y) / height);
+
+        let (x, y) = (
+            (x * TILE_SIZE as f32) as usize,
+            (y * TILE_SIZE as f32) as usize,
+        );
 
         let valid_range = 0..TILE_SIZE;
         if valid_range.contains(&x) && valid_range.contains(&y) {
@@ -57,25 +89,33 @@ pub mod mapper {
     use image::Pixel;
 
     // TODO: untested
+    #[inline]
     pub fn strava_mobile_blue(pxl: image::Rgba<u8>) -> u8 {
         let pxl = pxl.to_rgb();
         let rgb = pxl.channels();
 
-        let max = rgb.iter().max().unwrap_or(&0);
-        let min = rgb.iter().min().unwrap_or(&0);
+        let max = rgb.iter().max().cloned().unwrap_or(0) as f32;
+        let min = rgb.iter().min().cloned().unwrap_or(0) as f32;
 
         // Lightness
-        let pct = (max + min) as f32 / 2.0;
+        let pct = (max + min) / 2.0;
 
-        (pct * 255.0) as u8
+        pct as u8
     }
 
-    // TODO: untested
+    // Encodes heat into the green and alpha channels.
+    //
+    // green: 90 to 99 (increasing popularity)
+    // alpha: 0 to 255 (increasing popularity)
+    //
+    // Assuming that green channel is logarithmic rather than linear,
+    // but not sure
+    #[inline]
     pub fn strava_orange(pxl: image::Rgba<u8>) -> u8 {
-        let pxl = pxl.to_rgba();
-        let rgba = pxl.channels();
+        let green = (pxl[1] as f32 - 90.0 + 1.0).log10();
+        let alpha = pxl[3] as f32 / 255.0;
 
-        rgba[3]
+        (255.0 * green * alpha) as u8
     }
 }
 
@@ -104,7 +144,7 @@ impl XYZTileSampler {
             .replace("{y}", &xyz.y.to_string())
             .replace("{z}", &xyz.z.to_string());
 
-        println!("[info] fetching {:?}...", xyz);
+        println!("[info] fetching {} ({:?})...", url, xyz);
 
         std::fs::create_dir_all(path.parent().unwrap())?;
         let mut file = File::create(path)?;
@@ -113,13 +153,18 @@ impl XYZTileSampler {
 
         match res.status_code {
             200 => {
-                let img = image::load_from_memory(res.as_bytes())
+                let mut img = image::load_from_memory(res.as_bytes())
                     .map(|i| i.into_rgba8())
                     .unwrap();
 
-                let pixels: Vec<u8> = img.pixels().map(|&px| (pixel_mapper)(px)).collect();
-                assert_eq!(pixels.len(), TILE_SIZE * TILE_SIZE);
+                let size = TILE_SIZE as u32;
 
+                // Ensure we're working with identically sized images
+                if img.width() != size || img.height() != size {
+                    img = imageops::resize(&img, size, size, imageops::FilterType::Nearest);
+                }
+
+                let pixels: Vec<u8> = img.pixels().map(|&px| (pixel_mapper)(px)).collect();
                 file.write_all(&pixels)?;
 
                 Ok(())
@@ -155,28 +200,28 @@ impl XYZTileSampler {
         Ok(MappedTile(bytes))
     }
 
-    pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<Vec<u8>>
+    // TODO: Need to sample at equal intervals along points
+    pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<f32>
     where
         F: Fn(image::Rgba<u8>) -> u8,
     {
-        let mut values = Vec::with_capacity(points.len());
+        let mut sum = 0;
         let mut prev = None;
 
         for &pt in points {
             let tile = XYZTile::from_point(pt, self.fixed_zoom);
-            let pixels = match prev {
-                Some((prev_tile, image)) if tile == prev_tile => image,
-                _ => self.load_tile(tile, &pixel_mapper)?,
-            };
 
-            if let Some((x, y)) = tile.pixel_offset(pt) {
-                let value = pixels.at(x, y);
-                values.push(value);
+            if let Some((x, y)) = tile.project(pt) {
+                let pixels = match prev {
+                    Some((prev_tile, image)) if tile == prev_tile => image,
+                    _ => self.load_tile(tile, &pixel_mapper)?,
+                };
+
+                sum += pixels.at(x, y);
+                prev = Some((tile, pixels));
             }
-
-            prev = Some((tile, pixels));
         }
 
-        Ok(values)
+        Ok((sum as f32) / 255.0 / (points.len() as f32))
     }
 }
