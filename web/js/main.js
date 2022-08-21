@@ -318,6 +318,14 @@ export class MapContainer {
         tileSize: 256,
         encoding: 'terrarium',
       })
+      .addSource('heat-global', {
+        type: 'raster',
+        tiles: ['https://strava-heatmap-proxy.rkprc.workers.dev/global/mobileblue/ride/{z}/{x}/{y}.png'],
+      })
+      .addSource('heat-self', {
+        type: 'raster',
+        tiles: ['https://strava-heatmap-proxy.rkprc.workers.dev/personal/orange/ride/{z}/{x}/{y}.png'],
+      })
       .addLayer({
         id: 'elevation',
         type: 'hillshade',
@@ -328,6 +336,8 @@ export class MapContainer {
           "hillshade-exaggeration": 0.3
         }
       })
+      .addLayer({ id: 'heat-self', source: 'heat-self', type: 'raster' })
+      .addLayer({ id: 'heat-global', source: 'heat-global', type: 'raster' })
       .addLayer({
         id: 'route-outline',
         type: 'line',
