@@ -35,7 +35,7 @@ impl Point {
         2.0 * EARTH_RADIUS * e
     }
 
-    pub fn to_mercator(&self) -> Option<MercatorPoint> {
+    pub fn to_mercator(self) -> Option<MercatorPoint> {
         let x = EARTH_RADIUS * self.lng.to_radians();
         let scale = x / self.lng;
 

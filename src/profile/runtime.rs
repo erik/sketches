@@ -491,11 +491,13 @@ where
                 })
             }
 
-            Expr::LookupGlobal(ident) => (self.global_lookup)(&ident)
-                .map(Value::Number)
-                .ok_or_else(|| {
-                    RuntimeError::Internal(format!("bad global reference: {:?}", ident))
-                }),
+            Expr::LookupGlobal(ident) => {
+                (self.global_lookup)(ident)
+                    .map(Value::Number)
+                    .ok_or_else(|| {
+                        RuntimeError::Internal(format!("bad global reference: {:?}", ident))
+                    })
+            }
 
             Expr::LookupOrCompute(id, def) => {
                 let id = *id as usize;
@@ -590,10 +592,10 @@ where
                 Err(RuntimeError::EarlyReturn(val))
             }
 
-            BlockTy::Sum => self.fold_block(&body, |a, b| Ok(a + b)),
-            BlockTy::Sub => self.fold_block(&body, |a, b| Ok(a - b)),
-            BlockTy::Mul => self.fold_block(&body, |a, b| Ok(a * b)),
-            BlockTy::Div => self.fold_block(&body, |a, b| Ok(a / b)),
+            BlockTy::Sum => self.fold_block(body, |a, b| Ok(a + b)),
+            BlockTy::Sub => self.fold_block(body, |a, b| Ok(a - b)),
+            BlockTy::Mul => self.fold_block(body, |a, b| Ok(a * b)),
+            BlockTy::Div => self.fold_block(body, |a, b| Ok(a / b)),
         }
     }
 
