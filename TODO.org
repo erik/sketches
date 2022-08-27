@@ -1,6 +1,5 @@
 * Customizability
 - Preprocessing: which ways to consider
-- Ingest popularity / arbitrary raster data and sample points
 
 
 * Completeness / correctness
