@@ -61,6 +61,58 @@ impl Ruler {
         m * deg_per_m
     }
 
+    pub fn line_dist(&self, geo: &[Point]) -> f32 {
+        geo.iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, p)| self.dist_cheap(&geo[i - 1], p))
+            .sum()
+    }
+
+    /// Return a new line created by interpolating points along the
+    /// original line at equal intervals.
+    pub fn resample_line(&self, geo: &[Point], meters: f32) -> Vec<Point> {
+        assert!(geo.len() > 0);
+
+        let mut resampled = vec![geo[0]];
+
+        let total_length = self.line_dist(geo);
+        let num_segments = (total_length / meters).ceil();
+        let frac = 1.0 / num_segments;
+        let mut ratio = 0.0;
+
+        for _ in 1..(num_segments as usize) {
+            ratio += frac;
+
+            resampled.push(self.line_interpolate_point(geo, ratio));
+        }
+
+        resampled
+    }
+
+    fn line_interpolate_point(&self, geo: &[Point], fractional_length: f32) -> Point {
+        let mut acc_length = 0.0;
+
+        for (i, point) in geo.iter().enumerate().skip(1) {
+            let prev = &geo[i - 1];
+            let length = self.dist_cheap(point, prev);
+
+            if acc_length + length >= fractional_length {
+                let frac = (fractional_length - acc_length) / length;
+                let (dx, dy) = self.dist_xy(point, prev);
+
+                return Point {
+                    lat: prev.lat + dy * frac,
+                    lng: prev.lng + dx * frac,
+                };
+            }
+
+            acc_length += length;
+        }
+
+        panic!("shouldn't be able to get here");
+    }
+
     // TODO: use this for simplification
     /// Shortest distance from a point to a line
     #[allow(dead_code)]

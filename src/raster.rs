@@ -84,6 +84,11 @@ impl MappedTile {
     }
 }
 
+// TODO: Garmin heatmaps might be interesting as well. Quite simple,
+// and map-matched to OSM;
+//
+// https://connecttile.garmin.com/{sport}/{z}/{x}/{y}.png
+// sport: MOUTAIN_BIKING, ROAD_CYCLING, GRAVEL_BIKING, RUNNING, TRAIL_RUNNING
 #[allow(unused)]
 pub mod mapper {
     use image::Pixel;

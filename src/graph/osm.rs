@@ -300,6 +300,7 @@ where
                     }
                 }
 
+                // TODO: far too much righward drift here
                 OsmObj::Way(way) if is_routable_way(&way) => {
                     trk.way();
 
@@ -323,7 +324,10 @@ where
                                 // - https://www.openstreetmap.org/way/1060404609
                                 // - https://www.openstreetmap.org/way/1060404608
 
+                                // TODO: hacky
                                 let geometry = geo::simplify_line(&way_geo, 1e-6);
+                                let resampled = geo::flat::Ruler::for_lat(way_geo[0].lat)
+                                    .resample_line(&geometry, 100.0);
 
                                 self.graph.add_edge(
                                     index,
@@ -333,10 +337,10 @@ where
                                         direction: EdgeDirection::infer(&way.tags),
                                         distance: dist as u32,
                                         popularity_global: global_heat
-                                            .sample(&way_geo, mapper::strava_orange)
+                                            .sample(&resampled, mapper::strava_orange)
                                             .unwrap(),
                                         popularity_self: personal_heat
-                                            .sample(&way_geo, mapper::strava_orange)
+                                            .sample(&resampled, mapper::strava_orange)
                                             .unwrap(),
                                         points: geometry,
                                     },
