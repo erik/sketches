@@ -205,7 +205,6 @@ impl XYZTileSampler {
         Ok(MappedTile(bytes))
     }
 
-    // TODO: Need to sample at equal intervals along points
     pub fn sample<F>(&self, points: &[Point], pixel_mapper: F) -> Result<f32>
     where
         F: Fn(image::Rgba<u8>) -> u8,
@@ -222,7 +221,7 @@ impl XYZTileSampler {
                     _ => self.load_tile(tile, &pixel_mapper)?,
                 };
 
-                sum += pixels.at(x, y);
+                sum += pixels.at(x, y) as u32;
                 prev = Some((tile, pixels));
             }
         }
