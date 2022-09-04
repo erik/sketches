@@ -1,5 +1,6 @@
 * Customizability
-- Preprocessing: which ways to consider
+- Preprocessing step: filter out ways / nodes
+- Preprocessing step: remap tags
 
 
 * Completeness / correctness
@@ -11,6 +12,7 @@
 
 
 * "real-world" stuff
+- Implement parser for brouter's rd5 file format to bootstrap tiled grid.
 - Split out pre-processing OSM data from web server by ser/de graph
   rather than regenerating.
 - Split world into 5x5 degree tiles (a la Brouter) so that the entire
