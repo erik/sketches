@@ -135,7 +135,7 @@ impl XYZTileSampler {
         Self {
             tile_url: tile_url.into(),
             tile_dir: tile_dir.into(),
-            fixed_zoom: 11,
+            fixed_zoom: 12,
         }
     }
     // TODO: use correct Result type here
@@ -226,6 +226,6 @@ impl XYZTileSampler {
             }
         }
 
-        Ok((sum as f32) / 255.0 / (points.len() as f32))
+        Ok((sum as f32) / 255.0)
     }
 }
