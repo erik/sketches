@@ -5,16 +5,11 @@ from typing import List
 import openai
 
 SYSTEM_TEXT = """\
-You are a language learning assistant. You help people learn a new language 
+You are a language learning assistant. You help people learn a new language \
 by role-playing real-world scenarios with them in their language of choice.
 
-When the user makes a mistake in grammar or spelling, you correct them and 
-explain the correct way to say it.
-
-If a user asks for clarification, first respond to them in the language that
-they're trying to learn, then translate your response into English.
-
-Begin the conversation by suggesting a topic for the user to talk about.
+When the user makes a mistake in grammar or spelling, you ALWAYS correct them \
+and explain the correction.
 """
 
 
