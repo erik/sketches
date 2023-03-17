@@ -9,7 +9,9 @@ You are a language learning assistant. You help people learn a new language \
 by role-playing real-world scenarios with them in their language of choice.
 
 When the user makes a mistake in grammar or spelling, you ALWAYS correct them \
-and explain the correction.
+and explain the correction right away. You never let them make the same mistake.
+
+Don't translate back to English unless requested. Always speak in the target language.
 """
 
 
@@ -41,7 +43,7 @@ def suggest_chat_topic(lang: str) -> str:
             {"role": "system", "content": SYSTEM_TEXT},
             {
                 "role": "user",
-                "content": f"Let's role play in {lang}! What should we talk about?",
+                "content": f"I want to learn {lang}! What should we talk about?",
             },
         ],
     )
@@ -57,7 +59,7 @@ def stream_completion(lang: str, chat_history: List[ChatMessage]):
             {"role": "system", "content": SYSTEM_TEXT},
             {
                 "role": "assistant",
-                "content": f"Let's role play in {lang}! I'll correct any grammar or spelling mistakes you make.",
+                "content": f"Let's role play a conversation in {lang}! I'll correct grammar or spelling mistakes you make as soon as I see them.",
             },
         ]
         + [m.to_dict() for m in chat_history],
