@@ -1,0 +1,104 @@
+WHITESPACE = _{ " " | "\t" | ";" | "\n" }
+COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
+
+invalid      = @{ "invalid" }
+else_        = @{ "else" }
+bool         = @{ "true" | "false" }
+// TODO: negative numbers
+number       = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+string       = @{ "\"" ~  ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
+ident_char   = @{ ASCII_ALPHANUMERIC | "_" | "-" | "?" | ":" | "!" | "." }
+ident        = @{ ident_char+ }
+
+top_level = _{
+       SOI
+     ~ profile
+     ~ EOI
+}
+
+profile = {
+      "profile"
+    ~ string
+    ~ "{"
+    ~ profile_stmt+
+    ~ "}"
+}
+
+profile_stmt = _{
+      define_block
+    | named_block
+}
+
+stmt = _ {
+      profile_stmt
+    | expr
+}
+
+// TODO: should we put assignments outside of blocks?
+define_block = {
+      "define"
+    ~ "{"
+    ~ assignment*
+    ~ "}"
+}
+
+assignment = {
+      ident
+    ~ "="
+    ~ expr
+}
+
+named_block = {
+      ident
+    ~ "{"
+    ~ stmt*
+    ~ "}"
+}
+
+when_block = {
+      "when"
+    ~ "{"
+    ~ when_clause+
+    ~ "}"
+}
+
+when_clause = {
+      (else_ | expr )
+    ~ "=>"
+    ~ expr
+}
+
+expr = _{
+      bool
+    | invalid
+    | number
+    | tag_expr
+    | when_block
+    | named_block
+    | ident
+}
+
+tag_expr = {
+      "["
+    ~ tag_expr_clause+
+    ~ "]"
+}
+
+op_eq  = @{ "=" }
+op_neq = @{ "!=" }
+
+
+tag_expr_clause = _{
+      tag_expr_binary_clause
+    | tag_expr_exists_clause
+    | tag_expr_not_exists_clause
+}
+
+tag_expr_binary_op         = _{ op_eq | op_neq }
+tag_expr_binary_clause     = { ident ~ tag_expr_binary_op ~ tag_expr_pattern }
+tag_expr_exists_clause     = { ident }
+tag_expr_not_exists_clause = { "!" ~ ident }
+
+tag_expr_pattern = _{
+      (ident | string) ~ ("|" ~ tag_expr_pattern)*
+}
