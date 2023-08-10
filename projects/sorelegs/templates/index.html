@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tour Journal</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 100%;
+            line-height: 1.5;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+                'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+
+        @media only screen and (max-width: 768px) {
+            .post {
+                max-width: 100%;
+            }
+        }
+
+        @media only screen and (min-width: 992px) {
+            .post {
+                max-width: 800px;
+                border-radius: 0.5rem;
+            }
+        }
+
+        body {
+            /* Use system font  */
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: rgb(250, 250, 250);
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0;
+            padding: 0;
+        }
+
+        .post {
+            display: flex;
+            flex-direction: row;
+            gap: 0.75rem;
+            margin: 0 auto;
+            padding: 1rem;
+            background-color: white;
+            box-shadow: 0px 1px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .post+.post {
+            border: 0px solid #eee;
+            border-top-width: 1px;
+            margin-top: 1rem;
+        }
+
+        .post p {
+            margin: 0.25rem 0;
+            padding: 0;
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+
+
+        .post small {
+            font-size: 0.85rem;
+            color: #999;
+            text-align: right;
+        }
+
+        .media * {
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto;
+            border-radius: 0.5em;
+
+            display: block;
+        }
+
+        .media img {
+            object-fit: cover;
+            width: 100%;
+            height: 100%;
+        }
+
+        .media.gallery {
+            display: flex;
+            flex-direction: row;
+            overflow-x: auto;
+            gap: 0.25rem;
+            width: 100%;
+            max-height: 600px;
+        }
+
+        .media.gallery a {
+            min-width: 95%;
+            height: 300px;
+        }
+
+        .media.gallery>* {
+            width: 100%;
+            height: 100%;
+            margin: auto;
+        }
+
+        .post-header {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .post-author {
+            font-weight: 600;
+            color: #222;
+            font-size: 1rem;
+        }
+
+        .post-author a {
+            color: #222;
+            text-decoration: none;
+        }
+
+        .post-text {
+            padding: 0.75rem 0;
+            white-space: pre-wrap;
+        }
+
+        .post-location {
+            color: #999;
+            text-decoration: underline;
+        }
+    </style>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.3.8/photoswipe.min.css">
+</head>
+
+<body>
+    <main>
+        <section class="section">
+            {% if not posts %}
+            <h1>No posts yet</h1>
+            {% endif %}
+            {% for post in posts %}
+            <div class="post">
+                <div style="width: 3rem; height: 3rem;">
+                    <img style="border-radius: 100%; object-fit: contain;" width="100%" height="100%"
+                        src="{{ post.avatar_url }}" />
+                </div>
+                <div style="flex: 1 1 0%;">
+                    <div class="post-header">
+                        <a href="/{{ post.username }}">
+                            <div class="post-author">
+                                {{ post.display_name }}
+                            </div>
+                        </a>
+
+                        {% if post.lat and post.lng %}
+                        <small>
+                            📍
+                            <a class="post-location" href="https://google.com/maps?q={{post.lat}},{{post.lng}}"
+                                target="_blank">
+                                {{ "%.3f"|format(post.lng) }},{{ "%.3f"|format(post.lat) }}
+                            </a>
+                        </small>
+                        {% endif %}
+
+                        <small>
+                            <span class="timestamp">{{ post.created }}</span>
+                            {% if post.updated %}
+                            <em> (edited <span class="timestamp">{{ post.updated }}</span>)</em>
+                            {% endif %}
+                        </small>
+                    </div>
+
+                    <div class="post-text">{{ post.message }}</div>
+
+                    <div class="media {{ post.media|length > 1 and 'gallery' }}">
+                        {% for m in post.media %}
+                        {% if m.type == 'photo' %}
+                        <a href="/media/{{ m.media_id }}" target="_blank" data-pswp-width="{{ m.width }}"
+                            data-pswp-height="{{ m.height }}">
+                            <img src="/media/{{ m.media_id }}" loading="lazy" width="{{ m.width }}"
+                                height="{{ m.height }}" />
+                        </a>
+                        {% elif m.type == 'audio' %}
+                        <audio controls style="width: 100%;">
+                            <source src="/media/{{ m.media_id }}" type="{{ m.content_type }}">
+                        </audio>
+                        {% elif m.type == 'video' %}
+                        <video controls>
+                            <source src="/media/{{ m.media_id }}" type="{{ m.content_type }}">
+                        </video>
+                        {% else %}
+                        Unsupported: {{ m.type }}
+                        <pre>{{ m }} </pre>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+
+    </main>
+
+    <script>
+        function timeSince(a, b) {
+            const seconds = (a - b) / 1000;
+            const units = [
+                ['yr', 31536000],
+                ['mo', 2592000],
+                ['w', 604800],
+                ['d', 86400],
+                ['hr', 3600],
+                ['m', 60],
+                ['s', 1],
+            ];
+
+            for (let i = 0; i < units.length; i++) {
+                const [unit, secondsPerUnit] = units[i];
+                const interval = Math.abs(seconds / secondsPerUnit);
+                if (interval >= 1) {
+                    return `${interval.toFixed()}${unit}${seconds <= 0 ? '' : 'from now'}`;
+                }
+            }
+
+            let interval = Math.floor(seconds / 31536000);
+            if (Math.abs(interval) > 1) return rtf.format(interval, 'year');
+
+            interval = Math.floor(seconds / 2592000);
+            if (Math.abs(interval) > 1) return rtf.format(interval, 'month');
+
+            interval = Math.floor(seconds / 86400);
+            if (Math.abs(interval) > 1) return rtf.format(interval, 'day');
+
+            interval = Math.floor(seconds / 3600);
+            if (Math.abs(interval) > 1) return rtf.format(interval, 'hour');
+
+            interval = Math.floor(seconds / 60);
+            if (Math.abs(interval) > 1) return rtf.format(interval, 'minute');
+
+            return rtf.format(Math.floor(seconds), 'second');
+        }
+        window.onload = () => {
+            const now = new Date();
+
+            document.querySelectorAll('.timestamp').forEach((el) => {
+                const date = new Date(el.innerText + 'Z');
+                el.title = el.innerText
+                el.innerText = timeSince(date, now);
+            });
+        }
+    </script>
+
+    <script type="module">
+        import PhotoSwipeLightbox from 'https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.3.8/photoswipe-lightbox.esm.min.js';
+
+        const lightbox = new PhotoSwipeLightbox({
+            gallery: '.media',
+            children: 'a',
+            maxZoomLevel: 1,
+            pswpModule: () => import('https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.3.8/photoswipe.esm.min.js'),
+        });
+        lightbox.init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,28 @@
+# fly.toml file generated for sorelegs on 2023-08-09T13:04:01-07:00
+
+app = "sorelegs"
+kill_signal = "SIGINT"
+kill_timeout = 5
+mounts = []
+processes = []
+
+[mounts]
+  source="sorelegs_data"
+  destination="/data"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+    type = "connections"
+
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
