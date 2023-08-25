@@ -93,7 +93,7 @@ def view_media(media_id):
 
     cur = conn.execute(
         """
-        SELECT type, content_type, content 
+        SELECT rowid, content_type
         FROM media WHERE media_id=?
         """,
         [media_id],
@@ -102,11 +102,15 @@ def view_media(media_id):
     if not media:
         return "not found", 404
 
-    return flask.send_file(
-        io.BytesIO(media[2]),
-        mimetype=media[1],
-        max_age=60 * 60 * 24 * 365,
-    )
+    row_number = media[0]
+    with conn.blobopen("media", "content", row_number, readonly=True) as blob:
+        # TODO: this should be done directly without reading into memory...
+        f = io.BytesIO(blob.read())
+        return flask.send_file(
+            f,
+            mimetype=media[1],
+            max_age=60 * 60 * 24 * 365,
+        )
 
 
 SCHEMA = """
@@ -299,8 +303,7 @@ async def handle_media(update: Update, context: CallbackContext) -> None:
 
     # Download the file
     file = await update.get_bot().get_file(att.file_id)
-    data = await file.download_as_bytearray()
-    conn.execute(
+    cur = conn.execute(
         """
         INSERT INTO media(
             media_id, 
@@ -309,11 +312,11 @@ async def handle_media(update: Update, context: CallbackContext) -> None:
             type, 
             content_type, 
             content_size, 
-            content,
             width,
-            height
+            height,
+            content
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?); 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, zeroblob(?))
         """,
         (
             unique_id,
@@ -331,11 +334,15 @@ async def handle_media(update: Update, context: CallbackContext) -> None:
                 }[kind],
             ),
             att.file_size,
-            data,
             att.width if kind == "photo" else None,
             att.height if kind == "photo" else None,
+            att.file_size,
         ),
     )
+
+    with conn.blobopen("media", "content", cur.lastrowid) as blob:
+        await file.download_to_memory(blob)
+
     conn.commit()
     print(f"Downloaded file: {unique_id}")
 
