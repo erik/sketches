@@ -103,14 +103,18 @@ def view_media(media_id):
         return "not found", 404
 
     row_number = media[0]
-    with conn.blobopen("media", "content", row_number, readonly=True) as blob:
-        # TODO: this should be done directly without reading into memory...
-        f = io.BytesIO(blob.read())
-        return flask.send_file(
-            f,
-            mimetype=media[1],
-            max_age=60 * 60 * 24 * 365,
-        )
+    flask.request.blob = conn.blobopen("media", "content", row_number, readonly=True)
+    return flask.send_file(
+        flask.request.blob,
+        mimetype=media[1],
+        max_age=60 * 60 * 24 * 365,
+    )
+
+
+@app.teardown_request
+def cleanup_blob(response):
+    if hasattr(flask.request, "blob"):
+        del flask.request.blob
 
 
 SCHEMA = """
