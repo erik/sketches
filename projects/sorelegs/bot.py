@@ -27,9 +27,22 @@ def get_db() -> sqlite3.Connection:
     return thread_local._database
 
 
+@app.before_request
+def prefer_cdn():
+    # HACK: if we're deployed, point to CDN
+    if "localhost" not in flask.request.host and flask.request.host != "sorelegs.club":
+        return flask.redirect(
+            f"https://sorelegs.club{flask.request.full_path}", code=301
+        )
+
+
 @app.get("/")
 @app.get("/<username>")
 def view_feed(username: str | None = None):
+    # If we allow `/xmlrpc.php` etc. the bots get excited and try all sorts of things.
+    if username and not username.startswith("@"):
+        return flask.abort(404)
+
     conn = get_db()
 
     posts = conn.execute(
