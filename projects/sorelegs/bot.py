@@ -1,4 +1,3 @@
-import io
 import os
 import sqlite3
 import threading
@@ -24,6 +23,7 @@ thread_local = threading.local()
 def get_db() -> sqlite3.Connection:
     if not hasattr(thread_local, "_database"):
         thread_local._database = sqlite3.connect(os.environ["SQLITE_DB_PATH"])
+        thread_local._database.row_factory = sqlite3.Row
     return thread_local._database
 
 
@@ -32,54 +32,47 @@ def get_db() -> sqlite3.Connection:
 def view_feed(username: str | None = None):
     conn = get_db()
 
-    post_cols = [
-        "msg_id",
-        "media_group_id",
-        "message",
-        "lat",
-        "lng",
-        "created",
-        "updated",
-        "display_name",
-        "username",
-        "avatar_url",
-    ]
-    posts = [
-        dict(zip(post_cols, row))
-        for row in conn.execute(
-            f"""
-SELECT {", ".join(post_cols)}
+    posts = conn.execute(
+        f"""
+SELECT
+  msg_id,
+  media_group_id,
+  message,
+  lat,
+  lng,
+  created,
+  updated,
+  display_name,
+  username,
+  avatar_url
 FROM posts
 INNER JOIN users ON posts.user_id=users.telegram_id
 WHERE deleted IS NULL {"AND users.username=?" if username else ""}
 ORDER BY created DESC
     """,
-            [username] if username else [],
-        ).fetchall()
-    ]
+        [username] if username else [],
+    ).fetchall()
 
     group_ids = [p["media_group_id"] for p in posts]
     params = ",".join(["?"] * len(group_ids))
 
-    media_cols = [
-        "msg_id",
-        "group_id",
-        "media_id",
-        "type",
-        "content_type",
-        "width",
-        "height",
-    ]
-    media = [
-        dict(zip(media_cols, row))
-        for row in conn.execute(
-            f"""SELECT {", ".join(media_cols)} 
-                FROM media
-                WHERE deleted IS NULL AND group_id IN ({params})
-            """,
-            group_ids,
-        ).fetchall()
-    ]
+    media = conn.execute(
+        f"""
+SELECT
+  msg_id,
+  group_id,
+  media_id,
+  type,
+  content_type,
+  width,
+  height
+FROM media
+WHERE deleted IS NULL AND group_id IN ({params})""",
+        group_ids,
+    ).fetchall()
+
+    # Convert sqlite3.Row to dict:
+    posts = [dict(p) for p in posts]
 
     for post in posts:
         post["media"] = [m for m in media if m["group_id"] == post["media_group_id"]]
@@ -93,7 +86,7 @@ def view_media(media_id):
 
     cur = conn.execute(
         """
-        SELECT rowid, content_type
+        SELECT rowid AS rowid, content_type
         FROM media WHERE media_id=?
         """,
         [media_id],
@@ -102,11 +95,12 @@ def view_media(media_id):
     if not media:
         return "not found", 404
 
-    row_number = media[0]
-    flask.request.blob = conn.blobopen("media", "content", row_number, readonly=True)
+    flask.request.blob = conn.blobopen(
+        "media", "content", media["rowid"], readonly=True
+    )
     return flask.send_file(
         flask.request.blob,
-        mimetype=media[1],
+        mimetype=media["content_type"],
         max_age=60 * 60 * 24 * 365,
     )
 
@@ -122,10 +116,10 @@ CREATE TABLE IF NOT EXISTS users (
     telegram_id    TEXT PRIMARY KEY,
     username       TEXT NOT NULL UNIQUE,
     display_name   TEXT NOT NULL,
-    avatar_url     TEXT 
+    avatar_url     TEXT
 );
 
-CREATE TABLE IF NOT EXISTS posts ( 
+CREATE TABLE IF NOT EXISTS posts (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     msg_id         TEXT UNIQUE NOT NULL,
     media_group_id TEXT REFERENCES media(group_id) ON DELETE CASCADE,
@@ -136,7 +130,7 @@ CREATE TABLE IF NOT EXISTS posts (
     lng      REAL,
 
     created  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated  TIMESTAMP DEFAULT NULL, 
+    updated  TIMESTAMP DEFAULT NULL,
     deleted  TIMESTAMP DEFAULT NULL
 );
 
@@ -161,7 +155,7 @@ CREATE TABLE IF NOT EXISTS media (
     deleted      TIMESTAMP DEFAULT NULL
 );
 
-INSERT OR REPLACE INTO users (telegram_id, username, display_name, avatar_url) 
+INSERT OR REPLACE INTO users (telegram_id, username, display_name, avatar_url)
 VALUES ('6525743351', '@susu', 'susu', 'https://user-images.githubusercontent.com/188935/259557976-0e622245-5970-4199-8a9f-ff20e3115043.png')
      , ('1031477684', '@erik', 'erik', 'https://avatars.githubusercontent.com/u/188935?v=4');
 """
@@ -177,7 +171,7 @@ def init_db():
 
 async def on_start(update: Update, _context: CallbackContext) -> None:
     """Send a message when the command /ping is issued."""
-    await update.message.reply_text("pong! (wtf)")
+    await update.message.reply_text("pong!")
 
 
 async def dispatch_new_message(update: Update, _context: CallbackContext) -> None:
@@ -237,8 +231,8 @@ async def handle_text_message(update: Update, context: CallbackContext) -> None:
     msg_id = get_post_id(update)
     conn.execute(
         """
-        INSERT INTO posts(msg_id, user_id, media_group_id, message) VALUES(?, ?, ?, ?) 
-        ON CONFLICT(msg_id) DO UPDATE 
+        INSERT INTO posts(msg_id, user_id, media_group_id, message) VALUES(?, ?, ?, ?)
+        ON CONFLICT(msg_id) DO UPDATE
             SET message=COALESCE(excluded.message, message),
                 media_group_id=COALESCE(excluded.media_group_id, media_group_id),
                 updated=CURRENT_TIMESTAMP
@@ -310,12 +304,12 @@ async def handle_media(update: Update, context: CallbackContext) -> None:
     cur = conn.execute(
         """
         INSERT INTO media(
-            media_id, 
-            msg_id, 
+            media_id,
+            msg_id,
             group_id,
-            type, 
-            content_type, 
-            content_size, 
+            type,
+            content_type,
+            content_size,
             width,
             height,
             content
