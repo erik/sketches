@@ -202,7 +202,6 @@ fn parse_tag_expr(pairs: pest::iterators::Pairs<Rule>) -> Vec<TagPattern<String>
                 let key = parse_as_str(node.next().unwrap());
                 let op = node.next().unwrap();
                 let patterns = node
-                    .into_iter()
                     .map(|x| parse_as_str(x).into())
                     .collect::<Vec<_>>();
 
@@ -275,7 +274,7 @@ profile "kitchen sink" {
 }
 "#;
 
-        let parsed = Grammar::parse(Rule::top_level, &input).expect("parse okay");
+        let parsed = Grammar::parse(Rule::top_level, input).expect("parse okay");
 
         for pair in parsed {
             println!("---> {:?}", pair);

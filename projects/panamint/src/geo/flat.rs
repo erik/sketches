@@ -72,7 +72,7 @@ impl Ruler {
     /// Return a new line created by interpolating points along the
     /// original line at equal intervals.
     pub fn resample_line(&self, geo: &[Point], meters: f32) -> Vec<Point> {
-        assert!(geo.len() > 0);
+        assert!(!geo.is_empty());
 
         let mut resampled = vec![geo[0]];
 
@@ -192,17 +192,17 @@ mod tests {
     #[test]
     fn haversine_equivalence() {
         let base = &Point {
-            lng: 96.920341,
-            lat: 32.838261,
+            lng: 96.920_34,
+            lat: 32.838_26,
         };
 
         let points: Vec<Point> = [
-            (96.920341, 32.838261),
-            (96.920421, 32.838295),
-            (96.920421, 32.838295),
-            (96.920536, 32.838297),
-            (96.920684, 32.838293),
-            (96.920818, 32.838342),
+            (96.920_34, 32.838_26),
+            (96.920_42, 32.838295),
+            (96.920_42, 32.838295),
+            (96.920_53, 32.838_3),
+            (96.920684, 32.838_29),
+            (96.920818, 32.838_34),
         ]
         .into_iter()
         .map(|(lng, lat)| Point { lng, lat })
@@ -237,17 +237,17 @@ mod tests {
 
         let pt = Point {
             lat: 38.882017,
-            lng: -77.034076,
+            lng: -77.034_07,
         };
 
         let line = (
             Point {
                 lat: 38.878605,
-                lng: -77.031669,
+                lng: -77.031_67,
             },
             Point {
                 lat: 38.881946,
-                lng: -77.029609,
+                lng: -77.029_61,
             },
         );
 

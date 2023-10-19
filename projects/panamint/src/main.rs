@@ -163,7 +163,6 @@ pub fn route_api_brouter(
                 lat: lat.parse::<f32>().ok()?,
             })
         })
-        .into_iter()
         .collect::<Option<Vec<Point>>>();
 
     let (from, to) = match coords {

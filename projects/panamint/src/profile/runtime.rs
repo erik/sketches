@@ -236,7 +236,7 @@ impl<'a> Builder<'a> {
 
                 let arg_range = match ty.arity() {
                     Arity::Unary => 1..=1,
-                    Arity::Variadic => (1..=usize::MAX),
+                    Arity::Variadic => 1..=usize::MAX,
                 };
 
                 if !arg_range.contains(&block.body.len()) {
@@ -667,7 +667,7 @@ mod tests {
             tag_dict.insert(tag.into());
         }
 
-        Runtime::from_source(&input, &tag_dict).expect("create runtime");
+        Runtime::from_source(input, &tag_dict).expect("create runtime");
     }
 
     #[test]
@@ -690,7 +690,7 @@ profile "test" {
             tag_dict.insert(tag.into());
         }
 
-        let runtime = Runtime::from_source(&input, &tag_dict).expect("create runtime");
+        let runtime = Runtime::from_source(input, &tag_dict).expect("create runtime");
 
         let expected = vec![
             Value::Number(1.0),
