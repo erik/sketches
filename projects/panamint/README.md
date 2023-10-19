@@ -5,7 +5,7 @@ profiles.
 
 ```
 profile "custom" {
-    # Penalty for passing through a node
+    // Penalty for passing through a node
     node-penalty {
         when {
             [barrier=gate] => 10
@@ -13,7 +13,7 @@ profile "custom" {
         }
     }
 
-    # Penalty for traversing way
+    // Penalty for traversing way
     way-penalty {
         when {
             [route=ferry] => 100
@@ -21,8 +21,8 @@ profile "custom" {
         }
     }
 
-    # The "cost" of traversing edge of the graph, scaled by the length
-    # of the edge.
+    // The "cost" of traversing edge of the graph, scaled by the length
+    // of the edge.
     cost-factor {
         define {
             surface-penalty = when {
