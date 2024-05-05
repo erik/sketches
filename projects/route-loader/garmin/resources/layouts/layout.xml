@@ -1,0 +1,55 @@
+<layouts>
+    <layout id="NewRouteLayoutFetchLink">
+        <label
+            text="Fetching..."
+            x="center" y="center"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            font="Gfx.FONT_LARGE"
+            color="Gfx.COLOR_WHITE"
+        />
+    </layout>
+
+    <layout id="EmptyLayout">
+    </layout>
+
+    <layout id="TodoLayout">
+        <label
+            text="todo..."
+            x="center" y="center"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            font="Gfx.FONT_LARGE"
+            color="Gfx.COLOR_WHITE"
+        />
+    </layout>
+
+    <layout id="ErrorLayout">
+        <label
+            id="Message"
+            x="center" y="center"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            color="FFFFFF" />
+    </layout>
+
+
+    <layout id="ConnectToGcmLayout">
+        <label
+            x="center" y="65"
+            font="Gfx.FONT_SMALL"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            text="Please open the"
+        />
+        <label
+            x="center" y="85"
+            font="Gfx.FONT_SMALL"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            text="Garmin Connect App"
+            color="Gfx.COLOR_BLUE"
+        />
+        <label
+            x="center" y="105"
+            font="Gfx.FONT_SMALL"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            text="to proceed."
+        />
+    </layout>
+</layouts>

@@ -1,0 +1,23 @@
+<menus>
+    <menu2 id="MainActionMenu"
+        title="Route Mirror">
+        <menu-item id="add_route"
+            label="Add New Route"
+            subLabel="Upload new GPX from phone" />
+
+        <menu-item id="route_key"
+            label="Enter Route Key"
+            subLabel="Download existing GPX" />
+    </menu2>
+
+    <menu2 id="NewRouteMenu"
+        title="Upload Route">
+        <menu-item id="open_on_phone"
+            label="Upload GPX"
+            subLabel="Open the upload link on phone" />
+
+        <menu-item id="display_upload_url"
+            label="Display Upload URL"
+            subLabel="If phone browser isn't opening" />
+    </menu2>
+</menus>

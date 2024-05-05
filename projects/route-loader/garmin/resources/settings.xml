@@ -1,0 +1,8 @@
+<settings>
+    <setting
+        propertyKey="@Properties.routeMirrorBaseURL"
+        title="RouteMirror Base URL"
+    >
+        <settingConfig type="url" />
+    </setting>
+</settings>

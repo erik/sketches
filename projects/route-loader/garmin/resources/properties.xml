@@ -1,0 +1,3 @@
+<properties>
+    <property id="routeMirrorBaseURL" type="string">http://localhost:8080</property>
+</properties>
