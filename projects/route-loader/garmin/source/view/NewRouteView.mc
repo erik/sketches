@@ -40,7 +40,7 @@ class NewRouteView extends WatchUi.View {
 
     Communications.openWebPage(data.uploadURL, {}, null);
 
-    WatchUi.switchToView(
+    WatchUi.pushView(
       new WatchUi.Confirmation("Ready?"),
       new FooBar(self, data.downloadURL),
       WatchUi.SLIDE_IMMEDIATE

@@ -15,16 +15,19 @@ class RequestDelegate {
   function handleResponse(data) {
     _onSuccess.invoke(data);
   }
+}
 
-  function handleError(data) {
-    var msg = WatchUi.loadResource(Rez.Strings.Error);
-    msg += data;
-    WatchUi.pushView(
-      new ErrorView(msg),
-      new WatchUi.BehaviorDelegate(),
-      WatchUi.SLIDE_IMMEDIATE
-    );
+function showErrorModal(statusCode, body) {
+  var msg = "HTTP " + statusCode + "\n\n";
+  if (body != null) {
+    msg += body.toString();
   }
+
+  WatchUi.pushView(
+    new ModalMessageView("Network Error", msg, null),
+    new WatchUi.BehaviorDelegate(),
+    WatchUi.SLIDE_IMMEDIATE
+  );
 }
 
 class Request {
@@ -36,14 +39,11 @@ class Request {
 
   function sendRequest() {}
 
-  function onResponse(
-    responseCode as Lang.Number,
-    data as Lang.Dictionary?
-  ) as Void {
-    if (responseCode == 200) {
+  function onResponse(status as Lang.Number, data as Lang.Dictionary?) as Void {
+    if (status == 200) {
       _delegate.handleResponse(data);
     } else {
-      _delegate.handleError(data);
+      showErrorModal(status, data);
     }
   }
 }
@@ -116,6 +116,10 @@ class DownloadGPXRequest extends Request {
     downloads as Toybox.PersistedContent.Iterator?
   ) as Void {
     System.println(statusCode);
+    if (statusCode != 200) {
+      showErrorModal(statusCode, downloads);
+      return;
+    }
 
     var download = downloads.next();
     System.println(

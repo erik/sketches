@@ -22,12 +22,27 @@
         />
     </layout>
 
-    <layout id="ErrorLayout">
+    <layout id="ModalLayout">
         <label
-            id="Message"
-            x="center" y="center"
+            id="title"
+            x="center" y="top"
             justification="Gfx.TEXT_JUSTIFY_CENTER"
-            color="FFFFFF" />
+            font="Gfx.FONT_LARGE"
+            background="Gfx.COLOR_WHITE"
+            color="Gfx.COLOR_BLUE" />
+        <text-area
+            id="message"
+            x="start" y="center"
+            width="fill"
+            height="50%"
+            color="Gfx.COLOR_WHITE"
+        />
+        <label
+            id="button"
+            x="center" y="bottom"
+            justification="Gfx.TEXT_JUSTIFY_CENTER"
+            background="Gfx.COLOR_BLUE"
+            color="Gfx.COLOR_WHITE" />
     </layout>
 
 
