@@ -1,0 +1,352 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <style>
+            body {
+                width: 400px;
+                max-height: 600px;
+                margin: 0;
+                padding: 16px;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                font-size: 14px;
+                overflow-y: auto;
+            }
+
+            .header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 16px;
+                padding-bottom: 12px;
+                border-bottom: 1px solid #e0e0e0;
+            }
+
+            .logo {
+                width: 24px;
+                height: 24px;
+                background: #4285f4;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+            }
+
+            .title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #1a73e8;
+            }
+
+            .loading {
+                text-align: center;
+                padding: 20px;
+                color: #666;
+            }
+
+            .error {
+                background: #fce8e6;
+                color: #d93025;
+                padding: 12px;
+                border-radius: 4px;
+                margin-bottom: 16px;
+            }
+
+            .product-info {
+                margin-bottom: 20px;
+            }
+
+            .product-name {
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #333;
+            }
+
+            .product-meta {
+                color: #666;
+                font-size: 13px;
+                margin-bottom: 16px;
+            }
+
+            .variants-section {
+                margin-bottom: 20px;
+            }
+
+            .section-title {
+                font-size: 14px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #333;
+            }
+
+            .variant-list {
+                max-height: 200px;
+                overflow-y: auto;
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+            }
+
+            .variant-item {
+                padding: 12px;
+                border-bottom: 1px solid #f0f0f0;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+
+            .variant-item:hover {
+                background: #f8f9fa;
+            }
+
+            .variant-item:last-child {
+                border-bottom: none;
+            }
+
+            .variant-item.selected {
+                background: #e8f0fe;
+                border-left: 3px solid #1a73e8;
+            }
+
+            .variant-name {
+                font-weight: 500;
+                margin-bottom: 4px;
+            }
+
+            .variant-details {
+                font-size: 12px;
+                color: #666;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .variant-price {
+                font-weight: 600;
+                color: #1a73e8;
+            }
+
+            .availability {
+                padding: 2px 6px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+
+            .availability.in_stock {
+                background: #e6f4ea;
+                color: #137333;
+            }
+
+            .availability.out_of_stock {
+                background: #fce8e6;
+                color: #d93025;
+            }
+
+            .availability.limited {
+                background: #fef7e0;
+                color: #f29900;
+            }
+
+            .track-section {
+                background: #f8f9fa;
+                padding: 16px;
+                border-radius: 8px;
+                margin-bottom: 16px;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            .input-group {
+                margin-bottom: 12px;
+            }
+
+            .input-label {
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                margin-bottom: 4px;
+                color: #333;
+            }
+
+            .input-field {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #d0d7de;
+                border-radius: 4px;
+                font-size: 14px;
+                box-sizing: border-box;
+            }
+
+            .input-field:focus {
+                outline: none;
+                border-color: #1a73e8;
+                box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+            }
+
+            .button {
+                background: #1a73e8;
+                color: white;
+                border: none;
+                padding: 10px 16px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                transition: background-color 0.2s;
+                width: 100%;
+            }
+
+            .button:hover {
+                background: #1557b0;
+            }
+
+            .button:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+            }
+
+            .button.secondary {
+                background: transparent;
+                color: #1a73e8;
+                border: 1px solid #1a73e8;
+            }
+
+            .button.secondary:hover {
+                background: #e8f0fe;
+            }
+
+            .tracked-items {
+                margin-top: 20px;
+            }
+
+            .tracked-item {
+                background: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+                padding: 12px;
+                margin-bottom: 8px;
+            }
+
+            .tracked-item-name {
+                font-weight: 500;
+                font-size: 13px;
+                margin-bottom: 4px;
+            }
+
+            .tracked-item-details {
+                font-size: 12px;
+                color: #666;
+                display: flex;
+                justify-content: space-between;
+            }
+
+            .remove-btn {
+                background: #d93025;
+                color: white;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 11px;
+                margin-top: 8px;
+            }
+
+            .settings-section {
+                border-top: 1px solid #e0e0e0;
+                padding-top: 16px;
+                margin-top: 20px;
+            }
+
+            .no-product {
+                text-align: center;
+                padding: 40px 20px;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="logo">P</div>
+            <div class="title">Price Tracker</div>
+        </div>
+
+        <div id="loading" class="loading">Loading product data...</div>
+
+        <div id="error" class="error hidden"></div>
+
+        <div id="no-product" class="no-product hidden">
+            <p>No product data found on this page.</p>
+            <p>This extension works on product pages with structured data.</p>
+        </div>
+
+        <div id="product-content" class="hidden">
+            <div class="product-info">
+                <div class="product-name" id="product-name"></div>
+                <div class="product-meta" id="product-meta"></div>
+            </div>
+
+            <div class="variants-section">
+                <div class="section-title">Select variant to track:</div>
+                <div class="variant-list" id="variant-list"></div>
+            </div>
+
+            <div class="track-section hidden" id="track-section">
+                <div class="input-group">
+                    <label class="input-label" for="target-price"
+                        >Target Price</label
+                    >
+                    <input
+                        type="number"
+                        id="target-price"
+                        class="input-field"
+                        placeholder="Enter target price"
+                        step="0.01"
+                        min="0"
+                    />
+                </div>
+                <button id="track-btn" class="button">Start Tracking</button>
+            </div>
+        </div>
+
+        <div class="tracked-items" id="tracked-items">
+            <div class="section-title">Currently Tracking:</div>
+            <div id="tracked-list"></div>
+        </div>
+
+        <div class="settings-section">
+            <div class="input-group">
+                <label class="input-label" for="check-interval"
+                    >Check Interval (hours)</label
+                >
+                <input
+                    type="number"
+                    id="check-interval"
+                    class="input-field"
+                    value="6"
+                    min="1"
+                    max="168"
+                />
+            </div>
+            <button id="view-all-btn" class="button secondary">
+                View All Tracked Items
+            </button>
+            <button
+                id="check-now-btn"
+                class="button secondary"
+                style="margin-top: 8px"
+            >
+                Check Prices Now
+            </button>
+        </div>
+
+        <script src="popup.js"></script>
+    </body>
+</html>
