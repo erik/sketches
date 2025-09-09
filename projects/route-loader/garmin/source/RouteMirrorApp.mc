@@ -27,6 +27,6 @@ class RouteMirrorApp extends Application.AppBase {
   }
 }
 
-function getApp() as RouteMirrorApp {
-  return Application.getApp() as RouteMirrorApp;
-}
+// function getApp() as RouteMirrorApp {
+//   return Application.getApp() as RouteMirrorApp;
+// }

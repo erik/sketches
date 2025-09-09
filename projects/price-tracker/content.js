@@ -122,8 +122,8 @@ class ProductDataParser {
         const data = JSON.parse(script.textContent);
         console.log("Parsing JSON-LD data:", data);
 
-        // Handle arrays of structured data
-        const items = Array.isArray(data) ? data : [data];
+        // Extract all items to process
+        const items = this.extractItemsFromJsonLd(data);
 
         for (const item of items) {
           if (this.isProductData(item)) {
@@ -145,6 +145,27 @@ class ProductDataParser {
     }
 
     return productData;
+  }
+
+  // Extract items from JSON-LD data, handling @graph structures
+  extractItemsFromJsonLd(data) {
+    const items = [];
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        items.push(...this.extractItemsFromJsonLd(item));
+      }
+    } else if (data["@graph"] && Array.isArray(data["@graph"])) {
+      // NOTE: skipping resolving references for now, haven't found them in the
+      // wild.
+      for (const graphItem of data["@graph"]) {
+        items.push(graphItem);
+      }
+    } else if (data["@type"] || data.hasVariant) {
+      items.push(data);
+    }
+
+    return items;
   }
 
   // Check if the data contains product information
@@ -225,7 +246,12 @@ class ProductDataParser {
     if (!offers) return null;
 
     const offer = Array.isArray(offers) ? offers[0] : offers;
-    return parseFloat(offer.price) || null;
+    if (offer.price) return parseFloat(offer.price);
+    if (offer.priceSpecification && Array.isArray(offer.priceSpecification)) {
+      return parseFloat(offer.priceSpecification[0].price) || null;
+    }
+
+    return null;
   }
 
   // Extract currency from data
@@ -238,6 +264,9 @@ class ProductDataParser {
     if (!offers) return "EUR";
 
     const offer = Array.isArray(offers) ? offers[0] : offers;
+    if (offer.priceSpecification && Array.isArray(offer.priceSpecification)) {
+      return offer.priceSpecification[0].priceCurrency || null;
+    }
     return offer.priceCurrency || "EUR";
   }
 

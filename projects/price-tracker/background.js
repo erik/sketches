@@ -1,4 +1,4 @@
-// background.js - Updated to support all parsing methods
+// background.js - Updated to support all parsing methods including @graph
 
 // Import common parser functionality for background script
 class ProductDataParser {
@@ -106,6 +106,34 @@ class ProductDataParser {
     return null;
   }
 
+  // Extract items from JSON-LD data, handling @graph structures
+  extractItemsFromJsonLd(data) {
+    const items = [];
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        items.push(...this.extractItemsFromJsonLd(item));
+      }
+    } else if (data["@graph"] && Array.isArray(data["@graph"])) {
+      for (const graphItem of data["@graph"]) {
+        items.push(graphItem);
+      }
+    } else if (data["@type"] || data.hasVariant) {
+      items.push(data);
+    }
+
+    return items;
+  }
+
+  // Check if the data contains product information
+  isProductData(data) {
+    const productTypes = ["Product", "ProductGroup"];
+    return (
+      productTypes.includes(data["@type"]) ||
+      (data.hasVariant && Array.isArray(data.hasVariant))
+    );
+  }
+
   // Normalize product data to a consistent format
   normalizeProductData(data) {
     console.log("Normalizing product data:", data);
@@ -136,6 +164,31 @@ class ProductDataParser {
         url: this.normalizeUrl(variant.url || variant.offers?.url || data.url),
       }));
     }
+    // Handle JSON-LD single product
+    else if (data["@type"] === "Product" && data.offers) {
+      console.log("Extracting price from offers:", data.offers);
+      baseProduct.variants.push({
+        sku: data.sku || "",
+        name: data.name || "",
+        size: data.size || "",
+        color: data.color || "",
+        price: this.extractPrice(data.offers),
+        availability: this.extractAvailability(data.offers),
+        url: this.normalizeUrl(data.offers.url || data.url),
+      });
+    }
+    // Handle JSON-LD product group with variants
+    else if (data.hasVariant && Array.isArray(data.hasVariant)) {
+      baseProduct.variants = data.hasVariant.map((variant) => ({
+        sku: variant.sku || "",
+        name: variant.name || baseProduct.name,
+        size: variant.size || "",
+        color: variant.color || "",
+        price: this.extractPrice(variant.offers),
+        availability: this.extractAvailability(variant.offers),
+        url: this.normalizeUrl(variant.offers?.url || data.url),
+      }));
+    }
 
     if (baseProduct.variants.length === 0) {
       console.log("No variants found, returning null");
@@ -147,11 +200,17 @@ class ProductDataParser {
 
   // Extract price from offers object or direct value
   extractPrice(offers) {
+    console.log("Extracting price from offers:", offers);
     if (typeof offers === "number") return offers;
     if (!offers) return null;
 
     const offer = Array.isArray(offers) ? offers[0] : offers;
-    return parseFloat(offer.price) || null;
+    if (offer.price) return parseFloat(offer.price);
+    if (offer.priceSpecification && Array.isArray(offer.priceSpecification)) {
+      return parseFloat(offer.priceSpecification[0].price) || null;
+    }
+
+    return null;
   }
 
   // Extract currency from data
@@ -183,15 +242,14 @@ class ProductDataParser {
 
   // Extract price from structured data
   extractPriceFromData(data, targetSku) {
-    // Handle arrays of structured data
-    const items = Array.isArray(data) ? data : [data];
+    const items = this.extractItemsFromJsonLd(data);
 
     for (const item of items) {
       // Handle ProductGroup with variants
       if (item.hasVariant && Array.isArray(item.hasVariant)) {
         for (const variant of item.hasVariant) {
           if (variant.sku === targetSku && variant.offers) {
-            return this.extractPriceFromOffer(variant.offers);
+            return this.extractPrice(variant.offers);
           }
         }
       }
@@ -202,17 +260,11 @@ class ProductDataParser {
         item.sku === targetSku &&
         item.offers
       ) {
-        return this.extractPriceFromOffer(item.offers);
+        return this.extractPrice(item.offers);
       }
     }
 
     return null;
-  }
-
-  // Extract price from offer object
-  extractPriceFromOffer(offers) {
-    const offer = Array.isArray(offers) ? offers[0] : offers;
-    return parseFloat(offer.price) || null;
   }
 }
 
@@ -343,7 +395,7 @@ class PriceMonitor extends ProductDataParser {
       // Try to find the current price using all available parsing methods
       let currentPrice = null;
 
-      // Method 1: Try JSON-LD parsing (existing method)
+      // Method 1: Try JSON-LD parsing
       currentPrice = this.extractPriceFromJsonLD(doc, item.sku);
 
       // Method 2: Try Shopify meta parsing if JSON-LD failed
@@ -367,7 +419,7 @@ class PriceMonitor extends ProductDataParser {
     }
   }
 
-  // Extract price from JSON-LD data
+  // Extract price from JSON-LD data with @graph support
   extractPriceFromJsonLD(doc, targetSku) {
     const jsonLdScripts = doc.querySelectorAll(
       'script[type="application/ld+json"]',
@@ -376,8 +428,13 @@ class PriceMonitor extends ProductDataParser {
     for (const script of jsonLdScripts) {
       try {
         const data = JSON.parse(script.textContent);
+        console.log("Parsing JSON-LD data for price extraction:", data);
+
         const price = this.extractPriceFromData(data, targetSku);
-        if (price !== null) return price;
+        if (price !== null) {
+          console.log(`Found price ${price} for SKU ${targetSku}`);
+          return price;
+        }
       } catch (error) {
         console.warn("Error parsing JSON-LD:", error);
       }

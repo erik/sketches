@@ -3,7 +3,12 @@
   "name": "Price Tracker",
   "version": "1.0",
   "description": "Track product prices from e-commerce sites using LinkedData",
-
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "erik@price-tracker",
+      "strict_min_version": "58.0"
+    }
+  },
   "permissions": [
     "activeTab",
     "storage",
