@@ -271,23 +271,48 @@ class ProductDataParser {
 class PriceMonitor extends ProductDataParser {
   constructor() {
     super();
-    this.setupAlarms();
+    this.isCheckingPrices = false;
     this.setupMessageListeners();
+    // Initialize alarms and perform first check
+    this.initialize();
   }
 
-  setupAlarms() {
-    // Create initial alarm
+  async initialize() {
+    await this.initializeAlarms();
+    // Perform initial price check
+    await this.checkAllPrices();
+  }
+
+  async initializeAlarms() {
+    // Clear any existing alarms first
+    await browser.alarms.clear("priceCheck");
+
+    // Load user's preferred check interval
+    const result = await browser.storage.local.get(["checkInterval"]);
+    const interval = result.checkInterval || 6; // 6 hours default
+
+    // Create alarm with user's preferred interval
     browser.alarms.create("priceCheck", {
-      delayInMinutes: 1,
-      periodInMinutes: 360, // 6 hours default
+      delayInMinutes: 1, // First check after 1 minute
+      periodInMinutes: interval * 60,
     });
 
     // Listen for alarm events
     browser.alarms.onAlarm.addListener((alarm) => {
       if (alarm.name === "priceCheck") {
-        this.checkAllPrices();
+        console.log(
+          `[${new Date().toISOString()}] Alarm triggered price check`,
+        );
+        this.checkAllPrices().catch((error) => {
+          console.error("Failed to check prices on alarm:", error);
+        });
       }
     });
+
+    // Log alarm creation for debugging
+    console.log(
+      `[${new Date().toISOString()}] Price check alarm created with ${interval}h interval`,
+    );
   }
 
   setupMessageListeners() {
@@ -297,6 +322,9 @@ class PriceMonitor extends ProductDataParser {
         sendResponse({ success: true });
         return false;
       } else if (message.action === "checkPricesNow") {
+        console.log(
+          `[${new Date().toISOString()}] Manual price check triggered`,
+        );
         // Handle async operation properly
         this.checkAllPrices()
           .then(() => {
@@ -315,27 +343,51 @@ class PriceMonitor extends ProductDataParser {
   }
 
   async updateCheckInterval(hours) {
+    console.log(`Updating check interval to ${hours} hours`);
     // Clear existing alarm
-    browser.alarms.clear("priceCheck");
+    await browser.alarms.clear("priceCheck");
 
     // Create new alarm with updated interval
     browser.alarms.create("priceCheck", {
-      delayInMinutes: 1,
+      delayInMinutes: hours * 60,
       periodInMinutes: hours * 60,
     });
+
+    console.log(`New alarm created with ${hours}h interval`);
   }
 
   async checkAllPrices() {
-    console.log("Checking prices for all tracked items...");
+    const now = new Date().toISOString();
 
     try {
-      const result = await browser.storage.local.get(["trackedItems"]);
+      // Check if we've run recently to prevent excessive checking
+      const result = await browser.storage.local.get([
+        "trackedItems",
+        "lastPriceCheck",
+      ]);
       const trackedItems = result.trackedItems || [];
+      const lastCheck = result.lastPriceCheck;
+
+      // Rate limiting: don't check more than once every 30 minutes
+      if (lastCheck) {
+        const timeSinceLastCheck = Date.now() - new Date(lastCheck).getTime();
+        const thirtyMinutes = 30 * 60 * 1000;
+
+        if (timeSinceLastCheck < thirtyMinutes) {
+          console.log(
+            `[${now}] Skipping price check - last check was ${Math.round(timeSinceLastCheck / 60000)} minutes ago`,
+          );
+          return;
+        }
+      }
 
       if (trackedItems.length === 0) {
-        console.log("No items to check");
+        console.log(`[${now}] No items to check`);
         return;
       }
+
+      // Record when we started this check
+      await browser.storage.local.set({ lastPriceCheck: now });
 
       const updatedItems = [];
       let alertCount = 0;
@@ -368,14 +420,26 @@ class PriceMonitor extends ProductDataParser {
       // Save updated items
       await browser.storage.local.set({ trackedItems: updatedItems });
 
-      console.log(`Price check complete. ${alertCount} alerts sent.`);
+      console.log(
+        `Price check completed. ${alertCount} alerts sent for ${updatedItems.length} items.`,
+      );
     } catch (error) {
-      console.error("Error during price check:", error);
+      console.error("Error in checkAllPrices:", error);
     }
   }
 
   async checkItemPrice(item) {
     try {
+      // Ensure item has price history (backward compatibility)
+      if (!item.priceHistory) {
+        item.priceHistory = [
+          {
+            date: item.dateAdded,
+            price: item.currentPrice,
+          },
+        ];
+      }
+
       // Fetch the product page
       const response = await fetch(item.url, {
         headers: {
@@ -408,12 +472,31 @@ class PriceMonitor extends ProductDataParser {
         currentPrice = this.extractPriceFromMetaTags(doc, item.sku);
       }
 
-      return {
+      const updatedItem = {
         ...item,
         currentPrice: currentPrice !== null ? currentPrice : item.currentPrice,
         lastChecked: new Date().toISOString(),
         error: currentPrice === null ? "Price not found" : null,
       };
+
+      if (currentPrice !== null) {
+        const now = new Date().toISOString();
+        updatedItem.lastPriceUpdate = now;
+        updatedItem.priceHistory = [
+          ...item.priceHistory,
+          {
+            date: now,
+            price: currentPrice,
+          },
+        ];
+
+        // Limit history to last 100 entries to prevent storage bloat
+        if (updatedItem.priceHistory.length > 100) {
+          updatedItem.priceHistory = updatedItem.priceHistory.slice(-100);
+        }
+      }
+
+      return updatedItem;
     } catch (error) {
       throw new Error(`Failed to fetch price: ${error.message}`);
     }

@@ -174,7 +174,14 @@ class PriceTrackerPopup {
       currency: this.currentProduct.currency,
       dateAdded: new Date().toISOString(),
       lastChecked: new Date().toISOString(),
+      lastPriceUpdate: new Date().toISOString(),
       notifications: true,
+      priceHistory: [
+        {
+          date: new Date().toISOString(),
+          price: this.selectedVariant.price,
+        },
+      ],
     };
 
     this.trackedItems.push(trackedItem);
@@ -221,7 +228,12 @@ class PriceTrackerPopup {
       priceDiff > 0
         ? `(${priceDiff.toFixed(2)} above target)`
         : "(target reached!)";
-    const diffColor = priceDiff > 0 ? "#d93025" : "#137333";
+    const diffColor = priceDiff > 0 ? "#f29900" : "#137333";
+
+    // Format price last updated with relative time
+    const lastPriceUpdate = item.lastPriceUpdate
+      ? this.formatRelativeTime(new Date(item.lastPriceUpdate))
+      : this.formatRelativeTime(new Date(item.dateAdded));
 
     div.innerHTML = `
       <div class="tracked-item-name">${item.variantName}</div>
@@ -230,6 +242,7 @@ class PriceTrackerPopup {
         <span>Target: ${item.targetPrice} ${item.currency}</span>
       </div>
       <div style="font-size: 11px; color: ${diffColor}; margin-top: 4px;">${diffText}</div>
+      <div style="font-size: 10px; color: #999; margin-top: 2px;">Price updated: ${lastPriceUpdate}</div>
       <button class="remove-btn" data-item-id="${item.id}">Remove</button>
     `;
 
@@ -250,6 +263,31 @@ class PriceTrackerPopup {
   async loadTrackedItems() {
     const result = await browser.storage.local.get(["trackedItems"]);
     this.trackedItems = result.trackedItems || [];
+
+    // Ensure backward compatibility by adding priceHistory to items that don't have it
+    this.trackedItems.forEach((item) => {
+      if (!item.priceHistory) {
+        item.priceHistory = [
+          {
+            date: item.dateAdded,
+            price: item.currentPrice,
+          },
+        ];
+      }
+      // Add lastPriceUpdate for backward compatibility
+      if (!item.lastPriceUpdate) {
+        item.lastPriceUpdate = item.dateAdded;
+      }
+    });
+
+    // Save the migrated data
+    if (
+      this.trackedItems.some(
+        (item) => !item.priceHistory || !item.lastPriceUpdate,
+      )
+    ) {
+      await this.saveTrackedItems();
+    }
   }
 
   async saveTrackedItems() {
@@ -263,7 +301,24 @@ class PriceTrackerPopup {
   }
 
   async saveSettings() {
-    const interval = parseInt(document.getElementById("check-interval").value);
+    const intervalInput = document.getElementById("check-interval");
+    const interval = parseInt(intervalInput.value);
+
+    // Validate interval
+    if (isNaN(interval) || interval < 1 || interval > 168) {
+      this.showError("Check interval must be between 1 and 168 hours.");
+      intervalInput.value = 6; // Reset to default
+      return;
+    }
+
+    // Warn for very frequent checks
+    if (interval < 2) {
+      this.showError(
+        "Warning: Checking prices every hour may impact performance and could get you rate-limited.",
+        "warning",
+      );
+    }
+
     await browser.storage.local.set({ checkInterval: interval });
 
     // Update alarm
@@ -271,6 +326,15 @@ class PriceTrackerPopup {
       action: "updateCheckInterval",
       interval: interval,
     });
+
+    // Show success message for valid updates
+    if (interval >= 2) {
+      this.showError(
+        `Price check interval updated to ${interval} hour${interval === 1 ? "" : "s"}.`,
+        "success",
+      );
+      setTimeout(() => this.hideElement("error"), 3000);
+    }
   }
 
   openAllTrackedItems() {
@@ -325,10 +389,44 @@ class PriceTrackerPopup {
   showError(message, type = "error") {
     const errorElement = document.getElementById("error");
     errorElement.textContent = message;
-    errorElement.className = type === "success" ? "error" : "error";
-    errorElement.style.background = type === "success" ? "#e6f4ea" : "#fce8e6";
-    errorElement.style.color = type === "success" ? "#137333" : "#d93025";
+    errorElement.className = "error";
+
+    switch (type) {
+      case "success":
+        errorElement.style.background = "#e6f4ea";
+        errorElement.style.color = "#137333";
+        break;
+      case "warning":
+        errorElement.style.background = "#fef7e0";
+        errorElement.style.color = "#f29900";
+        break;
+      default:
+        errorElement.style.background = "#fce8e6";
+        errorElement.style.color = "#d93025";
+        break;
+    }
+
     this.showElement("error");
+  }
+
+  formatRelativeTime(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMinutes < 1) {
+      return "just now";
+    } else if (diffMinutes < 60) {
+      return `${diffMinutes}m ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
   }
 
   showNoProduct() {
