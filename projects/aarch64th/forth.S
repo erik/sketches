@@ -33,6 +33,7 @@
 
 .macro PRINT_DEBUG fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
     .data
+    .balign 8
     fmt_\@: .asciz "\fmt"
 
     .text
@@ -102,49 +103,64 @@ DSP .req x28  ; data stack pointer
     add  \reg, \reg, \label@pageoff
 .endm
 
-; Pre state:               Post state:
-;   IP -> | &DUP |            WP ->  | &DUP | x0 -> &DUP
-;         | &ADD |            IP ->  | &ADD |
-;         | &DOT |                   | &DOT |
+; NEXT is the beating heart of the interpreter. It's a bit tricky.
+;
+; Imagine we have the following definitions
+;
+;   : DOUBLE DUP ADD ;
+;   : QUAD DOUBLE DOUBLE ;
+;
+; Then let's say we're executing "QUAD"
+;
+;   Before NEXT:
+;      QUAD:             DOUBLE:
+;        DOCOL  <- IP     DOCOL
+;        DOUBLE           DUP
+;        DOUBLE           ADD
+;        EXIT             EXIT
+;
+;   Before NEXT:
+;      QUAD:             DOUBLE:
+;        DOCOL            DOCOL <- WP
+;        DOUBLE <- IP     DUP
+;        DOUBLE           ADD
+;        EXIT             EXIT
+;
+; This sets the stage for DOCOL, which saves the state of IP within QUAD (on
+; return stack) and then advances it to the next word of DOCOL
 .macro NEXT
-    ldr WP, [IP], #8
-    ldr x0, [WP]
-    br  x0
+    ldr x0, [IP], #8  ; Read addr of word at instruction pointer
+    ldr WP, [x0]      ; WP now points to entrypoint of next word
+    br  WP            ; Start executing next word
 .endm
 
 ; "do-colon" or something. The forth threaded interpreter.
 ;
-; Pre state:               Post state:
-;   WP  -> | &DOCOL |            WP ->  | &DOCOL |
-;          | &DUP   |            IP ->  | &DUP   |
-;          | &DOT   |                   | &DOT   |
+; Continuing the example from the definition of NEXT, here's our "before" state
+;      QUAD:             DOUBLE:
+;        DOCOL            DOCOL <- WP
+;        DOUBLE <- IP     DUP
+;        DOUBLE           ADD
+;        EXIT             EXIT
 ;
-;   [return stack]              [return stack]
-;   RSP -> |     |                     | IP  |
-;                               RSP -> |     |
-.align 8
+; After DOCOL
+;      [Return Stack]    QUAD:        DOUBLE:
+;      [ &old_ip ]        DOCOL        DOCOL
+;           +-----------> DOUBLE       DUP   <- IP
+;                         DOUBLE       ADD
+;                         EXIT         EXIT
+.text
+.balign 4
+.global docol
 docol:
-	PUSH_RS IP
-	add     IP, WP, #8
-	NEXT
+    PUSH_RS IP           ; Save instruction pointer (will be restored by EXIT)
+    add     IP, WP, #8   ; WP points at the word we're executing we want the next one
+    NEXT
 
-; Word layout
-;
-; struct word {
-;   u64* prev_word;
-;   struct {
-;     int immediate: 1;
-;     int reserved: 1; // can't remember right now
-;   } flags;
-;   u8 name_len;
-;   u8[name_len] name;
-;   byte[...] zero_padding; // align 8 bytes
-;   u64[] ops;
-; }
-.macro DEFINE_WORD name, flags=0, prev_word, label
+; "Native" words, defined in assembly
+.macro DEFINE_CODE name, flags=0, label, prev_word
     .data
-    .align 8
-    .global  name_\label
+    .balign 8
     name_\label:
         .dword   \prev_word      ; point to the previously defined word
         .byte    \flags
@@ -152,34 +168,59 @@ docol:
         1:
         .ascii   "\name"
         2:
-        .align 8               ; add padding if necessary
+        .balign 8                ; add padding if necessary
 
+    .balign 8
     \label:
+        ; No DOCOL here, we want to jump to a native assembly implementation
+        ; instead
         .dword code_\label
 
     .text
-    .global code_\label
+    .balign 4
     code_\label:
-        .dword =docol
+        PRINT_DEBUG "CODE \name\n"
         ; filled in after macro call
+.endm
+
+; Words defined in terms of other Forth words.
+.macro DEFINE_WORD name, flags=0, label, prev_word
+    .data
+    .balign 8
+    name_\label:
+        .dword   \prev_word      ; point to the previously defined word
+        .byte    \flags
+        .byte    2f - 1f         ; calculate size of name
+        1:
+        .ascii   "\name"
+        2:
+        .balign 8                ; add padding if necessary
+
+    .balign 8
+    \label:
+        .dword =docol
+        ; rest is filled in after macro call
 .endm
 
 ; Creates a "variable" via a word which pushes an address to the stack, which
 ; can then be read or written to
-.macro DEFINE_VAR name, flags=0, prev_word, label, initial=0
-    DEFINE_WORD \name, \flags, \prev_word, \label
-        LOAD_LABEL x0, var_\name
-        PUSH_RS    x0
-        NEXT
-
+.macro DEFINE_VAR name, flags=0, label, prev_word, initial=0
     .data
-    .align 8
-    var_\name: .dword \initial
+    .balign 8
+    var_\label:
+        .dword \initial
+
+    DEFINE_CODE \name, \flags, \label, \prev_word
+        LOAD_LABEL x0, var_\label
+        PUSH_DS    x0
+        NEXT
 .endm
 
 ; Creates a constant which pushes a literal value to the stack
-.macro DEFINE_CONST name, flags=0, prev_word, label, value
-    DEFINE_WORD \name, \flags, \prev_word, \label
+;
+; TODO: support larger constant values
+.macro DEFINE_CONST name, flags=0, label, prev_word, value
+    DEFINE_CODE \name, \flags, \label, \prev_word
         mov     x0, #\value
         PUSH_DS x0
         NEXT
@@ -187,24 +228,24 @@ docol:
 
 ;; Built-in variables
 .set NIL, 0
-DEFINE_VAR "STATE",  0, NIL,         STATE     ; Interpreter state: executing (0), or compiling (non-zero)
-DEFINE_VAR "HERE",   0, name_STATE,  HERE      ; Pointer to next free byte of memory
-DEFINE_VAR "LATEST", 0, name_HERE,   LATEST    ; Pointer to most recently defined word in dictionary
+DEFINE_VAR "STATE",  0, STATE,  NIL        ; Interpreter state: executing (0), or compiling (non-zero)
+DEFINE_VAR "HERE",   0, HERE,   name_STATE ; Pointer to next free byte of memory
+DEFINE_VAR "LATEST", 0, LATEST, name_HERE  ; Pointer to most recently defined word in dictionary
 // DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
 
 ;; Built-in constants
-DEFINE_CONST "VERSION", 0, name_LATEST,  VERSION, 12300
+DEFINE_CONST "VERSION", 0, VERSION, name_LATEST, 12300
 
 ;; Stack pointer "constants" which I can't use the macro for.
 
 ; Pointer to top of param stack
-DEFINE_WORD "S0", 0, name_VERSION, S0
+DEFINE_CODE "S0", 0, SZ, name_VERSION
     LOAD_LABEL x0, DATA_STACK_TOP
     PUSH_DS    x0
     NEXT
 
 ; Pointer to top of return stack
-DEFINE_WORD "R0", 0, name_S0, R0
+DEFINE_CODE "R0", 0, RZ, name_SZ
     LOAD_LABEL x0, RETURN_STACK_TOP
     PUSH_DS    x0
     NEXT
@@ -212,56 +253,80 @@ DEFINE_WORD "R0", 0, name_S0, R0
 ; Set return stack pointer to top of stack
 ;
 ; TODO can define this in forth
-DEFINE_WORD "RSP!", 0, name_R0, RSP
+DEFINE_CODE "RSP!", 0, RSPSTORE, name_RZ
     POP_DS RSP
     NEXT
 
 ;; Built-in words
-DEFINE_WORD "EXIT", 0, name_RSP, EXIT
+DEFINE_CODE "EXIT", 0, EXIT, name_RSPSTORE
     POP_RS IP
     NEXT
 
-; A misnomer, QUIT does not exit the program, it is the top level loop, and
-; initializes everything.
+; Offset instruction pointer by the given offset (as an immediate value)
 ;
-; Maybe "RESET" is a better name?
-DEFINE_WORD "QUIT", 0, name_EXIT, QUIT
-    .dword =R0           ; Push top of return stack
-    .dword =RSP          ; Set return stack pointer
-	.dword =INTERPRET    ; interpret next word
-	; TODO [ BRANCH -16 ] (aka jump back 2 words)
+; TODO: not sure if this is right?
+;
+; Pre state:               Post state:
+;   WP  -> | &BRANCH |              | &BRANCH |
+;   IP  -> | 8       |              | 8       |
+;          | &...    |       IP ->  | &...    |
+DEFINE_CODE "BRANCH", 0, BRANCH, name_EXIT
+    ldr    x0, [IP]    ; load the branch offset
+    add    IP, IP, x0  ; update pointer to offset
+    NEXT
 
-; The REPL.
-DEFINE_WORD "INTERPRET", 0, name_QUIT, INTERPRET
-    bl _read_word
+; As with BRANCH, but with a conditional from the stack
+DEFINE_CODE "0BRANCH", 0, ZBRANCH, name_BRANCH
+    POP_DS x0               ; load top of stack
+    cbz    x0, code_BRANCH  ; if zero, run BRANCH
+    add    IP, IP, 8        ; else, skip over the immediate offset
+    NEXT
+
+; The REPL!
+DEFINE_CODE "INTERPRET", 0, INTERPRET, name_ZBRANCH
+    bl _read_word  ; read a single word from input
     ; TODO!
     NEXT
 
 ; (a -- )
-DEFINE_WORD "DROP", 0, name_INTERPRET, DROP
-	POP_DS x0
-	NEXT
+DEFINE_CODE "DROP", 0, DROP, name_INTERPRET
+    POP_DS x0
+    NEXT
 
 ; (a -- a a)
-DEFINE_WORD "DUP", 0, name_DROP, DUP
+DEFINE_CODE "DUP", 0, DUP, name_DROP
     ldr     x0, [DSP]
-	PUSH_DS x0
-	NEXT
+    PUSH_DS x0
+    NEXT
 
 ; (a -- a)
-DEFINE_WORD "1+", 0, name_DUP, INCR
+DEFINE_CODE "1+", 0, INCR, name_DUP
     POP_DS  x0
     add     x0, x0, #1
     PUSH_RS x0
     NEXT
 
 ; (a -- )
-DEFINE_WORD ".", 0, name_INCR, DOT
+DEFINE_CODE ".", 0, DOT, name_INCR
     POP_DS      x0
     PRINT_DEBUG "%lld\n", x0
     NEXT
 
+;; Words implemented in terms of other Forth words.
 
+; A misnomer, QUIT does not exit the program, it is the top level loop, and
+; initializes everything.
+;
+; Maybe "RESET" is a better name?
+DEFINE_WORD "QUIT", 0, QUIT, name_DOT
+    .dword RZ         ; Push top of return stack
+    .dword RSPSTORE   ; Set return stack pointer
+    .dword INTERPRET  ; interpret next word
+    .dword BRANCH     ; jump back...
+    .dword (-8 * 2)   ; ... by 2 words
+
+.text
+.balign 8
 _main:
     ; Initialize stack pointers
     LOAD_LABEL RSP, RETURN_STACK_TOP
@@ -270,17 +335,16 @@ _main:
     ; Initialize LATEST with pointer to itself
     ;
     ; FIXME: this assumes LATEST is the last word defined, not currently true
-    LOAD_LABEL x2,  var_LATEST
-    str        x2, [x2]
+    ; LOAD_LABEL x2,  var_LATEST
+    ; str        x2, [x2]
 
     bl print_prompt
 
     ; Initialize interpreter to point at QUIT
-    ; TODO:
-    ; LOAD_LABEL IP, code_QUIT
-	; NEXT
+    LOAD_LABEL IP, QUIT
+    NEXT
 
-	PRINT_DEBUG ">> exit\n\n\n"
+    PRINT_DEBUG ">> exit\n\n\n"
     b   exit
 
 print_value:
@@ -294,12 +358,8 @@ print_prompt:
     ret
 
 exit:
-    mov	    x0,  0   ; return value
+    mov     x0,  0   ; return value
     SYSCALL exit
-
-
-.data
-_word_buffer: .zero 32
 
 ; Read the next forth word from stdin
 ;   x0: word pointer
@@ -320,9 +380,9 @@ _read_word:
 2: ; start writing characters into the buffer (no bounds checks!)
     strb w0, [x22], #1 ; append the character to the buffer
     add  x23, x23, #1
-	bl  _read_key      ; get the next key
-	cmp x0, ' '        ; check if we've reached the end of the word
-	bne 2b             ; otherwise keep consuming
+    bl  _read_key      ; get the next key
+    cmp x0, ' '        ; check if we've reached the end of the word
+    bne 2b             ; otherwise keep consuming
 
 3: ; compute length of the word and return
     LOAD_LABEL x0, _word_buffer       ; load address of buffer
@@ -332,6 +392,7 @@ _read_word:
 
     POP_FRAME
     ret
+
 
 ; Read next key from stdin, filling buffer if necessary.
 ;    x0: char (in low order byte of x0)
@@ -350,8 +411,8 @@ _read_key:
     ldrb w0, [x1], #1  ; read next byte from input buffer
     str  x1, [x20]     ; persist updated buffer position
 
-	POP_FRAME
-	ret
+    POP_FRAME
+    ret
 
 2: ; out of input, need to consume more from stdin
     mov        x0, FD_STDIN      ; param 1, stdin
@@ -368,7 +429,7 @@ _read_key:
     str        x1, [x20]        ; reset position to start of buffer
     str        x2, [x21]        ; store new top
 
-	b 1b
+    b 1b
 
 3: ; EOF (or error)
     ;; TODO: on eof, should return the word we read until here (unless it has length zero)
@@ -377,14 +438,16 @@ _read_key:
     SYSCALL exit
 
 .bss
-
 RETURN_STACK:     .zero (8 * 2048)
 RETURN_STACK_TOP: .dword
 DATA_STACK:       .zero (8 * 2048)
 DATA_STACK_TOP:   .dword
+; Space to to store parsed words
+_word_buffer:     .zero 32
 
 
 .data
+.balign 8
 fmt_prompt: .asciz "forth> "
 
 ; Current place in input buffer (next character to read).
