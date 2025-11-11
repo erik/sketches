@@ -78,6 +78,10 @@ WP  .req x26  ; word pointer
 RSP .req x27  ; return stack pointer
 DSP .req x28  ; data stack pointer
 
+;; Word flags
+.set FL_IMMED,  (1 << 0)
+.set FL_HIDDEN, (1 << 1)
+
 ; Push \reg to return stack
 .macro PUSH_RS reg
     str \reg, [RSP, #-8]!
@@ -188,7 +192,7 @@ docol:
     .data
     .balign 8
     name_\label:
-        .dword   \prev_word      ; point to the previously defined word
+        .dword   name_\prev_word ; point to the previously defined word
         .byte    \flags
         .byte    2f - 1f         ; calculate size of name
         1:
@@ -221,44 +225,39 @@ docol:
 ; TODO: support larger constant values
 .macro DEFINE_CONST name, flags=0, label, prev_word, value
     DEFINE_CODE \name, \flags, \label, \prev_word
-        mov     x0, #\value
+        mov x0, #\value
         PUSH_DS x0
+        NEXT
+.endm
+
+; A constant pointing to address of something else
+.macro DEFINE_CONST_REF name, flags=0, label, prev_word, value_label
+    DEFINE_CODE \name, \flags, \label, \prev_word
+        LOAD_LABEL x0, \value_label
+        PUSH_DS    x0
         NEXT
 .endm
 
 ;; Built-in variables
 .set NIL, 0
-DEFINE_VAR "STATE",  0, STATE,  NIL        ; Interpreter state: executing (0), or compiling (non-zero)
-DEFINE_VAR "HERE",   0, HERE,   name_STATE ; Pointer to next free byte of memory
-DEFINE_VAR "LATEST", 0, LATEST, name_HERE  ; Pointer to most recently defined word in dictionary
+DEFINE_VAR "STATE",  0, STATE,  NIL   ; Interpreter state: executing (0), or compiling (non-zero)
+DEFINE_VAR "HERE",   0, HERE,   STATE ; Pointer to next free byte of memory
+DEFINE_VAR "LATEST", 0, LATEST, HERE  ; Pointer to most recently defined word in dictionary
 // DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
 
 ;; Built-in constants
-DEFINE_CONST "VERSION", 0, VERSION, name_LATEST, 12300
-
-;; Stack pointer "constants" which I can't use the macro for.
-
-; Pointer to top of param stack
-DEFINE_CODE "S0", 0, SZ, name_VERSION
-    LOAD_LABEL x0, DATA_STACK_TOP
-    PUSH_DS    x0
-    NEXT
-
-; Pointer to top of return stack
-DEFINE_CODE "R0", 0, RZ, name_SZ
-    LOAD_LABEL x0, RETURN_STACK_TOP
-    PUSH_DS    x0
-    NEXT
+DEFINE_CONST "VERSION", 0, VERSION, LATEST, 0
+DEFINE_CONST_REF "DOCOL", 0, DOCOL, VERSION, docol   ; Magic sauce
+DEFINE_CONST_REF "S0", 0, SZ, DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
+DEFINE_CONST_REF "R0", 0, RZ, SZ, RETURN_STACK_TOP   ; Pointer to top of return stack
 
 ; Set return stack pointer to top of stack
-;
-; TODO can define this in forth
-DEFINE_CODE "RSP!", 0, RSPSTORE, name_RZ
+DEFINE_CODE "RSP!", 0, RSPSTORE, RZ
     POP_DS RSP
     NEXT
 
 ;; Built-in words
-DEFINE_CODE "EXIT", 0, EXIT, name_RSPSTORE
+DEFINE_CODE "EXIT", 0, EXIT, RSPSTORE
     POP_RS IP
     NEXT
 
@@ -270,46 +269,46 @@ DEFINE_CODE "EXIT", 0, EXIT, name_RSPSTORE
 ;   WP  -> | &BRANCH |              | &BRANCH |
 ;   IP  -> | 8       |              | 8       |
 ;          | &...    |       IP ->  | &...    |
-DEFINE_CODE "BRANCH", 0, BRANCH, name_EXIT
+DEFINE_CODE "BRANCH", 0, BRANCH, EXIT
     ldr    x0, [IP]    ; load the branch offset
     add    IP, IP, x0  ; update pointer to offset
     NEXT
 
 ; As with BRANCH, but with a conditional from the stack
-DEFINE_CODE "0BRANCH", 0, ZBRANCH, name_BRANCH
+DEFINE_CODE "0BRANCH", 0, ZBRANCH, BRANCH
     POP_DS x0               ; load top of stack
     cbz    x0, code_BRANCH  ; if zero, run BRANCH
     add    IP, IP, 8        ; else, skip over the immediate offset
     NEXT
 
 ; The REPL!
-DEFINE_CODE "INTERPRET", 0, INTERPRET, name_ZBRANCH
+DEFINE_CODE "INTERPRET", 0, INTERPRET, ZBRANCH
     bl _read_word  ; read a single word from input
     ; TODO!
     NEXT
 
 ; (a -- )
-DEFINE_CODE "DROP", 0, DROP, name_INTERPRET
+DEFINE_CODE "DROP", 0, DROP, INTERPRET
     POP_DS x0
     NEXT
 
 ; (a -- a a)
-DEFINE_CODE "DUP", 0, DUP, name_DROP
+DEFINE_CODE "DUP", 0, DUP, DROP
     ldr     x0, [DSP]
     PUSH_DS x0
     NEXT
 
 ; (a -- a)
-DEFINE_CODE "1+", 0, INCR, name_DUP
+DEFINE_CODE "1+", 0, INCR, DUP
     POP_DS  x0
     add     x0, x0, #1
     PUSH_RS x0
     NEXT
 
 ; (a -- )
-DEFINE_CODE ".", 0, DOT, name_INCR
+DEFINE_CODE ".", 0, DOT, INCR
     POP_DS      x0
-    PRINT_DEBUG "%lld\n", x0
+    PRINT_DEBUG "%p\n", x0
     NEXT
 
 ;; Words implemented in terms of other Forth words.
@@ -318,7 +317,7 @@ DEFINE_CODE ".", 0, DOT, name_INCR
 ; initializes everything.
 ;
 ; Maybe "RESET" is a better name?
-DEFINE_WORD "QUIT", 0, QUIT, name_DOT
+DEFINE_WORD "QUIT", 0, QUIT, DOT
     .dword RZ         ; Push top of return stack
     .dword RSPSTORE   ; Set return stack pointer
     .dword INTERPRET  ; interpret next word
