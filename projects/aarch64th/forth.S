@@ -162,17 +162,15 @@ docol:
     NEXT
 
 ; "Native" words, defined in assembly
-.macro DEFINE_CODE name, flags=0, label, prev_word
+.macro DEFINE_CODE name, len, flags=0, label, prev
     .data
     .balign 8
     name_\label:
-        .dword   \prev_word      ; point to the previously defined word
+        .dword   name_\prev ; point to the previously defined word
         .byte    \flags
-        .byte    2f - 1f         ; calculate size of name
-        1:
-        .ascii   "\name"
-        2:
-        .balign 8                ; add padding if necessary
+        .byte    \len       ; TODO: can this be computed somehow??
+        .asciz   "\name"
+        .balign 8           ; add padding if necessary
 
     .balign 8
     \label:
@@ -188,16 +186,14 @@ docol:
 .endm
 
 ; Words defined in terms of other Forth words.
-.macro DEFINE_WORD name, flags=0, label, prev_word
+.macro DEFINE_WORD name, len, flags=0, label, prev_word
     .data
     .balign 8
     name_\label:
         .dword   name_\prev_word ; point to the previously defined word
         .byte    \flags
-        .byte    2f - 1f         ; calculate size of name
-        1:
-        .ascii   "\name"
-        2:
+        .byte    \len
+        .asciz   "\name"
         .balign 8                ; add padding if necessary
 
     .balign 8
@@ -208,13 +204,13 @@ docol:
 
 ; Creates a "variable" via a word which pushes an address to the stack, which
 ; can then be read or written to
-.macro DEFINE_VAR name, flags=0, label, prev_word, initial=0
+.macro DEFINE_VAR name, len, flags=0, label, prev_word, initial=0
     .data
     .balign 8
     var_\label:
         .dword \initial
 
-    DEFINE_CODE \name, \flags, \label, \prev_word
+    DEFINE_CODE \name, \len, \flags, \label, \prev_word
         LOAD_LABEL x0, var_\label
         PUSH_DS    x0
         NEXT
@@ -223,16 +219,16 @@ docol:
 ; Creates a constant which pushes a literal value to the stack
 ;
 ; TODO: support larger constant values
-.macro DEFINE_CONST name, flags=0, label, prev_word, value
-    DEFINE_CODE \name, \flags, \label, \prev_word
+.macro DEFINE_CONST name, len, flags=0, label, prev_word, value
+    DEFINE_CODE \name, \len, \flags, \label, \prev_word
         mov x0, #\value
         PUSH_DS x0
         NEXT
 .endm
 
 ; A constant pointing to address of something else
-.macro DEFINE_CONST_REF name, flags=0, label, prev_word, value_label
-    DEFINE_CODE \name, \flags, \label, \prev_word
+.macro DEFINE_CONST_REF name, len, flags=0, label, prev_word, value_label
+    DEFINE_CODE \name, \len, \flags, \label, \prev_word
         LOAD_LABEL x0, \value_label
         PUSH_DS    x0
         NEXT
@@ -240,24 +236,23 @@ docol:
 
 ;; Built-in variables
 .set NIL, 0
-DEFINE_VAR "STATE",  0, STATE,  NIL   ; Interpreter state: executing (0), or compiling (non-zero)
-DEFINE_VAR "HERE",   0, HERE,   STATE ; Pointer to next free byte of memory
-DEFINE_VAR "LATEST", 0, LATEST, HERE  ; Pointer to most recently defined word in dictionary
+DEFINE_VAR "STATE", 5, 0, STATE, NIL   ; Interpreter state: executing (0), or compiling (non-zero)
+DEFINE_VAR "HERE",  4, 0, HERE,  STATE ; Pointer to next free byte of memory
 // DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
 
 ;; Built-in constants
-DEFINE_CONST "VERSION", 0, VERSION, LATEST, 0
-DEFINE_CONST_REF "DOCOL", 0, DOCOL, VERSION, docol   ; Magic sauce
-DEFINE_CONST_REF "S0", 0, SZ, DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
-DEFINE_CONST_REF "R0", 0, RZ, SZ, RETURN_STACK_TOP   ; Pointer to top of return stack
+DEFINE_CONST "VERSION", 7, 0, VERSION, HERE, 0
+DEFINE_CONST_REF "DOCOL", 5, 0, DOCOL, VERSION, docol   ; Magic sauce
+DEFINE_CONST_REF "S0", 2, 0, SZ, DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
+DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP   ; Pointer to top of return stack
 
 ; Set return stack pointer to top of stack
-DEFINE_CODE "RSP!", 0, RSPSTORE, RZ
+DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RZ
     POP_DS RSP
     NEXT
 
 ;; Built-in words
-DEFINE_CODE "EXIT", 0, EXIT, RSPSTORE
+DEFINE_CODE "EXIT", 4, 0, EXIT, RSPSTORE
     POP_RS IP
     NEXT
 
@@ -269,44 +264,81 @@ DEFINE_CODE "EXIT", 0, EXIT, RSPSTORE
 ;   WP  -> | &BRANCH |              | &BRANCH |
 ;   IP  -> | 8       |              | 8       |
 ;          | &...    |       IP ->  | &...    |
-DEFINE_CODE "BRANCH", 0, BRANCH, EXIT
+DEFINE_CODE "BRANCH", 6, 0, BRANCH, EXIT
     ldr    x0, [IP]    ; load the branch offset
     add    IP, IP, x0  ; update pointer to offset
     NEXT
 
 ; As with BRANCH, but with a conditional from the stack
-DEFINE_CODE "0BRANCH", 0, ZBRANCH, BRANCH
+DEFINE_CODE "0BRANCH", 7, 0, ZBRANCH, BRANCH
     POP_DS x0               ; load top of stack
     cbz    x0, code_BRANCH  ; if zero, run BRANCH
     add    IP, IP, 8        ; else, skip over the immediate offset
     NEXT
 
 ; The REPL!
-DEFINE_CODE "INTERPRET", 0, INTERPRET, ZBRANCH
-    bl _read_word  ; read a single word from input
-    ; TODO!
+DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, ZBRANCH
+    IS_LITERAL .req x24 ; keep track of whether we're reading a word or an int
+
+    bl _read_word       ; read a single word from input
+    mov IS_LITERAL, #0  ; start off with assumption that we're reading a word
+    bl _lookup_word     ; try to find our word in the dictionary
+    cbz x0, 1f          ; if zero, not found
+
+    PRINT_DEBUG "Found word in dictionary!\n"
+
+    ; Word in the dictionary
+    ; todo: load code pointer from dictionary entry
+    ; todo: if immediate, execute now
+    ; todo: else, compile
+
+1: ; word not found in the dictionary, maybe a literal?
+    mov IS_LITERAL, #1
+    PRINT_DEBUG "TODO: try parse number\n"
+    ; todo: try parse number
+    ; todo: if err, throw parse error
+    ; todo: else: compile as a reference to LIT
+    ;
+
+2: ; Check interpreter state (compiling or executing)
+    LOAD_LABEL x0, var_STATE  ; 0 is executing, 1 is compiling
+    cbz        x0, 3f         ; if executing, run now (and return)
+
+    ; if compiling, COMMA
+    ;   if literal, COMMA again
+
+3: ; Finish INTERPRET call
     NEXT
 
+4: ; Execute function for immediate mode
+
+5: ; Execute literal (push it to the stack)
+    PUSH_DS x0 ; TODO: what reg?
+    NEXT
+
+6: ; Handle parse errors
+    ; TODO
+
 ; (a -- )
-DEFINE_CODE "DROP", 0, DROP, INTERPRET
+DEFINE_CODE "DROP", 4, 0, DROP, INTERPRET
     POP_DS x0
     NEXT
 
 ; (a -- a a)
-DEFINE_CODE "DUP", 0, DUP, DROP
+DEFINE_CODE "DUP", 3, 0, DUP, DROP
     ldr     x0, [DSP]
     PUSH_DS x0
     NEXT
 
 ; (a -- a)
-DEFINE_CODE "1+", 0, INCR, DUP
+DEFINE_CODE "1+", 2, 0, INCR, DUP
     POP_DS  x0
     add     x0, x0, #1
     PUSH_RS x0
     NEXT
 
 ; (a -- )
-DEFINE_CODE ".", 0, DOT, INCR
+DEFINE_CODE ".", 1, 0, DOT, INCR
     POP_DS      x0
     PRINT_DEBUG "%p\n", x0
     NEXT
@@ -317,12 +349,17 @@ DEFINE_CODE ".", 0, DOT, INCR
 ; initializes everything.
 ;
 ; Maybe "RESET" is a better name?
-DEFINE_WORD "QUIT", 0, QUIT, DOT
+DEFINE_WORD "QUIT", 4, 0, QUIT, DOT
     .dword RZ         ; Push top of return stack
     .dword RSPSTORE   ; Set return stack pointer
     .dword INTERPRET  ; interpret next word
     .dword BRANCH     ; jump back...
     .dword (-8 * 2)   ; ... by 2 words
+
+
+; Pointer to most recently defined word in dictionary (to be convenient, we
+; ensure it also starts out as the last defined word).
+DEFINE_VAR "LATEST", 6, 0, LATEST, QUIT
 
 .text
 .balign 8
@@ -331,11 +368,9 @@ _main:
     LOAD_LABEL RSP, RETURN_STACK_TOP
     LOAD_LABEL DSP, DATA_STACK_TOP
 
-    ; Initialize LATEST with pointer to itself
-    ;
-    ; FIXME: this assumes LATEST is the last word defined, not currently true
-    ; LOAD_LABEL x2,  var_LATEST
-    ; str        x2, [x2]
+    LOAD_LABEL x2,  var_LATEST
+    LOAD_LABEL x3,  name_LATEST
+    str        x3, [x2]        ; Initialize LATEST with pointer to last defined word (itself)
 
     bl print_prompt
 
@@ -392,7 +427,6 @@ _read_word:
     POP_FRAME
     ret
 
-
 ; Read next key from stdin, filling buffer if necessary.
 ;    x0: char (in low order byte of x0)
 _read_key:
@@ -436,6 +470,54 @@ _read_key:
     mov     x0, -1  ; exit code
     SYSCALL exit
 
+; Try to look up a word in the dictionary. Return its address, or 0 if not
+; found.
+;
+;   input:
+;     x0: addr of lookup string
+;     x1: length of string
+;   output:
+;     x0: addr of word (or nil)
+_lookup_word:
+    PUSH_FRAME
+    LOAD_LABEL x2, var_LATEST  ; start with the last word defined and work backwards
+    PRINT_DEBUG "starting lookup search for '%s'\n", x0
+
+1: ; loop through linked list
+    ldr x2, [x2]           ; load next word in the list
+    cbz x2, 3f             ; hit the nil pointer, exit
+
+    ldrh w3, [x2, #8]      ; load flags (offset 8) and len (offset 9) bytes
+    and  w4, w3, FL_HIDDEN ; check if word is hidden (low byte)
+    cbnz w4, 1b            ; word is hidden, skip
+
+    lsr w3, w3, #8    ; shift length into low byte
+    cmp w1, w3        ; check length before full string match
+    bne 1b            ; length differs, try next word
+
+    mov x3, #0        ; char counter
+    mov x4, x0        ; copy of input ptr that we can clobber
+    add x5, x2, #10   ; copy of candidate ptr that we can clobber, pointing at word
+
+2: ; length equal, loop string comparison
+   ; TODO: optimized version w/ 64 bit load/compare
+
+    ldrb w6, [x4], #1 ; load search substr
+    ldrb w7, [x5], #1 ; load candidate substr
+
+    cmp w6, w7        ; see if characters match
+    bne 1b            ; doesn't match, skip
+
+    add  x3, x3, #1   ; increment counter
+    cmp  x3, x1       ; compare to search str len
+    bne  2b           ; keep looping, else, fall through to end
+
+3: ; Either found a result or ran out of words to check
+    PRINT_DEBUG "  -> finish, return %p\n", x2
+    mov x0, x2
+    POP_FRAME
+    ret
+
 .bss
 RETURN_STACK:     .zero (8 * 2048)
 RETURN_STACK_TOP: .dword
@@ -443,7 +525,6 @@ DATA_STACK:       .zero (8 * 2048)
 DATA_STACK_TOP:   .dword
 ; Space to to store parsed words
 _word_buffer:     .zero 32
-
 
 .data
 .balign 8
@@ -462,3 +543,6 @@ _read_key_buff_top: .dword 0x15151515
 .align 8
 .set BUFFER_SIZE, 4096
 input_buffer: .zero BUFFER_SIZE
+
+; fixme: whack!!
+name_NIL: .space 0
