@@ -31,6 +31,12 @@
     POP x29, x30
 .endm
 
+.macro BL_NO_CLOBBER label
+    PUSH4 x0, x1, x2, x3              ; Save registers that could be clobbered
+    bl    \label
+    POP4  x0, x1, x2, x3              ; Discard args we pushed to the stack
+.endm
+
 .macro PRINT_DEBUG fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
     .data
     .balign 8
@@ -309,7 +315,9 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
 
     bl _read_word       ; read a single word from input
     mov IS_LITERAL, #0  ; start off with assumption that we're reading a word
+    PUSH x0, x1         ; save word + length
     bl _lookup_word     ; try to find our word in the dictionary
+    POP x1, x2          ; restore word + length (to other registers)
     cbz x0, 1f          ; if zero, not found
 
     ; Word is in the dictionary
@@ -320,22 +328,26 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
     b    2f               ; not immediate, have to compile
 
 1: ; word not found in the dictionary, maybe a literal?
-    mov IS_LITERAL, #1
-    PRINT_DEBUG "TODO: parse number\n"
-    ; todo: try parse number
-    ; todo: if err, throw parse error
-    ; todo: else: compile as a reference to LIT
-    ;
+    mov x0, x1
+    mov x1, x2
+    mov  IS_LITERAL, #1
+    bl   _read_number
+    cbnz x1, 6f              ; jump to error on failure
+
+    PRINT_DEBUG "Literal: %d\n", x0
+
+    mov       x2, x0         ; save literal number for later
+    ADR_LABEL x0, LIT        ; so that we can first insert LIT
 
 2: ; Check interpreter state (compiling or executing)
     LDR_LABEL x1, var_STATE  ; 0 is executing, 1 is compiling
     cbz       x1, 4f         ; if executing, run now (and return)
 
-    PUSH4 x0, x1, x2, x3
-    bl    _comma
-    POP4  x0, x1, x2, x3
+    BL_NO_CLOBBER _comma
 
-    ; todo: if literal, COMMA again
+    cbz IS_LITERAL, 3f       ; was it a normal word?
+    mov x0, x2               ; compile the LIT call
+    BL_NO_CLOBBER _comma
 
 3: ; Finish INTERPRET call
     NEXT
@@ -346,7 +358,7 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
     br   x1
 
 5: ; Execute literal (push it to the stack)
-    PUSH_DS x0
+    PUSH_DS x2
     NEXT
 
 6: ; Handle parse errors
@@ -366,8 +378,24 @@ _comma:
     str        x2, [x1]
     ret
 
+; Push the word immediately after this instruction (a literal value) to the
+; stack.
+;
+; Note when this is evaluated, IP is already pointing at the right address, so
+; we just need to load from it and then increment it
+;
+; ( -- a)
+DEFINE_CODE "LIT", 3, 0, LIT, COMMA
+    ldr     x0, [IP], #8  ; load immediate value
+    PUSH_DS x0            ; push it to the stack
+    NEXT
+
+DEFINE_CODE "NUMBER", 6, 0, NUMBER, LIT
+    PRINT_DEBUG "TODO: Parse number\n"
+    NEXT
+
 ; (a -- )
-DEFINE_CODE "DROP", 4, 0, DROP, COMMA
+DEFINE_CODE "DROP", 4, 0, DROP, NUMBER
     POP_DS x0
     NEXT
 
@@ -387,7 +415,7 @@ DEFINE_CODE "1+", 2, 0, INCR, DUP
 ; (a -- )
 DEFINE_CODE ".", 1, 0, DOT, INCR
     POP_DS      x0
-    PRINT_DEBUG "%p\n", x0
+    PRINT_DEBUG "%d (%p)\n", x0
     NEXT
 
 ;; Words implemented in terms of other Forth words.
@@ -429,22 +457,15 @@ _main:
     ADR_LABEL IP, QUIT
     NEXT
 
-    PRINT_DEBUG ">> exit\n\n\n"
-    b   exit
-
-print_value:
-    ; TODO: refactor this
-    PRINT_DEBUG "value: %lld\n", x0
-    ret
+    ; We should never actually get here, the interpreter loop keeps going.
+    mov     x0,  0   ; return value
+    SYSCALL exit
 
 print_prompt:
     ; TODO: refactor this
     PRINT_DEBUG "forth> ", x0
     ret
 
-exit:
-    mov     x0,  0   ; return value
-    SYSCALL exit
 
 ; Read the next forth word from stdin
 ;   x0: word pointer
@@ -517,6 +538,76 @@ _read_key:
     PRINT_DEBUG "eof, exit\n"
     mov     x0, -1  ; exit code
     SYSCALL exit
+
+; How to parse a number in base 10?
+;
+; sign = 1
+; ctr = 0
+; if char[0] == '-':
+;   sign = -1
+;   ctr = 1
+; acc = 0
+; for (ctr in range(len))
+;   tmp = char[ctr]
+;   if tmp < '0' || tmp > '9':
+;       throw
+;   acc = acc * 10 + tmp
+;  return acc * sign
+;
+; inputs:
+;   x0: addr of input string
+;   x1: length of input string
+;
+; outputs:
+;   x0: parsed value
+;   x1: error?
+_read_number:
+    cbz x1, 5f                   ; Check for empty string
+
+    mov  x2, #1                  ; positive = 1
+    mov  x3, #0                  ; ctr = 0
+
+    ldrb w4, [x0]                ; load first char
+    cmp  x4, '-'                 ; is it a negative number?
+    bne  1f
+
+    mov  x2, #0                  ; positive = 0
+    mov  x3, #1                  ; ctr = 1
+
+1:
+    mov  x4, #0                  ; acc = 0
+
+2:
+    cmp x3, x1                   ; ctr >= len?
+    bge 3f
+
+    ldrb w5, [x0, x3]            ; tmp = ptr[ctr]
+
+    ; Check if digit is in range '0' to '9'
+    cmp x5, '0'
+    blt 5f
+    cmp x5, '9'
+    bgt 5f
+
+    sub x5, x5, '0'              ; Convert ASCII to digit value
+    mov x6, #10
+    mul x4, x4, x6               ; acc *= 10
+    add x4, x4, x5               ; acc += digit
+    add x3, x3, #1               ; ctr++
+    b   2b
+
+3:
+    cbnz x2, 4f                   ; is the number positive?
+    neg  x4, x4                   ; make negative
+
+4:
+    mov x0, x4                    ; return value
+    mov x1, #0                    ; no error
+    ret
+
+5:
+    mov x1, #1                    ; error flag
+    ret
 
 ; Try to look up a word in the dictionary. Return its address, or 0 if not
 ; found.
