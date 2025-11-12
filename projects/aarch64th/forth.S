@@ -41,7 +41,7 @@
     PUSH4      x0, x1, x2, x3              ; Save registers that could be clobbered
 
     PUSH4      \arg3, \arg4, \arg1, \arg2  ; Darwin keeps printf args on the stack
-    LOAD_LABEL x0, fmt_\@                  ; Load format string
+    ADR_LABEL  x0, fmt_\@                  ; Load format string
     bl         _printf                     ; Print
 
     POP4       \arg3, \arg4, \arg1, \arg2  ; Discard args we pushed to the stack
@@ -51,6 +51,7 @@
 
 
 ;;; Sys/environment helpers
+
 ; Default file descriptors
 .set FD_STDIN,  0
 .set FD_STDOUT, 1
@@ -102,9 +103,16 @@ DSP .req x28  ; data stack pointer
     ldr \reg, [DSP], #8
 .endm
 
-.macro LOAD_LABEL reg, label
+; Load address of label into \reg
+.macro ADR_LABEL reg, label
     adrp \reg,       \label@page
     add  \reg, \reg, \label@pageoff
+.endm
+
+; Load value of memory at address pointed to by label into register
+.macro LDR_LABEL reg, label
+    ADR_LABEL \reg, \label
+    ldr       \reg, [\reg]
 .endm
 
 ; NEXT is the beating heart of the interpreter. It's a bit tricky.
@@ -181,7 +189,7 @@ docol:
     .text
     .balign 4
     code_\label:
-        PRINT_DEBUG "CODE \name\n"
+        PRINT_DEBUG "(exec \name)\n"
         ; filled in after macro call
 .endm
 
@@ -211,8 +219,8 @@ docol:
         .dword \initial
 
     DEFINE_CODE \name, \len, \flags, \label, \prev_word
-        LOAD_LABEL x0, var_\label
-        PUSH_DS    x0
+        ADR_LABEL x0, var_\label
+        PUSH_DS   x0
         NEXT
 .endm
 
@@ -221,7 +229,7 @@ docol:
 ; TODO: support larger constant values
 .macro DEFINE_CONST name, len, flags=0, label, prev_word, value
     DEFINE_CODE \name, \len, \flags, \label, \prev_word
-        mov x0, #\value
+        mov     x0, #\value
         PUSH_DS x0
         NEXT
 .endm
@@ -229,7 +237,7 @@ docol:
 ; A constant pointing to address of something else
 .macro DEFINE_CONST_REF name, len, flags=0, label, prev_word, value_label
     DEFINE_CODE \name, \len, \flags, \label, \prev_word
-        LOAD_LABEL x0, \value_label
+        ADR_LABEL  x0, \value_label
         PUSH_DS    x0
         NEXT
 .endm
@@ -246,12 +254,13 @@ DEFINE_CONST_REF "DOCOL", 5, 0, DOCOL, VERSION, docol   ; Magic sauce
 DEFINE_CONST_REF "S0", 2, 0, SZ, DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
 DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP   ; Pointer to top of return stack
 
+;; Built-in words
+
 ; Set return stack pointer to top of stack
 DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RZ
     POP_DS RSP
     NEXT
 
-;; Built-in words
 DEFINE_CODE "EXIT", 4, 0, EXIT, RSPSTORE
     POP_RS IP
     NEXT
@@ -276,8 +285,26 @@ DEFINE_CODE "0BRANCH", 7, 0, ZBRANCH, BRANCH
     add    IP, IP, 8        ; else, skip over the immediate offset
     NEXT
 
+; Given a word address, return the address of the first executable code of the
+; word
+;
+; >CFA = "to Code Field Address"
+DEFINE_CODE ">CFA", 4, 0, TO_CFA, ZBRANCH
+    POP_DS  x0              ; load top of stack
+    bl      _to_cfa
+    PUSH_DS x0              ; push code pointer onto stack
+    NEXT
+
+; hack, but define a separate label so that we can call this as a fn as well as define a Forth word
+_to_cfa:
+    ldrb   w1, [x0, #9]     ; load length of name
+    add    x1, x1, #(7 + 9) ; add 7 for alignment + 9 for offset of length byte
+    and    x1, x1, #~7      ; clear lower 3 bits (align to 8)
+    add    x0, x0, x1       ; skip past name + padding
+    ret
+
 ; The REPL!
-DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, ZBRANCH
+DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
     IS_LITERAL .req x24 ; keep track of whether we're reading a word or an int
 
     bl _read_word       ; read a single word from input
@@ -285,42 +312,62 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, ZBRANCH
     bl _lookup_word     ; try to find our word in the dictionary
     cbz x0, 1f          ; if zero, not found
 
-    PRINT_DEBUG "Found word in dictionary!\n"
-
-    ; Word in the dictionary
-    ; todo: load code pointer from dictionary entry
-    ; todo: if immediate, execute now
-    ; todo: else, compile
+    ; Word is in the dictionary
+    ldr  x2, [x0, #8]     ; load flags
+    and  x2, x2, FL_IMMED ; check if the word is immediate
+    bl   _to_cfa          ; load code pointer from word
+    cbnz x2, 4f           ; if immediate, execute now
+    b    2f               ; not immediate, have to compile
 
 1: ; word not found in the dictionary, maybe a literal?
     mov IS_LITERAL, #1
-    PRINT_DEBUG "TODO: try parse number\n"
+    PRINT_DEBUG "TODO: parse number\n"
     ; todo: try parse number
     ; todo: if err, throw parse error
     ; todo: else: compile as a reference to LIT
     ;
 
 2: ; Check interpreter state (compiling or executing)
-    LOAD_LABEL x0, var_STATE  ; 0 is executing, 1 is compiling
-    cbz        x0, 3f         ; if executing, run now (and return)
+    LDR_LABEL x1, var_STATE  ; 0 is executing, 1 is compiling
+    cbz       x1, 4f         ; if executing, run now (and return)
 
-    ; if compiling, COMMA
-    ;   if literal, COMMA again
+    PUSH4 x0, x1, x2, x3
+    bl    _comma
+    POP4  x0, x1, x2, x3
+
+    ; todo: if literal, COMMA again
 
 3: ; Finish INTERPRET call
     NEXT
 
 4: ; Execute function for immediate mode
+    cbnz IS_LITERAL, 5f
+    ldr  x1, [x0]
+    br   x1
 
 5: ; Execute literal (push it to the stack)
-    PUSH_DS x0 ; TODO: what reg?
+    PUSH_DS x0
     NEXT
 
 6: ; Handle parse errors
-    ; TODO
+    PRINT_DEBUG "TODO: Parse error\n"
+    NEXT
+
+DEFINE_CODE ",", 1, 0, COMMA, INTERPRET
+    POP_DS x0
+    bl     _comma
+    NEXT
+
+; TODO: document
+_comma:
+    ADR_LABEL  x1, var_HERE
+    ldr        x2, [x1]
+    str        x0, [x2], #8
+    str        x2, [x1]
+    ret
 
 ; (a -- )
-DEFINE_CODE "DROP", 4, 0, DROP, INTERPRET
+DEFINE_CODE "DROP", 4, 0, DROP, COMMA
     POP_DS x0
     NEXT
 
@@ -365,17 +412,21 @@ DEFINE_VAR "LATEST", 6, 0, LATEST, QUIT
 .balign 8
 _main:
     ; Initialize stack pointers
-    LOAD_LABEL RSP, RETURN_STACK_TOP
-    LOAD_LABEL DSP, DATA_STACK_TOP
+    ADR_LABEL RSP, RETURN_STACK_TOP
+    ADR_LABEL DSP, DATA_STACK_TOP
 
-    LOAD_LABEL x2,  var_LATEST
-    LOAD_LABEL x3,  name_LATEST
-    str        x3, [x2]        ; Initialize LATEST with pointer to last defined word (itself)
+    ADR_LABEL x1, var_HERE
+    ADR_LABEL x2, USER_DATA_SEGMENT
+    str       x2, [x1]
+
+    ADR_LABEL x2, var_LATEST
+    ADR_LABEL x3, name_LATEST
+    str       x3, [x2]        ; Initialize LATEST with pointer to last defined word (itself)
 
     bl print_prompt
 
     ; Initialize interpreter to point at QUIT
-    LOAD_LABEL IP, QUIT
+    ADR_LABEL IP, QUIT
     NEXT
 
     PRINT_DEBUG ">> exit\n\n\n"
@@ -404,25 +455,23 @@ _read_word:
 1: ; Search for first non-blank character.
     bl _read_key
 
-    cmp x0, ' '
-    beq 1b
+    cmp x0, ' ' ; did we find a space?
+    beq 1b      ; if so, read the next char
 
-    ; we've found one, start tracking size
-    LOAD_LABEL x22, _word_buffer
-    MOV        x23, #0
+    ADR_LABEL x22, _word_buffer
 
 2: ; start writing characters into the buffer (no bounds checks!)
     strb w0, [x22], #1 ; append the character to the buffer
-    add  x23, x23, #1
     bl  _read_key      ; get the next key
-    cmp x0, ' '        ; check if we've reached the end of the word
-    bne 2b             ; otherwise keep consuming
+
+    cmp x0, ' '        ; is this the end of the word?
+    beq 3f             ; finish word
+    cbz x0, 3f         ; is this the end of the file?
+    b   2b             ; otherwise, keep iterating
 
 3: ; compute length of the word and return
-    LOAD_LABEL x0, _word_buffer       ; load address of buffer
-    sub        x1, x22, x0            ; find the length of the word
-
-    PRINT_DEBUG "word: '%s', len: %d\n", x0, x1
+    ADR_LABEL x0, _word_buffer  ; load address of buffer
+    sub       x1, x22, x0       ; find the length of the word
 
     POP_FRAME
     ret
@@ -432,14 +481,14 @@ _read_word:
 _read_key:
     PUSH_FRAME
 1:
-    LOAD_LABEL x20, _read_key_curr_pos
-    LOAD_LABEL x21, _read_key_buff_top
+    ADR_LABEL x20, _read_key_curr_pos
+    ADR_LABEL x21, _read_key_buff_top
 
-    ldr x0, [x21] ; addr of top
-    ldr x1, [x20] ; addr cur_pos
+    ldr x0, [x21]      ; addr of top
+    ldr x1, [x20]      ; addr cur_pos
 
-    cmp x1, x0  ; if cur_pos >= top
-    bge 2f      ; we've exhausted input buffer, need to read
+    cmp x1, x0         ; if cur_pos >= top
+    bge 2f             ; we've exhausted input buffer, need to read
 
     ldrb w0, [x1], #1  ; read next byte from input buffer
     str  x1, [x20]     ; persist updated buffer position
@@ -448,25 +497,24 @@ _read_key:
     ret
 
 2: ; out of input, need to consume more from stdin
-    mov        x0, FD_STDIN      ; param 1, stdin
-    LOAD_LABEL x1, input_buffer  ; param 2, destination
-    mov        x2, BUFFER_SIZE   ; param 3, max read size
+    mov       x0, FD_STDIN      ; param 1, stdin
+    ADR_LABEL x1, input_buffer  ; param 2, destination
+    mov       x2, BUFFER_SIZE   ; param 3, max read size
 
     SYSCALL read
 
     cmp xzr, x0 ; check if we got an EOF or error return
     bge 3f
 
-    LOAD_LABEL x1, input_buffer ; load pointer to start of buffer
-    add        x2, x1, x0       ; new top: input_buffer + bytes read
-    str        x1, [x20]        ; reset position to start of buffer
-    str        x2, [x21]        ; store new top
+    ADR_LABEL x1, input_buffer ; load pointer to start of buffer
+    add       x2, x1, x0       ; new top: input_buffer + bytes read
+    str       x1, [x20]        ; reset position to start of buffer
+    str       x2, [x21]        ; store new top
 
     b 1b
 
 3: ; EOF (or error)
-    ;; TODO: on eof, should return the word we read until here (unless it has length zero)
-    PRINT_DEBUG "hit eof, exit\n"
+    PRINT_DEBUG "eof, exit\n"
     mov     x0, -1  ; exit code
     SYSCALL exit
 
@@ -480,40 +528,36 @@ _read_key:
 ;     x0: addr of word (or nil)
 _lookup_word:
     PUSH_FRAME
-    LOAD_LABEL x2, var_LATEST  ; start with the last word defined and work backwards
-    PRINT_DEBUG "starting lookup search for '%s'\n", x0
+    ADR_LABEL x2, var_LATEST  ; start with the last word defined and work backwards
 
 1: ; loop through linked list
-    ldr x2, [x2]           ; load next word in the list
-    cbz x2, 3f             ; hit the nil pointer, exit
+    ldr x2, [x2]              ; load next word in the list
+    cbz x2, 3f                ; hit the nil pointer, exit
 
-    ldrh w3, [x2, #8]      ; load flags (offset 8) and len (offset 9) bytes
-    and  w4, w3, FL_HIDDEN ; check if word is hidden (low byte)
-    cbnz w4, 1b            ; word is hidden, skip
+    ldrh w3, [x2, #8]         ; load flags (offset 8) and len (offset 9) bytes
+    and  w4, w3, FL_HIDDEN    ; check if word is hidden (low byte)
+    cbnz w4, 1b               ; word is hidden, skip
 
-    lsr w3, w3, #8    ; shift length into low byte
-    cmp w1, w3        ; check length before full string match
-    bne 1b            ; length differs, try next word
+    lsr w3, w3, #8            ; shift length into low byte
+    cmp w1, w3                ; check length before full string match
+    bne 1b                    ; length differs, try next word
 
-    mov x3, #0        ; char counter
-    mov x4, x0        ; copy of input ptr that we can clobber
-    add x5, x2, #10   ; copy of candidate ptr that we can clobber, pointing at word
+    mov x3, #0                ; char counter
+    mov x4, x0                ; copy of input ptr that we can clobber
+    add x5, x2, #10           ; copy of candidate ptr that we can clobber, pointing at word
 
 2: ; length equal, loop string comparison
    ; TODO: optimized version w/ 64 bit load/compare
 
-    ldrb w6, [x4], #1 ; load search substr
-    ldrb w7, [x5], #1 ; load candidate substr
-
-    cmp w6, w7        ; see if characters match
-    bne 1b            ; doesn't match, skip
-
-    add  x3, x3, #1   ; increment counter
-    cmp  x3, x1       ; compare to search str len
-    bne  2b           ; keep looping, else, fall through to end
+    ldrb w6, [x4], #1         ; load next search char
+    ldrb w7, [x5], #1         ; load next candidate char
+    cmp w6, w7                ; do characters match?
+    bne 1b                    ; if not, skip
+    add  x3, x3, #1           ; increment counter
+    cmp  x3, x1               ; have we reached the end of the search string?
+    bne  2b                   ; if not, keep looping
 
 3: ; Either found a result or ran out of words to check
-    PRINT_DEBUG "  -> finish, return %p\n", x2
     mov x0, x2
     POP_FRAME
     ret
@@ -546,3 +590,8 @@ input_buffer: .zero BUFFER_SIZE
 
 ; fixme: whack!!
 name_NIL: .space 0
+
+; TODO: allocate from system
+.data
+USER_DATA_SEGMENT:
+    .zero 0xFFFF
