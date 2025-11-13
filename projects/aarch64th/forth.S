@@ -273,8 +273,6 @@ DEFINE_CODE "EXIT", 4, 0, EXIT, RSPSTORE
 
 ; Offset instruction pointer by the given offset (as an immediate value)
 ;
-; TODO: not sure if this is right?
-;
 ; Pre state:               Post state:
 ;   WP  -> | &BRANCH |              | &BRANCH |
 ;   IP  -> | 8       |              | 8       |
@@ -390,8 +388,15 @@ DEFINE_CODE "LIT", 3, 0, LIT, COMMA
     PUSH_DS x0            ; push it to the stack
     NEXT
 
+; Try to parse a number from a string (given as addr + length)
+;
+; (a b -- c d)
 DEFINE_CODE "NUMBER", 6, 0, NUMBER, LIT
-    PRINT_DEBUG "TODO: Parse number\n"
+    POP_DS x1            ; length of string
+    POP_DS x0            ; address of string
+    bl     _read_number
+    PUSH_DS x0           ; parsed number
+    PUSH_DS x1           ; error value
     NEXT
 
 ; (a -- )
@@ -418,13 +423,55 @@ DEFINE_CODE ".", 1, 0, DOT, INCR
     PRINT_DEBUG "%d (%p)\n", x0
     NEXT
 
+; (a b -- c)
+DEFINE_CODE "+", 1, 0, ADD, DOT
+    POP_DS      x0
+    POP_DS      x1
+    add         x0, x0, x1
+    PUSH_DS     x0
+    NEXT
+
+; (a b -- c)
+DEFINE_CODE "-", 1, 0, SUB, ADD
+    POP_DS      x0
+    POP_DS      x1
+    sub         x0, x0, x1
+    PUSH_DS     x0
+    NEXT
+
+; (a b -- c)
+DEFINE_CODE "*", 1, 0, MUL, SUB
+    POP_DS      x0
+    POP_DS      x1
+    mul         x0, x0, x1
+    PUSH_DS     x0
+    NEXT
+
+; (a b -- c)
+DEFINE_CODE "/", 1, 0, DIV, MUL
+    POP_DS      x0
+    POP_DS      x1
+    sdiv        x0, x0, x1
+    PUSH_DS     x0
+    NEXT
+
+; (a b -- c)
+DEFINE_CODE "=", 1, 0, EQ, DIV
+    POP_DS      x0
+    POP_DS      x1
+    cmp         x0, x1      ; check if equal
+    mrs         x0, nzcv    ; check condition flags
+    lsr         x0, x0, #30 ; zero? is bit 30
+    PUSH_DS     x0
+    NEXT
+
 ;; Words implemented in terms of other Forth words.
 
 ; A misnomer, QUIT does not exit the program, it is the top level loop, and
 ; initializes everything.
 ;
 ; Maybe "RESET" is a better name?
-DEFINE_WORD "QUIT", 4, 0, QUIT, DOT
+DEFINE_WORD "QUIT", 4, 0, QUIT, EQ
     .dword RZ         ; Push top of return stack
     .dword RSPSTORE   ; Set return stack pointer
     .dword INTERPRET  ; interpret next word
