@@ -352,7 +352,7 @@ DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
 
 ; The REPL!
 DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, CREATE
-    IS_LITERAL .req x24 ; keep track of whether we're reading a word or an int
+    IS_LITERAL .req x24      ; keep track of whether we're reading a word or an int
 
     bl   _read_word          ; read a single word from input
     mov  IS_LITERAL, #0      ; start off with assumption that we're reading a word
@@ -385,10 +385,10 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, CREATE
     LDR_LABEL x1, var_STATE  ; 0 is executing, 1 is compiling
     cbz       x1, 4f         ; if executing, run now (and return)
 
-    BL_NO_CLOBBER _comma
+    BL_NO_CLOBBER _comma     ; compile the word (as given, or the inserted LIT)
 
-    cbz IS_LITERAL, 3f       ; was it a normal word?
-    mov x0, x2               ; compile the LIT call
+    cbz IS_LITERAL, 3f       ; if it's not a literal, can already execute
+    mov  x0, x2              ; for literals, we need to write the immediate value to memory
     BL_NO_CLOBBER _comma
 
 3: ; Finish INTERPRET call
@@ -396,9 +396,9 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, CREATE
 
 4: ; Execute function for immediate mode
     cbnz IS_LITERAL, 5f
-    mov  WP, x0 ;; todo this was it
-    ldr  x1, [x0]
-    br   x1
+    mov  WP, x0              ; ensure we set current word so DOCOL works
+    ldr  x1, [WP]            ; get codeword from word (DOCOL etc.)
+    br   x1                  ; jump to entry point
 
 5: ; Execute literal (push it to the stack)
     PUSH_DS x2
@@ -413,12 +413,14 @@ DEFINE_CODE ",", 1, 0, COMMA, INTERPRET
     bl     _comma
     NEXT
 
-; TODO: document
+; Write word at x0 to memory pointed to by HERE, then advance HERE
+;
+; Clobbers: x1, x2
 _comma:
-    ADR_LABEL  x1, var_HERE
-    ldr        x2, [x1]
-    str        x0, [x2], #8
-    str        x2, [x1]
+    ADR_LABEL x1, var_HERE     ; x1 = &HERE
+    ldr       x2, [x1]         ; x2 = *HERE
+    str       x0, [x2], #8     ; *(*HERE) = x0
+    str       x2, [x1]         ; HERE = (*HERE + 8)
     ret
 
 ; Switch to immediate mode (STATE = 0). Has to be configured as an IMMEDIATE
@@ -542,10 +544,7 @@ DEFINE_CODE "=", 1, 0, EQ, DIV
 
 ;; Words implemented in terms of other Forth words.
 
-DEFINE_WORD "PP", 2, 0, PP, EQ
-    .dword EXIT
-
-DEFINE_WORD ":", 1, 0, COLON, PP
+DEFINE_WORD ":", 1, 0, COLON, EQ
     .dword WORD                        ; Get name of word to be defined
     .dword CREATE                      ; Create a dictionary header for the word
     .dword LIT, DOCOL, COMMA           ; Append "DOCOL" prefix to the header
@@ -703,14 +702,14 @@ _read_word:
     bl   _read_key     ; get the next key
 
     B.SPACE x0, 3f     ; check if we've hit the end of the word
-    cbz x0, 3f         ; is this the end of the file?
-    b   2b             ; otherwise, keep iterating
+    cbz     x0, 3f     ; is this the end of the file?
+    b       2b         ; otherwise, keep iterating
 
 3: ; compute length of the word and return
     ADR_LABEL x0, _word_buffer  ; load address of buffer
     sub       x1, x22, x0       ; find the length of the word
 
-    strb wzr, [x22] ; add null byte so we can print more easily
+    strb      wzr, [x22]        ; add null byte so we can print more easily
 
     POP_FRAME
     ret
