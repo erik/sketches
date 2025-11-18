@@ -37,7 +37,14 @@
     POP4  x0, x1, x2, x3              ; Discard args we pushed to the stack
 .endm
 
+.set DEBUG_PRINT_ENABLED, 1
 .macro PRINT_DEBUG fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
+    .if DEBUG_PRINT_ENABLED == 1
+        PRINT_FMT "\fmt", \arg1, \arg2, \arg3, \arg4
+    .endif
+.endm
+
+.macro PRINT_FMT fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
     .data
     .balign 8
     fmt_\@: .asciz "\fmt"
@@ -54,7 +61,6 @@
     POP4       x0, x1, x2, x3              ; Restore original registers
     POP_FRAME
 .endm
-
 
 ;;; Sys/environment helpers
 
@@ -126,30 +132,32 @@ DSP .req x28  ; data stack pointer
 ; Imagine we have the following definitions
 ;
 ;   : DOUBLE DUP ADD ;
-;   : QUAD DOUBLE DOUBLE ;
+;   : QUAD   DOUBLE DOUBLE ;
 ;
 ; Then let's say we're executing "QUAD"
 ;
 ;   Before NEXT:
-;      QUAD:             DOUBLE:
-;        DOCOL  <- IP     DOCOL
-;        DOUBLE           DUP
-;        DOUBLE           ADD
-;        EXIT             EXIT
+;      QUAD:             DOUBLE:        DOCOL asm:
+;        DOCOL  <- IP      DOCOL          str IP, [RSP, #-8]!
+;        DOUBLE            DUP            ...
+;        DOUBLE            ADD            ret
+;        EXIT              EXIT
 ;
-;   Before NEXT:
-;      QUAD:             DOUBLE:
-;        DOCOL            DOCOL <- WP
-;        DOUBLE <- IP     DUP
-;        DOUBLE           ADD
-;        EXIT             EXIT
+;   After NEXT:
+;      QUAD:             DOUBLE:         DOCOL asm:
+;        DOCOL             DOCOL <- WP     str IP, [RSP, #-8]!  <- x0, pc
+;        DOUBLE <- IP      DUP             ...
+;        DOUBLE            ADD             ret
+;        EXIT              EXIT
 ;
-; This sets the stage for DOCOL, which saves the state of IP within QUAD (on
-; return stack) and then advances it to the next word of DOCOL
+; This sets the stage for DOCOL (implemented in assembly), which saves the state
+; of IP within QUAD (on return stack) and then advances it to the next word of
+; DOCOL
 .macro NEXT
-    ldr x0, [IP], #8  ; Read addr of word at instruction pointer
-    ldr WP, [x0]      ; WP now points to entrypoint of next word
-    br  WP            ; Start executing next word
+    ldr WP, [IP], #8  ; set WP to addr of word to execute, move IP to next word
+    ldr x0, [WP]      ; load the addr of codeword for next word (will be DOCOL or an
+                      ; asm offset)
+    br  x0            ; jump to the codeword
 .endm
 
 ; "do-colon" or something. The forth threaded interpreter.
@@ -168,52 +176,46 @@ DSP .req x28  ; data stack pointer
 ;                         DOUBLE       ADD
 ;                         EXIT         EXIT
 .text
-.balign 4
-.global docol
-docol:
-    PUSH_RS IP           ; Save instruction pointer (will be restored by EXIT)
-    add     IP, WP, #8   ; WP points at the word we're executing we want the next one
+.balign 8
+DOCOL:
+    PUSH_RS IP           ; Save instruction pointer (will be popped by EXIT)
+    add     IP, WP, #8   ; WP points at the word we're executing (DOCOL), we want the next one
     NEXT
+
+.macro WORD_HEADER name, len, flags, label, prev, code
+    .data
+    .balign 8
+    name_\label:
+        .ifc "\prev", "NIL"      ; store link to previously defined word (or NIL for the first word)
+            .dword 0
+        .else
+            .dword "name_\prev"
+        .endif
+
+        .byte  \flags            ; immediate, hidden, etc. flags
+        .byte  \len              ; length of the name string
+        .ascii "\name"           ; word name
+
+    .balign 8                    ; pad to word boundary
+    \label:
+        .dword \code             ; point to execution entry point (native code or DOCOL)
+.endm
 
 ; "Native" words, defined in assembly
 .macro DEFINE_CODE name, len, flags=0, label, prev
-    .data
-    .balign 8
-    name_\label:
-        .dword   name_\prev ; point to the previously defined word
-        .byte    \flags
-        .byte    \len       ; TODO: can this be computed somehow??
-        .asciz   "\name"
-        .balign 8           ; add padding if necessary
-
-    .balign 8
-    \label:
-        ; No DOCOL here, we want to jump to a native assembly implementation
-        ; instead
-        .dword code_\label
+    WORD_HEADER "\name", \len, \flags, \label, \prev, "code_\label"
 
     .text
-    .balign 4
+    .balign 8
     code_\label:
         PRINT_DEBUG "(exec \name)\n"
-        ; filled in after macro call
+        ; body filled in after macro call
 .endm
 
 ; Words defined in terms of other Forth words.
-.macro DEFINE_WORD name, len, flags=0, label, prev_word
-    .data
-    .balign 8
-    name_\label:
-        .dword   name_\prev_word ; point to the previously defined word
-        .byte    \flags
-        .byte    \len
-        .asciz   "\name"
-        .balign 8                ; add padding if necessary
-
-    .balign 8
-    \label:
-        .dword =docol
-        ; rest is filled in after macro call
+.macro DEFINE_WORD name, len, flags=0, label, prev
+    WORD_HEADER "\name", \len, \flags, \label, "\prev", DOCOL
+    ; body filled in after macro call
 .endm
 
 ; Creates a "variable" via a word which pushes an address to the stack, which
@@ -249,24 +251,28 @@ docol:
 .endm
 
 ;; Built-in variables
-.set NIL, 0
 DEFINE_VAR "STATE", 5, 0, STATE, NIL   ; Interpreter state: executing (0), or compiling (non-zero)
 DEFINE_VAR "HERE",  4, 0, HERE,  STATE ; Pointer to next free byte of memory
 // DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
 
 ;; Built-in constants
 DEFINE_CONST "VERSION", 7, 0, VERSION, HERE, 0
-DEFINE_CONST_REF "DOCOL", 5, 0, DOCOL, VERSION, docol   ; Magic sauce
-DEFINE_CONST_REF "S0", 2, 0, SZ, DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
-DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP   ; Pointer to top of return stack
+DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, VERSION, DOCOL   ; Push addr of DOCOL to the stack
+DEFINE_CONST_REF "S0", 2, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
+DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP        ; Pointer to top of return stack
 
 ;; Built-in words
 
-; Set return stack pointer to top of stack
+; Set return stack pointer to whatever's on the top of the stack
+;
+; (a --)
 DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RZ
     POP_DS RSP
     NEXT
 
+; Pop a value off the return stack and jump to it
+;
+; RS: (a -- )
 DEFINE_CODE "EXIT", 4, 0, EXIT, RSPSTORE
     POP_RS IP
     NEXT
@@ -299,40 +305,78 @@ DEFINE_CODE ">CFA", 4, 0, TO_CFA, ZBRANCH
     PUSH_DS x0              ; push code pointer onto stack
     NEXT
 
-; hack, but define a separate label so that we can call this as a fn as well as define a Forth word
 _to_cfa:
-    ldrb   w1, [x0, #9]     ; load length of name
-    add    x1, x1, #(7 + 9) ; add 7 for alignment + 9 for offset of length byte
-    and    x1, x1, #~7      ; clear lower 3 bits (align to 8)
-    add    x0, x0, x1       ; skip past name + padding
+    add    x1, x0, #9
+    ldrb   w2, [x1]            ; w2 = name length
+
+    add    x0, x0, #10         ; point at first name byte
+    add    x0, x0, x2          ; advance by name length
+
+    add    x0, x0, #7          ; align to 8 byte boundary
+    and    x0, x0, #~7
+
     ret
 
+; Create a dictionary header for a new word
+;
+; (str, len -- )
+DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
+    POP_DS    x0             ; Length of word
+    POP_DS    x1             ; Addr of word's name as string
+    LDR_LABEL x2, var_HERE   ; Current value of HERE
+    ADR_LABEL x3, var_LATEST ; Address of LATEST
+    ldr       x4, [x3]       ; Value of LATEST
+
+    str       x4, [x2]       ; push previous word as link pointer
+    str       x2, [x3]       ; set LATEST word to current word
+    add       x2, x2, #8     ; skip past link pointer
+    strb      wzr, [x2], #1  ; push flags byte (keep it empty)
+    strb      w0, [x2], #1   ; push length byte
+
+1: ; push bytes of name to dictionary header
+    cbz x0, 2f               ; Jump forward if we've finished pushing all the bytes
+
+    ldrb w3, [x1], #1        ; Next byte of name
+    strb w3, [x2], #1        ; Store byte
+
+    sub x0, x0, 1            ; Decrement remaining length of word
+    b 1b                     ; Repeat
+2: ; done pushing name, finish by aligning to zero
+    add x2, x2, #7
+    and x2, x2, #~7
+
+    ADR_LABEL x1, var_HERE
+    str       x2, [x1]
+
+    NEXT
+
 ; The REPL!
-DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
+DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, CREATE
     IS_LITERAL .req x24 ; keep track of whether we're reading a word or an int
 
-    bl _read_word       ; read a single word from input
-    mov IS_LITERAL, #0  ; start off with assumption that we're reading a word
-    PUSH x0, x1         ; save word + length
-    bl _lookup_word     ; try to find our word in the dictionary
-    POP x1, x2          ; restore word + length (to other registers)
-    cbz x0, 1f          ; if zero, not found
+    bl   _read_word          ; read a single word from input
+    mov  IS_LITERAL, #0      ; start off with assumption that we're reading a word
+
+    PUSH x0, x1              ; save word + length
+    bl   _lookup_word        ; try to find our word in the dictionary
+    POP  x1, x2              ; restore word + length (to other registers)
+    cbz  x0, 1f              ; if zero, not found
 
     ; Word is in the dictionary
-    ldr  x2, [x0, #8]     ; load flags
-    and  x2, x2, FL_IMMED ; check if the word is immediate
-    bl   _to_cfa          ; load code pointer from word
-    cbnz x2, 4f           ; if immediate, execute now
-    b    2f               ; not immediate, have to compile
+    ldr  x2, [x0, #8]        ; load flags
+    and  x2, x2, FL_IMMED    ; check if the word is immediate
+    PUSH x2, xzr
+    bl   _to_cfa             ; load code pointer from word
+    POP  x2, x3
+    cbnz x2, 4f              ; if immediate, execute now
+    b    2f                  ; not immediate, have to compile
 
 1: ; word not found in the dictionary, maybe a literal?
-    mov x0, x1
-    mov x1, x2
-    mov  IS_LITERAL, #1
-    bl   _read_number
+    mov  x0, x1              ; word string
+    mov  x1, x2              ; word length
+    mov  IS_LITERAL, #1      ; we're reading a literal
+    bl   _read_number        ; try to parse a number
     cbnz x1, 6f              ; jump to error on failure
-
-    PRINT_DEBUG "Literal: %d\n", x0
 
     mov       x2, x0         ; save literal number for later
     ADR_LABEL x0, LIT        ; so that we can first insert LIT
@@ -352,6 +396,7 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, TO_CFA
 
 4: ; Execute function for immediate mode
     cbnz IS_LITERAL, 5f
+    mov  WP, x0 ;; todo this was it
     ldr  x1, [x0]
     br   x1
 
@@ -376,6 +421,26 @@ _comma:
     str        x2, [x1]
     ret
 
+; Switch to immediate mode (STATE = 0). Has to be configured as an IMMEDIATE
+; word so that we can switch the state while in compile mode.
+;
+; ( -- )
+DEFINE_CODE "[", 1, FL_IMMED, LBRACKET, COMMA
+    ADR_LABEL x0, var_STATE  ; load state addr
+    str       xzr, [x0]      ; write 0 to state
+    NEXT
+
+; Switch to compile mode. Doesn't need to be an IMMEDIATE word.
+;
+; TODO: why? fuzzy on this distinction
+;
+; ( -- )
+DEFINE_CODE "]", 1, 0, RBRACKET, LBRACKET
+    ADR_LABEL x0, var_STATE  ; load state addr
+    mov       x1, #1         ;
+    str       x1, [x0]       ; write 1 (= COMPILE) to state
+    NEXT
+
 ; Push the word immediately after this instruction (a literal value) to the
 ; stack.
 ;
@@ -383,15 +448,24 @@ _comma:
 ; we just need to load from it and then increment it
 ;
 ; ( -- a)
-DEFINE_CODE "LIT", 3, 0, LIT, COMMA
+DEFINE_CODE "LIT", 3, 0, LIT, RBRACKET
     ldr     x0, [IP], #8  ; load immediate value
     PUSH_DS x0            ; push it to the stack
+    NEXT
+
+; Read the next word of input and push the string and length to the stack.
+;
+; ( -- addr len)
+DEFINE_CODE "WORD", 4, 0, WORD, LIT
+    bl      _read_word   ; Read a word of input
+    PUSH_DS x0           ; Push the addr of the read word
+    PUSH_DS x1           ; Push the length of the word
     NEXT
 
 ; Try to parse a number from a string (given as addr + length)
 ;
 ; (a b -- c d)
-DEFINE_CODE "NUMBER", 6, 0, NUMBER, LIT
+DEFINE_CODE "NUMBER", 6, 0, NUMBER, WORD
     POP_DS x1            ; length of string
     POP_DS x0            ; address of string
     bl     _read_number
@@ -414,13 +488,14 @@ DEFINE_CODE "DUP", 3, 0, DUP, DROP
 DEFINE_CODE "1+", 2, 0, INCR, DUP
     POP_DS  x0
     add     x0, x0, #1
-    PUSH_RS x0
+    PUSH_DS x0
     NEXT
 
 ; (a -- )
 DEFINE_CODE ".", 1, 0, DOT, INCR
     POP_DS      x0
-    PRINT_DEBUG "%d (%p)\n", x0
+    mov         x1, x0
+    PRINT_FMT "%d (0x%x)\n", x0, x1
     NEXT
 
 ; (a b -- c)
@@ -467,41 +542,122 @@ DEFINE_CODE "=", 1, 0, EQ, DIV
 
 ;; Words implemented in terms of other Forth words.
 
+DEFINE_WORD "PP", 2, 0, PP, EQ
+    .dword EXIT
+
+DEFINE_WORD ":", 1, 0, COLON, PP
+    .dword WORD                        ; Get name of word to be defined
+    .dword CREATE                      ; Create a dictionary header for the word
+    .dword LIT, DOCOL, COMMA           ; Append "DOCOL" prefix to the header
+    ; .dword LATEST, FETCH, HIDDEN     ; Hide the current word while we define it
+    .dword RBRACKET                    ; Switch to compile mode while reading the definition
+    .dword EXIT                        ; Finish ":" execution
+
 ; A misnomer, QUIT does not exit the program, it is the top level loop, and
 ; initializes everything.
 ;
 ; Maybe "RESET" is a better name?
-DEFINE_WORD "QUIT", 4, 0, QUIT, EQ
+DEFINE_WORD "QUIT", 4, 0, QUIT, COLON
     .dword RZ         ; Push top of return stack
     .dword RSPSTORE   ; Set return stack pointer
     .dword INTERPRET  ; interpret next word
     .dword BRANCH     ; jump back...
     .dword (-8 * 2)   ; ... by 2 words
 
+DEFINE_WORD ";", 1, FL_IMMED, SEMICOLON, QUIT
+    .dword LIT, EXIT, COMMA            ; Append "EXIT" to current word definition
+    ; .dword LATEST, FETCH, HIDDEN     ; Unhide the current word definition
+    .dword LBRACKET                    ; Back to immediate mode
+    .dword EXIT                        ; Finish ";" execution
 
 ; Pointer to most recently defined word in dictionary (to be convenient, we
 ; ensure it also starts out as the last defined word).
-DEFINE_VAR "LATEST", 6, 0, LATEST, QUIT
+DEFINE_VAR "LATEST", 6, 0, LATEST, SEMICOLON
+
+; Print the entire dictionary chain for debugging
+; Iterates from LATEST back through the linked list
+.text
+.balign 8
+print_dictionary:
+    PUSH_FRAME
+    PRINT_FMT "\n=== Dictionary ===\n"
+
+    ADR_LABEL x20, DOCOL
+    PRINT_DEBUG "docol:  %p\n", x20
+    ADR_LABEL x20, name_LATEST  ; start with LATEST
+
+1: ; loop through linked list
+    cbz x20, 2f                ; if nil, we're done
+
+    ; Get and print name length
+    ldrb w21, [x20, #9]        ; load length byte (offset 9)
+
+    ; Print name - need to copy to null-terminated buffer
+    mov  x22, #0               ; counter
+    ADR_LABEL x23, _word_buffer
+    add  x24, x20, #10         ; point to start of name
+3:
+    cmp x22, x21               ; reached end of name?
+    bge 4f
+    ldrb w25, [x24, x22]       ; load character
+    strb w25, [x23, x22]       ; store to buffer
+    add  x22, x22, #1
+    b 3b
+4:
+    strb wzr, [x23, x22]       ; null terminate
+
+    PRINT_FMT "word: '%s'\n", x23
+    PRINT_FMT "\taddr\t%p  \n", x20, xzr
+
+    ; Get and print codeword address
+    mov  x0, x20
+    bl   _to_cfa
+    mov  x1, x0
+    ldr  x2, [x0]              ; load actual codeword
+    PRINT_FMT "\tCFA\t%p\n\t*CFA\t%p\n", x1, x2
+
+    ; Move to next word in chain
+    ldr x20, [x20]             ; load link pointer
+    PRINT_FMT "\tnext\t%p\n", x20
+    b 1b
+
+2: ; done
+    PRINT_FMT "==================\n\n"
+    POP_FRAME
+    ret
+
+; The "source code" of our interpreter. We start with IP pointed here (it needs
+; to be a memory address due to the double indirection of our interpreter).
+.data
+.balign 8
+forth_entry_point:
+    .dword QUIT
+    ; the QUIT loop is never expected to terminate, so add some obvious marker
+    ; data if we overrun it somehow
+    .dword 0xfafafafafafafafa
 
 .text
 .balign 8
 _main:
+    PRINT_DEBUG "\n\n\n\n\n--------------------\n"
+    bl print_dictionary
+
     ; Initialize stack pointers
     ADR_LABEL RSP, RETURN_STACK_TOP
     ADR_LABEL DSP, DATA_STACK_TOP
 
-    ADR_LABEL x1, var_HERE
-    ADR_LABEL x2, USER_DATA_SEGMENT
-    str       x2, [x1]
+    ADR_LABEL x0, var_HERE            ; x0 = &var_HERE
+    ADR_LABEL x1, USER_DATA_SEGMENT   ; x1 = &USER_DATA_SEGMENT
+    str       x1, [x0]                ; *HERE = &USER_DATA_SEGMENT
 
-    ADR_LABEL x2, var_LATEST
-    ADR_LABEL x3, name_LATEST
-    str       x3, [x2]        ; Initialize LATEST with pointer to last defined word (itself)
+    ADR_LABEL x0, var_LATEST          ; x0 = &var_LATEST
+    ADR_LABEL x1, name_LATEST         ; x1 = &LATEST
+    str       x1, [x0]                ; *var_LATEST = &LATEST
 
-    bl print_prompt
+    ;bl print_prompt
 
     ; Initialize interpreter to point at QUIT
-    ADR_LABEL IP, QUIT
+    ADR_LABEL IP, forth_entry_point
     NEXT
 
     ; We should never actually get here, the interpreter loop keeps going.
@@ -510,14 +666,17 @@ _main:
 
 print_prompt:
     ; TODO: refactor this
-    PRINT_DEBUG "forth> ", x0
+    PRINT_FMT "forth> "
     ret
 
 
 ; Read the next forth word from stdin
+;
+; Returns
 ;   x0: word pointer
 ;   x1: word length
 .text
+.balign 8
 _read_word:
     PUSH_FRAME
 1: ; Search for first non-blank character.
@@ -541,11 +700,14 @@ _read_word:
     ADR_LABEL x0, _word_buffer  ; load address of buffer
     sub       x1, x22, x0       ; find the length of the word
 
+    strb wzr, [x22] ; add null byte so we can print more easily
+
     POP_FRAME
     ret
 
 ; Read next key from stdin, filling buffer if necessary.
 ;    x0: char (in low order byte of x0)
+.balign 8
 _read_key:
     PUSH_FRAME
 1:
@@ -608,6 +770,7 @@ _read_key:
 ; outputs:
 ;   x0: parsed value
 ;   x1: error?
+.balign 8
 _read_number:
     cbz x1, 5f                   ; Check for empty string
 
@@ -664,6 +827,7 @@ _read_number:
 ;     x1: length of string
 ;   output:
 ;     x0: addr of word (or nil)
+.balign 8
 _lookup_word:
     PUSH_FRAME
     ADR_LABEL x2, var_LATEST  ; start with the last word defined and work backwards
@@ -700,36 +864,39 @@ _lookup_word:
     POP_FRAME
     ret
 
-.bss
-RETURN_STACK:     .zero (8 * 2048)
-RETURN_STACK_TOP: .dword
-DATA_STACK:       .zero (8 * 2048)
-DATA_STACK_TOP:   .dword
-; Space to to store parsed words
-_word_buffer:     .zero 32
-
 .data
 .balign 8
 fmt_prompt: .asciz "forth> "
 
+.bss
+.balign 8
+RETURN_STACK:     .zero (8 * 2048)
+RETURN_STACK_TOP: .dword
+
+DATA_STACK:       .zero (8 * 2048)
+DATA_STACK_TOP:   .dword
+
+; TODO: allocate from system
+.balign 8
+USER_DATA_SEGMENT: .space 0x10000, 0xfafafafafafafafa
+
+; Space to to store parsed words
+_word_buffer:     .zero 32
+
 ; Current place in input buffer (next character to read).
-.align 8
-curr:
-_read_key_curr_pos: .dword 0x15151515
+.balign 8
+_read_key_curr_pos: .dword 0
 
 ; Last valid data in input buffer + 1.
-.align 8
-top:
-_read_key_buff_top: .dword 0x15151515
+.balign 8
+_read_key_buff_top: .dword 0
 
-.align 8
+.balign 8
 .set BUFFER_SIZE, 4096
 input_buffer: .zero BUFFER_SIZE
 
 ; fixme: whack!!
 name_NIL: .space 0
 
-; TODO: allocate from system
-.data
-USER_DATA_SEGMENT:
-    .zero 0xFFFF
+.global EOF
+EOF: .dword
