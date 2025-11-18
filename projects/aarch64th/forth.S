@@ -669,6 +669,18 @@ print_prompt:
     PRINT_FMT "forth> "
     ret
 
+; Jump to \label if \reg contains whitespace (\s\t\n\r)
+;
+; Clobbers x9
+;
+; \t\n\v\f\r = 09 0A 0B 0C 0D
+.macro B.SPACE reg, label
+    cmp \reg, ' '        ; space?
+    beq \label
+    sub x9, \reg, #0x09  ; temp: reg - 9
+    cmp x9, #4           ; is it in range [0x09, 0x0D]?
+    bls \label           ; branch if unsigned less than or equal
+.endm
 
 ; Read the next forth word from stdin
 ;
@@ -682,17 +694,15 @@ _read_word:
 1: ; Search for first non-blank character.
     bl _read_key
 
-    cmp x0, ' ' ; did we find a space?
-    beq 1b      ; if so, read the next char
+    B.SPACE x0, 1b     ; read next if we saw a blank char
 
     ADR_LABEL x22, _word_buffer
 
 2: ; start writing characters into the buffer (no bounds checks!)
     strb w0, [x22], #1 ; append the character to the buffer
-    bl  _read_key      ; get the next key
+    bl   _read_key     ; get the next key
 
-    cmp x0, ' '        ; is this the end of the word?
-    beq 3f             ; finish word
+    B.SPACE x0, 3f     ; check if we've hit the end of the word
     cbz x0, 3f         ; is this the end of the file?
     b   2b             ; otherwise, keep iterating
 
