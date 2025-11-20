@@ -5,7 +5,7 @@ AS ?= as
 forth: forth.o
 	ld -o forth forth.o ${LFLAGS} -arch arm64
 
-forth.o: forth.s
+forth.o: forth.s boot.f
 	${AS} -arch arm64 -g -o forth.o forth.S
 
 clean:

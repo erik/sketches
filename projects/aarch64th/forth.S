@@ -273,17 +273,32 @@ DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP        ; Pointer to top of
 
 ;; Built-in words
 
-; Set return stack pointer to whatever's on the top of the stack
-;
+; ( -- a)
+DEFINE_CODE "RSP@", 4, 0, RSPFETCH, RZ
+    PUSH_DS RSP
+    NEXT
+
 ; (a --)
-DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RZ
+DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RSPFETCH
     POP_DS RSP
+    NEXT
+
+; ( -- a)
+DEFINE_CODE "DSP@", 4, 0, DSPFETCH, RSPSTORE
+    mov     x0, DSP
+    PUSH_DS x0
+    NEXT
+
+; (a --)
+DEFINE_CODE "DSP!", 4, 0, DSPSTORE, DSPFETCH
+    POP_DS x0
+    mov    DSP, x0
     NEXT
 
 ; Store data in a specific memory address
 ;
 ; (data addr --)
-DEFINE_CODE "!", 1, 0, STORE, RSPSTORE
+DEFINE_CODE "!", 1, 0, STORE, DSPSTORE
     POP_DS x0        ; address to write
     POP_DS x1        ; data to write
     str    x1, [x0]  ; *addr = data
@@ -298,10 +313,15 @@ DEFINE_CODE "@", 1, 0, FETCH, STORE
     PUSH_DS x1       ; save it to the stack
     NEXT
 
+DEFINE_CODE "'", 1, 0, TICK, FETCH
+    ldr     x0, [IP], #8    ; load addr of next word and skip
+    PUSH_DS x0
+    NEXT
+
 ; Pop a value off the return stack and jump to it
 ;
 ; RS: (a -- )
-DEFINE_CODE "EXIT", 4, 0, EXIT, FETCH
+DEFINE_CODE "EXIT", 4, 0, EXIT, TICK
     POP_RS IP
     NEXT
 
@@ -319,6 +339,8 @@ DEFINE_CODE "BRANCH", 6, 0, BRANCH, EXIT
 ; As with BRANCH, but with a conditional from the stack
 DEFINE_CODE "0BRANCH", 7, 0, ZBRANCH, BRANCH
     POP_DS x0               ; load top of stack
+    ; ldr x1, [IP]
+    ; PRINT_DEBUG "0branch (val: %d, offset: %d)\n", x0, x1
     cbz    x0, code_BRANCH  ; if zero, run BRANCH
     add    IP, IP, 8        ; else, skip over the immediate offset
     NEXT
@@ -369,7 +391,8 @@ DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
 
     sub x0, x0, 1            ; Decrement remaining length of word
     b 1b                     ; Repeat
-2: ; done pushing name, finish by aligning to zero
+
+2: ; done pushing name, finish by aligning to 8 bytes
     add x2, x2, #7
     and x2, x2, #~7
 
@@ -506,10 +529,18 @@ DEFINE_CODE "WORD", 4, 0, WORD, LIT
     PUSH_DS x1           ; Push the length of the word
     NEXT
 
+; Read a character of input and push it to the stack
+;
+; ( -- k)
+DEFINE_CODE "KEY", 3, 0, KEY, WORD
+    bl      _read_key
+    PUSH_DS x0
+    NEXT
+
 ; Try to look up a word's address in the dictionary. Returns 0 when not found
 ;
 ; (addr len -- addr?)
-DEFINE_CODE "FIND", 4, 0, FIND, WORD
+DEFINE_CODE "FIND", 4, 0, FIND, KEY
     POP_DS  x1           ; length of string
     POP_DS  x0           ; address of string
     bl      _lookup_word ;
@@ -527,8 +558,17 @@ DEFINE_CODE "NUMBER", 6, 0, NUMBER, FIND
     PUSH_DS x1           ; error value
     NEXT
 
+; Push a literal character (given as immediate value) onto the stack
+;
+; ( -- a)
+DEFINE_CODE "CHAR", 4, 0, CHAR, NUMBER
+    bl      _read_word   ; get the next word (x0: addr, x1: len)
+    ldrb    w0, [x0]     ; read first character of the word
+    PUSH_DS x0           ; push to stack
+    NEXT
+
 ; (a -- )
-DEFINE_CODE "DROP", 4, 0, DROP, NUMBER
+DEFINE_CODE "DROP", 4, 0, DROP, CHAR
     POP_DS x0
     NEXT
 
@@ -538,65 +578,86 @@ DEFINE_CODE "DUP", 3, 0, DUP, DROP
     PUSH_DS x0
     NEXT
 
-; (a -- a)
-DEFINE_CODE "1+", 2, 0, INCR, DUP
-    POP_DS  x0
-    add     x0, x0, #1
-    PUSH_DS x0
+; (a b -- b a)
+DEFINE_CODE "SWAP", 4, 0, SWAP, DUP
+    ldp     x0, x1, [DSP]
+    stp     x1, x0, [DSP]
     NEXT
 
 ; (a -- )
-DEFINE_CODE ".", 1, 0, DOT, INCR
+DEFINE_CODE ".", 1, 0, DOT, SWAP
     POP_DS      x0
     mov         x1, x0
-    PRINT_FMT "%d (0x%x)\n", x0, x1
+    PRINT_FMT "%d (0x%x)", x0, x1
+    NEXT
+
+; Print a single byte to output
+;
+; (a -- )
+DEFINE_CODE "EMIT", 4, 0, EMIT, DOT
+    POP_DS      x0
+    mov         x1, x0
+    ; TODO: use write syscall instead
+    PRINT_FMT "%c", x0
     NEXT
 
 ; (a b -- c)
-DEFINE_CODE "+", 1, 0, ADD, DOT
-    POP_DS      x0
+DEFINE_CODE "+", 1, 0, ADD, EMIT
     POP_DS      x1
+    POP_DS      x0
     add         x0, x0, x1
     PUSH_DS     x0
     NEXT
 
 ; (a b -- c)
 DEFINE_CODE "-", 1, 0, SUB, ADD
-    POP_DS      x0
     POP_DS      x1
+    POP_DS      x0
     sub         x0, x0, x1
     PUSH_DS     x0
     NEXT
 
 ; (a b -- c)
 DEFINE_CODE "*", 1, 0, MUL, SUB
-    POP_DS      x0
     POP_DS      x1
+    POP_DS      x0
     mul         x0, x0, x1
     PUSH_DS     x0
     NEXT
 
 ; (a b -- c)
 DEFINE_CODE "/", 1, 0, DIV, MUL
-    POP_DS      x0
     POP_DS      x1
+    POP_DS      x0
     sdiv        x0, x0, x1
     PUSH_DS     x0
     NEXT
 
+; Push 1 if equal, 0 else
+;
 ; (a b -- c)
 DEFINE_CODE "=", 1, 0, EQ, DIV
-    POP_DS      x0
     POP_DS      x1
-    cmp         x0, x1      ; check if equal
-    mrs         x0, nzcv    ; check condition flags
-    lsr         x0, x0, #30 ; zero? is bit 30
+    POP_DS      x0
+    cmp         x0, x1
+    cset        x0, eq
+    PUSH_DS     x0
+    NEXT
+
+; Push 1 if a < b, 0 else
+;
+; (a b -- c)
+DEFINE_CODE "<", 1, 0, LT, EQ
+    POP_DS      x1
+    POP_DS      x0
+    cmp         x0, x1
+    cset        x0, lt
     PUSH_DS     x0
     NEXT
 
 ;; Debug utils
 
-DEFINE_CODE ".stack", 6, 0, PRINT_STACK, EQ
+DEFINE_CODE ".stack", 6, 0, PRINT_STACK, LT
     mov       x0, DSP
     ADR_LABEL x1, DATA_STACK_TOP
 
@@ -797,22 +858,22 @@ _read_word:
     ret
 
 ; Read next key from stdin, filling buffer if necessary.
+;
+; Return
 ;    x0: char (in low order byte of x0)
 .balign 8
 _read_key:
     PUSH_FRAME
 1:
-    ADR_LABEL x20, _read_key_curr_pos
-    ADR_LABEL x21, _read_key_buff_top
+    LDR_LABEL x0, buffer_top  ; last valid position in input buffer
+    ADR_LABEL x2, buffer_pos  ; addr of current position in input buffer
+    ldr       x1, [x2]        ; current position in input buffer
 
-    ldr x0, [x21]      ; addr of top
-    ldr x1, [x20]      ; addr cur_pos
+    cmp x1, x0                ; if cur_pos >= top
+    bge 2f                    ; we've exhausted input buffer, need to read
 
-    cmp x1, x0         ; if cur_pos >= top
-    bge 2f             ; we've exhausted input buffer, need to read
-
-    ldrb w0, [x1], #1  ; read next byte from input buffer
-    str  x1, [x20]     ; persist updated buffer position
+    ldrb w0, [x1], #1         ; read next byte from input buffer
+    str  x1, [x2]             ; persist updated buffer position
 
     POP_FRAME
     ret
@@ -828,15 +889,18 @@ _read_key:
     bge 3f
 
     ADR_LABEL x1, input_buffer ; load pointer to start of buffer
-    add       x2, x1, x0       ; new top: input_buffer + bytes read
-    str       x1, [x20]        ; reset position to start of buffer
-    str       x2, [x21]        ; store new top
+    ADR_LABEL x2, buffer_top   ; addr of last valid position in input buffer
+    ADR_LABEL x3, buffer_pos   ; addr of current position in input buffer
+    add       x4, x1, x0       ; new top: input_buffer + bytes read
+
+    str       x1, [x3]         ; reset position to start of buffer
+    str       x4, [x2]         ; store new top
 
     b 1b
 
 3: ; EOF (or error)
     PRINT_DEBUG "eof, exit\n"
-    mov     x0, -1  ; exit code
+    mov     x0, #-1  ; exit code
     SYSCALL exit
 
 ; How to parse a number in base 10?
@@ -974,14 +1038,21 @@ USER_DATA_SEGMENT: .space 0x10000, 0xfafafafafafafafa
 ; Space to to store parsed words
 _word_buffer:      .zero 32
 
-; Current place in input buffer (next character to read).
-.balign 8
-_read_key_curr_pos: .dword 0
-
-; Last valid data in input buffer + 1.
-.balign 8
-_read_key_buff_top: .dword 0
-
+.data
 .balign 8
 .set BUFFER_SIZE, 4096
-input_buffer: .zero BUFFER_SIZE
+
+buffer_pos: .dword input_buffer    ; Current position in buffer (initialized to start)
+buffer_top: .dword _boot_file_end  ; End of data in buffer (initialized to end of the boot file)
+
+; This buffer is initially loaded with a boot-up script containing Forth code,
+; but after that's been consumed will be refilled with data read from stdin.
+input_buffer:
+    .incbin "./boot.f"                      ; Embed boot file as first thing to execute
+_boot_file_end:
+
+    ; Pad remaining space with zeros
+    .set BOOT_SIZE, (_boot_file_end - input_buffer)
+    .if BOOT_SIZE < BUFFER_SIZE
+        .zero BUFFER_SIZE - (. - input_buffer)
+    .endif
