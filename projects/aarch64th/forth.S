@@ -62,6 +62,12 @@
     POP_FRAME
 .endm
 
+; Align value in \reg to 8 byte boundary
+.macro ALIGN8 reg
+    add     \reg, \reg, #7
+    and     \reg, \reg, #~7
+.endm
+
 ;;; Sys/environment helpers
 
 ; Default file descriptors
@@ -313,7 +319,26 @@ DEFINE_CODE "@", 1, 0, FETCH, STORE
     PUSH_DS x1       ; save it to the stack
     NEXT
 
-DEFINE_CODE "'", 1, 0, TICK, FETCH
+; Store single byte at specific addr
+;
+; ( data addr -- )
+DEFINE_CODE "C!", 2, 0, STOREBYTE, FETCH
+    POP_DS x0        ; addr to write
+    POP_DS x1        ; value to write
+    strb   w1, [x0]  ; write the value
+    NEXT
+
+; Read single byte from specific addr
+;
+; ( addr -- data )
+DEFINE_CODE "C@", 2, 0, FETCHBYTE, STOREBYTE
+    POP_DS  x0       ; addr to read
+    ldrb    w1, [x0] ; read byte
+    PUSH_DS x1       ; push back to stack
+    NEXT
+
+; TODO: document
+DEFINE_CODE "'", 1, 0, TICK, FETCHBYTE
     ldr     x0, [IP], #8    ; load addr of next word and skip
     PUSH_DS x0
     NEXT
@@ -339,8 +364,6 @@ DEFINE_CODE "BRANCH", 6, 0, BRANCH, EXIT
 ; As with BRANCH, but with a conditional from the stack
 DEFINE_CODE "0BRANCH", 7, 0, ZBRANCH, BRANCH
     POP_DS x0               ; load top of stack
-    ; ldr x1, [IP]
-    ; PRINT_DEBUG "0branch (val: %d, offset: %d)\n", x0, x1
     cbz    x0, code_BRANCH  ; if zero, run BRANCH
     add    IP, IP, 8        ; else, skip over the immediate offset
     NEXT
@@ -361,9 +384,7 @@ _to_cfa:
 
     add    x0, x0, #10         ; point at first name byte
     add    x0, x0, x2          ; advance by name length
-
-    add    x0, x0, #7          ; align to 8 byte boundary
-    and    x0, x0, #~7
+    ALIGN8 x0                  ; align to 8 byte boundary
 
     ret
 
@@ -393,8 +414,7 @@ DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
     b 1b                     ; Repeat
 
 2: ; done pushing name, finish by aligning to 8 bytes
-    add x2, x2, #7
-    and x2, x2, #~7
+    ALIGN8 x2                  ; align to 8 byte boundary
 
     ADR_LABEL x1, var_HERE
     str       x2, [x1]
@@ -501,8 +521,11 @@ DEFINE_CODE "IMMEDIATE", 9, FL_IMMED, IMMEDIATE, RBRACKET
     strb      w1, [x0, #8]       ; write the byte back
     NEXT
 
+; Toggles the "hidden" bit of a given word
+;
+; ( addr -- )
 DEFINE_CODE "HIDDEN", 6, 0, HIDDEN, IMMEDIATE
-    LDR_LABEL x0, var_LATEST     ; load latest word
+    POP_DS    x0                 ; word addr
     ldrb      w1, [x0, #8]       ; load flags byte
     eor       x1, x1, FL_HIDDEN  ; toggle hidden bit
     strb      w1, [x0, #8]       ; write the byte back
@@ -567,8 +590,32 @@ DEFINE_CODE "CHAR", 4, 0, CHAR, NUMBER
     PUSH_DS x0           ; push to stack
     NEXT
 
+; Used to implement string words in forth (." and S"). Takes an immediate value
+; for string length.
+;
+; ( -- addr len )
+DEFINE_CODE "LITSTRING", 9, 0, LITSTRING, CHAR
+    ldr     x0, [IP], #8 ; read length of string as immediate value
+    PUSH_DS IP           ; push the addr of the string
+    PUSH_DS x0           ; push the length
+    add     IP, IP, x0   ; move IP to end of string
+    ALIGN8  IP           ; align IP to cell boundary
+    NEXT
+
+; Print a string (all at once rather than per-char as per EMIT).
+;
+; TODO: implement in Forth
+;
+; ( addr len -- )
+DEFINE_CODE "TELL", 4, 0, TELL, LITSTRING
+    mov     x0, FD_STDOUT  ; param 1: stdout
+    POP_DS  x2             ; param 3: length
+    POP_DS  x1             ; param 2: string addr
+    SYSCALL write
+    NEXT
+
 ; (a -- )
-DEFINE_CODE "DROP", 4, 0, DROP, CHAR
+DEFINE_CODE "DROP", 4, 0, DROP, TELL
     POP_DS x0
     NEXT
 
@@ -584,8 +631,14 @@ DEFINE_CODE "SWAP", 4, 0, SWAP, DUP
     stp     x1, x0, [DSP]
     NEXT
 
+; (a b -- a b a)
+DEFINE_CODE "OVER", 4, 0, OVER, SWAP
+    ldp     x0, x1, [DSP]
+    PUSH_DS x1
+    NEXT
+
 ; (a -- )
-DEFINE_CODE ".", 1, 0, DOT, SWAP
+DEFINE_CODE ".", 1, 0, DOT, OVER
     POP_DS      x0
     mov         x1, x0
     PRINT_FMT "%d (0x%x)", x0, x1
@@ -655,9 +708,24 @@ DEFINE_CODE "<", 1, 0, LT, EQ
     PUSH_DS     x0
     NEXT
 
+; (a b -- c)
+DEFINE_CODE "AND", 3, 0, AND, LT
+    POP_DS  x1
+    POP_DS  x0
+    and     x2, x0, x1
+    PUSH_DS x2
+    NEXT
+
+; (a -- b)
+DEFINE_CODE "INVERT", 6, 0, INVERT, AND
+    POP_DS  x0
+    orn     x0, xzr, x0
+    PUSH_DS x0
+    NEXT
+
 ;; Debug utils
 
-DEFINE_CODE ".stack", 6, 0, PRINT_STACK, LT
+DEFINE_CODE ".stack", 6, 0, PRINT_STACK, INVERT
     mov       x0, DSP
     ADR_LABEL x1, DATA_STACK_TOP
 

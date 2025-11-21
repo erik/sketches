@@ -96,6 +96,7 @@
 \ ( -- a )
 : '\n' 10 ;
 : BL   32 ;  \ BL(ank) = SPACE
+: '"' [ CHAR " ] LITERAL ;
 : '(' [ CHAR ( ] LITERAL ;
 : ')' [ CHAR ) ] LITERAL ;
 
@@ -116,12 +117,31 @@
 
 ( now we have ( nested ) comment syntax! )
 
+\ BEGIN loop-part AGAIN
+\
+\ Loop forever (or at least until EXIT is called).
+: AGAIN ( jmp_addr -- ) IMMEDIATE
+    ' BRANCH ,     \ branch unconditionally
+    HERE @ - ,     \ to however far we've moved from BEGIN
+;
 
-\ CR prints a carriage return
-: CR '\n' EMIT ;
+\ BEGIN cond WHILE loop-part REPEAT
+: WHILE IMMEDIATE ( cond -- )
+    ' 0BRANCH ,   \ compile a conditional branch
+    HERE @        \ push current location to stack
+    0 ,           \ compile a placeholder branch offset (set by REPEAT)
+;
 
-\ SPACE prints a space
-: SPACE BL EMIT ;
+\ BEGIN cond WHILE loop-part REPEAT
+: REPEAT IMMEDIATE
+    ' BRANCH ,    \ compile a conditional branch
+    SWAP          \ ( begin_off while_off -- while_off begin_off )
+    HERE @ - ,    \ compile how far we've moved since BEGIN
+    DUP           \ ( w b -- w b b )
+    HERE @        \ ( w b b -- w b b here )
+    SWAP -        \ ( w b b h -- w b h b -- w b diff )
+    SWAP !        \ ( w b d -- w d b ) -- write diff to begin offset
+;
 
 \
 \ Basic helper utils
@@ -134,25 +154,33 @@
 : FALSE ( -- a )     0 ;
 : 0=    ( a -- b )   0 = ;
 : NOT   ( a -- b )   FALSE = ;
+: !=    ( a b -- c ) = NOT ;
 : 1+    ( a -- a+1 ) 1 + ;
 : 1-    ( a -- a-1 ) 1 - ;
 
-\ BEGIN condition WHILE loop-part REPEAT
-\
-\ An alternative loop syntax to UNTIL
-: WHILE ( jmp_addr cond -- ) IMMEDIATE
-    ' NOT ,        \ Invert cond (since 0BRANCH branches when FALSE)
-    ' 0BRANCH ,    \ compile conditional branch
-    HERE @ -       \ how far have we moved from BEGIN?
-    ,              \ compile the offset here
+: +! ( val addr -- )
+    SWAP   ( addr val )
+    OVER   ( addr val addr )
+    @      ( addr val *addr )
+    +      ( addr nval )
+    SWAP ! ( val addr )
 ;
+: -! ( val addr -- ) SWAP OVER @ - SWAP ! ;
 
-\ BEGIN loop-part AGAIN
 \
-\ Loop forever (or at least until EXIT is called).
-: AGAIN ( jmp_addr -- ) IMMEDIATE
-    ' BRANCH ,     \ branch unconditionally
-    HERE @ - ,     \ to however far we've moved from BEGIN
+\ String utils
+\
+
+\ CR prints a carriage return
+: CR '\n' EMIT ;
+
+\ SPACE prints a space
+: SPACE BL EMIT ;
+
+\ Compile single character to HERE. Won't leave an aligned pointer!
+: C, ( a -- )
+    HERE @ C!     \ write a character to *HERE
+    1 HERE +!     \ *HERE++
 ;
 
 \ cond UNLESS false-part ELSE true-part THEN
@@ -169,13 +197,57 @@
 	cell-        \ stack pointer points to NEXT word, not current word
 ;
 
-: test1
-    1 IF 1111 . CR THEN
-    1 UNLESS 2222 . CR THEN
-    0 IF 3333 . CR THEN
-    0 UNLESS 4444 . CR THEN
-    ;
+\ Align input to cell size (e.g. 3 -> 8, 15 -> 16)
+: ALIGNED ( a -- a )
+    cell-size 1- +
+    cell-size 1- INVERT
+    AND
+;
 
-1 . CR
-test1
-2 . CR
+\ Update HERE to be cell aligned
+: ALIGN  ( -- )
+    HERE @ ALIGNED
+    HERE !
+;
+
+: is-immediate? ( -- a )
+    STATE @ 0= ;
+: is-compiling? ( -- a )
+    is-immediate? NOT ;
+
+: S" IMMEDIATE ( -- addr len )
+    is-compiling? IF
+        ' LITSTRING ,  \ compile LITSTRING
+        HERE @         \ push current position to stack
+        0 ,            \ placeholder string length
+
+        BEGIN          \ compile byte by byte until we reach end of string
+            KEY
+            DUP '"' !=
+        WHILE
+            C,
+        REPEAT
+        DROP           \ drop final quote char
+        DUP            \ ( len_addr len_addr )
+        HERE @ SWAP -  \ push length of string
+        cell-          \ placeholder one cell before start of string
+        SWAP !         \ write length back to original addr
+
+        ALIGN          \ keep HERE aligned
+
+    ELSE               \ immediate mode
+        HERE @         \ push current addr
+
+        BEGIN          \ write byte by byte until end of string
+            KEY
+            DUP '"' !=
+        WHILE
+            OVER C!
+            1+
+        REPEAT
+        DROP           \ ignore final quote
+        HERE @ -       \ calculate length
+        HERE @         \ push start addr (doesn't change because of immediate mode)
+        SWAP           \ ( addr len )
+    THEN
+;
