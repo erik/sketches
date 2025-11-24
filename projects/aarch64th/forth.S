@@ -274,29 +274,29 @@ DEFINE_VAR "HERE",  4, 0, HERE,  STATE ; Pointer to next free byte of memory
 ;; Built-in constants
 DEFINE_CONST "VERSION", 7, 0, VERSION, HERE, 0
 DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, VERSION, DOCOL   ; Push addr of DOCOL to the stack
-DEFINE_CONST_REF "S0", 2, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP  ; Pointer to top of param stack
-DEFINE_CONST_REF "R0", 2, 0, RZ, SZ, RETURN_STACK_TOP        ; Pointer to top of return stack
+DEFINE_CONST_REF "SP0", 3, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP ; Pointer to top of param stack
+DEFINE_CONST_REF "RP0", 3, 0, RZ, SZ, RETURN_STACK_TOP       ; Pointer to top of return stack
 
 ;; Built-in words
 
 ; ( -- a)
-DEFINE_CODE "RSP@", 4, 0, RSPFETCH, RZ
+DEFINE_CODE "RP@", 3, 0, RSPFETCH, RZ
     PUSH_DS RSP
     NEXT
 
 ; (a --)
-DEFINE_CODE "RSP!", 4, 0, RSPSTORE, RSPFETCH
+DEFINE_CODE "RP!", 3, 0, RSPSTORE, RSPFETCH
     POP_DS RSP
     NEXT
 
 ; ( -- a)
-DEFINE_CODE "DSP@", 4, 0, DSPFETCH, RSPSTORE
+DEFINE_CODE "SP@", 3, 0, DSPFETCH, RSPSTORE
     mov     x0, DSP
     PUSH_DS x0
     NEXT
 
 ; (a --)
-DEFINE_CODE "DSP!", 4, 0, DSPSTORE, DSPFETCH
+DEFINE_CODE "SP!", 3, 0, DSPSTORE, DSPFETCH
     POP_DS x0
     mov    DSP, x0
     NEXT
@@ -389,11 +389,9 @@ _to_cfa:
     ret
 
 ; Create a dictionary header for a new word
-;
-; (str, len -- )
 DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
-    POP_DS    x0             ; Length of word
-    POP_DS    x1             ; Addr of word's name as string
+    bl _read_word
+
     LDR_LABEL x2, var_HERE   ; Current value of HERE
     ADR_LABEL x3, var_LATEST ; Address of LATEST
     ldr       x4, [x3]       ; Value of LATEST
@@ -402,19 +400,19 @@ DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
     str       x2, [x3]       ; set LATEST word to current word
     add       x2, x2, #8     ; skip past link pointer
     strb      wzr, [x2], #1  ; push flags byte (keep it empty)
-    strb      w0, [x2], #1   ; push length byte
+    strb      w1, [x2], #1   ; push length byte
 
 1: ; push bytes of name to dictionary header
-    cbz x0, 2f               ; Jump forward if we've finished pushing all the bytes
+    cbz x1, 2f               ; Jump forward if we've finished pushing all the bytes
 
-    ldrb w3, [x1], #1        ; Next byte of name
+    ldrb w3, [x0], #1        ; Next byte of name
     strb w3, [x2], #1        ; Store byte
 
-    sub x0, x0, 1            ; Decrement remaining length of word
+    sub x1, x1, 1            ; Decrement remaining length of word
     b 1b                     ; Repeat
 
 2: ; done pushing name, finish by aligning to 8 bytes
-    ALIGN8 x2                  ; align to 8 byte boundary
+    ALIGN8 x2                ; align to 8 byte boundary
 
     ADR_LABEL x1, var_HERE
     str       x2, [x1]
@@ -747,14 +745,35 @@ DEFINE_CODE ".stack", 6, 0, PRINT_STACK, INVERT
     PRINT_FMT "----\n\n"
     NEXT
 
-DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_STACK
+    DEFINE_CODE ".rstack", 7, 0, PRINT_RSTACK, PRINT_STACK
+        mov       x0, RSP
+        ADR_LABEL x1, RETURN_STACK_TOP
+
+        sub       x2, x1, x0
+        lsr       x2, x2, 3
+
+        PRINT_FMT "RSTACK [RSP: %p, size: %d]\n", x0, x2
+    1:
+        cmp       x0, x1       ; have we reached top of stack?
+        beq       2f           ; we're done
+        ldr       x2, [x0]     ; load stack item
+        mov       x3, x2
+
+        PRINT_FMT "  %p (%d)\n", x2, x3
+
+        add       x0, x0, #8   ; next word
+        b         1b
+    2:
+        PRINT_FMT "----\n\n"
+        NEXT
+
+DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
     bl print_dictionary
     NEXT
 
 ;; Words implemented in terms of other Forth words.
 
 DEFINE_WORD ":", 1, 0, COLON, PRINT_DICT
-    .dword WORD                        ; Get name of word to be defined
     .dword CREATE                      ; Create a dictionary header for the word
     .dword LIT, DOCOL, COMMA           ; Append "DOCOL" prefix to the header
     .dword LATEST, FETCH, HIDDEN       ; Hide the current word while we define it
@@ -803,7 +822,7 @@ print_dictionary:
     cbz x3, 2f                ; if nil, we're done
 
     ; Get and print name length
-    ldrb w4, [x3, #9]        ; load length byte (offset 9)
+    ldrb w4, [x3, #9]         ; load length byte (offset 9)
 
     ; Print name - need to copy to null-terminated buffer
     mov  x5, #0               ; counter
@@ -820,14 +839,14 @@ print_dictionary:
     strb wzr, [x6, x5]       ; null terminate
 
     PRINT_FMT "word: '%s'\n", x6
-    PRINT_FMT "\taddr\t%p  \n", x3, xzr
+    PRINT_FMT "\taddr\t%p  ", x3, xzr
 
     ; Get and print codeword address
     mov  x0, x3
     bl   _to_cfa
     mov  x1, x0
     ldr  x2, [x0]              ; load actual codeword
-    PRINT_FMT "\tCFA\t%p\n\t*CFA\t%p\n", x1, x2
+    PRINT_FMT "\tCFA\t%p\t*CFA\t%p", x1, x2
 
     ; Move to next word in chain
     ldr x3, [x3]             ; load link pointer

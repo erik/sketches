@@ -150,6 +150,7 @@
 : cell-size 8 ;
 : cell+ ( a -- a+cell ) cell-size + ;
 : cell- ( a -- a-cell ) cell-size - ;
+: CELLS ( a -- a*cell-size) cell-size * ;
 : TRUE  ( -- a )     1 ;
 : FALSE ( -- a )     0 ;
 : 0=    ( a -- b )   0 = ;
@@ -166,6 +167,42 @@
     SWAP ! ( val addr )
 ;
 : -! ( val addr -- ) SWAP OVER @ - SWAP ! ;
+
+\ Push to return stack from data stack.
+: >R ( a -- R:a )
+    RP@          \ get current rstack ptr         (a -- a &rp)
+    RP@ @        \ get current return addr        (a &rp -- a &rp *rp)
+    RP@ cell-    \ get next rstack ptr            (a &rp *rp -- a &rp *rp &rp-1)
+    DUP RP!      \ set rstack ptr to next
+    !            \ store cur return addr in       (a &rp *rp &rp-1 -- a &rp)
+                 \ next position (so it's on top)
+    !            \ store `a` in *rsp              (a &rp -- )
+;
+
+\ Push to data stack from return stack
+: R> ( R:a -- a )
+    RP@ cell+ @  \ get data before current return addr   ( -- a )
+    RP@ @        \ get current return addr               ( a -- a *rp )
+    RP@ cell+    \ get addr below top of stack           ( a *rp -- a *rp &rp-1 )
+    DUP RP!      \ "pop" rstack ptr
+    !            \ move return addr to new top of stack  ( a *rp &rp-1 -- a )
+;
+
+: NIP   ( a b -- b )          SWAP DROP ;
+: TUCK  ( a b -- b a b )      SWAP OVER ;
+: 2DUP  ( a b -- a b a b )    OVER OVER ;
+: 2DROP ( a b -- )            DROP DROP ;
+: ?DUP  ( 0 -- 0 | x -- x x ) DUP DUP 0= IF DROP THEN ;
+: ROT   ( a b c -- b c a )    >R SWAP R> SWAP ;
+: -ROT  ( a b c -- c a b )    SWAP >R SWAP R> ;
+: PICK  ( x0 ... xn i -- x0 ... xi x0 )
+    CELLS
+    SP@ +
+    @
+;
+: >  ( a b -- c ) 2DUP = NOT IF < NOT ELSE 2DROP FALSE THEN ;
+: <= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE < THEN ;
+: >= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE > THEN ;
 
 \
 \ String utils
@@ -191,11 +228,9 @@
     [COMPILE] IF
 ;
 
-\ Return the current depth of the stack (in bytes)
-: DEPTH ( -- a)
-	S0 @ DSP@ -  \ compare current stack pointer with top of stack
-	cell-        \ stack pointer points to NEXT word, not current word
-;
+\ Return the number of elements in the stack
+: DEPTH     SP0 SP@ - cell- cell-size / ;
+: RDEPTH    RP0 RP@ - cell-size / ;
 
 \ Align input to cell size (e.g. 3 -> 8, 15 -> 16)
 : ALIGNED ( a -- a )
@@ -210,13 +245,13 @@
     HERE !
 ;
 
-: is-immediate? ( -- a )
+: ?immediate ( -- a )
     STATE @ 0= ;
-: is-compiling? ( -- a )
-    is-immediate? NOT ;
+: ?compiling ( -- a )
+    ?immediate NOT ;
 
 : S" IMMEDIATE ( -- addr len )
-    is-compiling? IF
+    ?compiling IF
         ' LITSTRING ,  \ compile LITSTRING
         HERE @         \ push current position to stack
         0 ,            \ placeholder string length
@@ -250,4 +285,55 @@
         HERE @         \ push start addr (doesn't change because of immediate mode)
         SWAP           \ ( addr len )
     THEN
+;
+
+\ Create and immediately print a literal string.
+: ." IMMEDIATE ( -- )
+    ?compiling IF
+        [COMPILE] S"  \ read + compile the literal string
+        ' TELL ,      \ compile word to print it
+    ELSE              \ we're in immediate mode
+        BEGIN         \ loop through each char of string until closing quote
+            KEY
+            DUP '"' !=
+        WHILE
+            EMIT     \ print each byte
+        REPEAT
+        DROP         \ drop closing quote
+    THEN
+;
+
+\ val CONSTANT name
+\
+\ Define a word (immediate value) which pushes a constant value to the stack
+: CONSTANT ( val -- )
+    CREATE
+    DOCOL ,
+    ' LIT ,
+    ,
+    ' EXIT ,
+;
+
+: ALLOT ( n -- ) HERE +! ;
+
+\ Allocate a cell of memory as a named variable
+\
+\ Define: VARIABLE foo
+\ Read  : foo @
+\ Write : 1 foo !
+: VARIABLE
+    HERE
+    cell-size ALLOT
+    CREATE
+    DOCOL ,
+    ' LIT ,
+    ,
+    ' EXIT ,
+;
+
+\ val >= lo && val < hi
+: WITHIN ( val lo hi -- a )
+    3 PICK >       \ ( val lo hi val --> val lo <hi )
+    -ROT >=        \ ( <hi val lo    --> <hi >=lo)
+    AND
 ;
