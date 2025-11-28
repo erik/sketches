@@ -1,11 +1,6 @@
 VARIABLE actual-depth
-
-\ FIXME: jank
-ALIGN
-HERE @
-20 CELLS HERE +!
-ALIGN
-CONSTANT actual-stack
+\ TODO: use `CREATE actual-stack 20 CELLS ALLOT` when that works
+HERE @ 20 CELLS ALLOT CONSTANT actual-stack
 
 \ Define a unit test syntax
 \
@@ -60,22 +55,23 @@ CONSTANT actual-stack
     REPEAT
     DROP                \ drop array pointer
     R> IF
-        ." TEST PASSED" CR
+        ." ."
     ELSE
-        ." TEST FAILED" CR
+        CR ." TEST FAILED" CR
     THEN
 ;
 
-." ===[Test framework]===" CR
+CR ." ===[Test framework]===" CR
 T{ -> }T
 T{ 1 2 3 -> 1 2 3 }T
 
-." ===[Binary Operations]===" CR
+
+CR ." ===[Binary Operations]===" CR
 T{ 2 1 > -> TRUE }T
 T{ 2 1 >= -> TRUE }T
 T{ 2 2 >= -> TRUE }T
 
-." ===[Stack Manipulation]===" CR
+CR ." ===[Stack Manipulation]===" CR
 T{ 1 2 3 ROT   -> 2 3 1 }T
 T{ 1 2 3 -ROT  -> 3 1 2 }T
 T{ 1 2 NIP     -> 2 }T
@@ -85,13 +81,17 @@ T{ 1 ?DUP      -> 1 1 }T
 T{ 1 >R R>     -> 1 }T
 T{ DEPTH DEPTH -> 0 1 }T
 
-." ===[Miscellaneous Words]===" CR
+CR ." ===[Miscellaneous Words]===" CR
 T{ 1 0 5 WITHIN -> 1 }T
 T{ 1 1 5 WITHIN -> 1 }T
 T{ 1 2 5 WITHIN -> 0 }T
 T{ 5 2 5 WITHIN -> 0 }T
 T{ 6 2 5 WITHIN -> 0 }T
-T{ ?immediate   -> 1 }T
-T{ 3 ALIGNED    -> 8 }T
+T{ ?immediate ?compiling -> 1 0 }T
+T{ : tt ?immediate [ ?compiling ] ; tt -> 0 1 }T
+T{ 0 ALIGNED 7 ALIGNED 8 ALIGNED 15 ALIGNED -> 0 8 8 16 }T
+T{ 1 ?ALIGNED -> FALSE }T
+T{ 0 ?ALIGNED -> TRUE }T
+T{ 8 ?ALIGNED -> TRUE }T
 
-." All tests completed." CR
+CR ." All tests completed." CR

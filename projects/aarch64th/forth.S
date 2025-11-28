@@ -745,27 +745,27 @@ DEFINE_CODE ".stack", 6, 0, PRINT_STACK, INVERT
     PRINT_FMT "----\n\n"
     NEXT
 
-    DEFINE_CODE ".rstack", 7, 0, PRINT_RSTACK, PRINT_STACK
-        mov       x0, RSP
-        ADR_LABEL x1, RETURN_STACK_TOP
+DEFINE_CODE ".rstack", 7, 0, PRINT_RSTACK, PRINT_STACK
+    mov       x0, RSP
+    ADR_LABEL x1, RETURN_STACK_TOP
 
-        sub       x2, x1, x0
-        lsr       x2, x2, 3
+    sub       x2, x1, x0
+    lsr       x2, x2, 3
 
-        PRINT_FMT "RSTACK [RSP: %p, size: %d]\n", x0, x2
-    1:
-        cmp       x0, x1       ; have we reached top of stack?
-        beq       2f           ; we're done
-        ldr       x2, [x0]     ; load stack item
-        mov       x3, x2
+    PRINT_FMT "RSTACK [RSP: %p, size: %d]\n", x0, x2
+1:
+    cmp       x0, x1       ; have we reached top of stack?
+    beq       2f           ; we're done
+    ldr       x2, [x0]     ; load stack item
+    mov       x3, x2
 
-        PRINT_FMT "  %p (%d)\n", x2, x3
+    PRINT_FMT "  %p (%d)\n", x2, x3
 
-        add       x0, x0, #8   ; next word
-        b         1b
-    2:
-        PRINT_FMT "----\n\n"
-        NEXT
+    add       x0, x0, #8   ; next word
+    b         1b
+2:
+    PRINT_FMT "----\n\n"
+    NEXT
 
 DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
     bl print_dictionary

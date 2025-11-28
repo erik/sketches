@@ -239,6 +239,12 @@
     AND
 ;
 
+: ?ALIGNED ( a -- a )
+    cell-size 1-
+    AND
+    0=
+;
+
 \ Update HERE to be cell aligned
 : ALIGN  ( -- )
     HERE @ ALIGNED
@@ -322,7 +328,7 @@
 \ Read  : foo @
 \ Write : 1 foo !
 : VARIABLE
-    HERE
+    HERE @
     cell-size ALLOT
     CREATE
     DOCOL ,
