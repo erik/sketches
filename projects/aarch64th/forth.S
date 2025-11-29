@@ -269,11 +269,12 @@ DOCOL:
 ;; Built-in variables
 DEFINE_VAR "STATE", 5, 0, STATE, NIL   ; Interpreter state: executing (0), or compiling (non-zero)
 DEFINE_VAR "HERE",  4, 0, HERE,  STATE ; Pointer to next free byte of memory
-// DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
+// TODO: DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
 
 ;; Built-in constants
 DEFINE_CONST "VERSION", 7, 0, VERSION, HERE, 0
-DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, VERSION, DOCOL   ; Push addr of DOCOL to the stack
+DEFINE_CONST "CELL",    4, 0, CELL_SZ, VERSION, 8            ; Cell/word size in bytes
+DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, CELL_SZ, DOCOL   ; Push addr of DOCOL to the stack
 DEFINE_CONST_REF "SP0", 3, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP ; Pointer to top of param stack
 DEFINE_CONST_REF "RP0", 3, 0, RZ, SZ, RETURN_STACK_TOP       ; Pointer to top of return stack
 
@@ -419,8 +420,17 @@ DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
 
     NEXT
 
+; Effectively a GOTO. Pop a value off the stack and go to it
+DEFINE_CODE "EXECUTE", 7, 0, EXECUTE, CREATE
+    POP_DS x0
+    mov    WP, x0            ; ensure we set current word so DOCOL works
+    ldr    x1, [WP]          ; get codeword from word (DOCOL etc.)
+    br     x1                ; jump to entry point
+    ; we won't ever return here, caller will call NEXT
+
+
 ; The REPL!
-DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, CREATE
+DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, EXECUTE
     IS_LITERAL .req x24      ; keep track of whether we're reading a word or an int
 
     bl   _read_word          ; read a single word from input
@@ -635,21 +645,41 @@ DEFINE_CODE "OVER", 4, 0, OVER, SWAP
     PUSH_DS x1
     NEXT
 
+; TODO: write this in Forth when we have BASE
+;
 ; (a -- )
 DEFINE_CODE ".", 1, 0, DOT, OVER
-    POP_DS      x0
-    mov         x1, x0
-    PRINT_FMT "%d (0x%x)", x0, x1
+    POP_DS      x2                    ; value to print
+    mov         x3, x2                ; copy it (we print it twice)
+
+    ADR_LABEL   x0, _dot_buffer       ; string buffer to write to
+    ADR_LABEL   x1, _dot_sprintf_fmt  ; string format
+    PUSH        x2, x3                ; format args go on the stack
+    bl          _sprintf              ; sprintf(&buffer, &fmt, ...args)
+    mov         x2, x0                ; number of bytes written returned in x0
+                                      ; (also third param to write())
+    mov         x0, FD_STDOUT         ; param 1: stdout
+    ADR_LABEL   x1, _dot_buffer       ; param 2: string addr
+    SYSCALL     write
+    add         sp, sp, #16           ; pop fmt args off the stack
+
     NEXT
+
+.data
+.balign 4
+_dot_buffer: .zero 64
+_dot_sprintf_fmt: .asciz "%d (0x%x)"
+.text
 
 ; Print a single byte to output
 ;
 ; (a -- )
 DEFINE_CODE "EMIT", 4, 0, EMIT, DOT
-    POP_DS      x0
-    mov         x1, x0
-    ; TODO: use write syscall instead
-    PRINT_FMT "%c", x0
+    mov     x0, FD_STDOUT  ; param 1: stdout
+    mov     x1, DSP        ; param 2: string addr
+    mov     x2, #1         ; param 3: length
+    SYSCALL write
+    POP_DS  x0
     NEXT
 
 ; (a b -- c)
@@ -714,8 +744,16 @@ DEFINE_CODE "AND", 3, 0, AND, LT
     PUSH_DS x2
     NEXT
 
+; (a b -- c)
+DEFINE_CODE "XOR", 3, 0, XOR, AND
+    POP_DS  x1
+    POP_DS  x0
+    eor     x2, x0, x1
+    PUSH_DS x2
+    NEXT
+
 ; (a -- b)
-DEFINE_CODE "INVERT", 6, 0, INVERT, AND
+DEFINE_CODE "INVERT", 6, 0, INVERT, XOR
     POP_DS  x0
     orn     x0, xzr, x0
     PUSH_DS x0

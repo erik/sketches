@@ -78,15 +78,21 @@
 \
 \ ( a -- )
 : LITERAL IMMEDIATE
-    ' LIT ,
-    ,         \ compile literal from the stack
-    ;
+    ' LIT , ,
+;
 
 \ '[COMPILE] word' compiles a word that would otherwise be executed immediately
 \
 \ Conceptually similar to `' word ,` if `word` is immediate.
 : [COMPILE] IMMEDIATE
 	WORD FIND >CFA ,
+;
+
+\ "compile time tick". Leaves execution token (addr) of word on the stack
+\
+\ ( -- xt )
+: ['] IMMEDIATE
+    ' LIT ,
 ;
 
 \ We don't have a native concept of characters ('\n' is simply a word called
@@ -116,6 +122,12 @@
 ;
 
 ( now we have ( nested ) comment syntax! )
+
+\ Compile-time CHAR
+: [CHAR] IMMEDIATE
+    CHAR
+    [COMPILE] LITERAL
+;
 
 \ BEGIN loop-part AGAIN
 \
@@ -147,13 +159,12 @@
 \ Basic helper utils
 \
 
-: cell-size 8 ;
-: cell+ ( a -- a+cell ) cell-size + ;
-: cell- ( a -- a-cell ) cell-size - ;
-: CELLS ( a -- a*cell-size) cell-size * ;
+: cell-size CELL ;
+: cell+ ( a -- a+cell ) CELL + ;
+: cell- ( a -- a-cell ) CELL - ;
+: CELLS ( a -- a*cell-size) CELL * ;
 : TRUE  ( -- a )     1 ;
 : FALSE ( -- a )     0 ;
-: 0=    ( a -- b )   0 = ;
 : NOT   ( a -- b )   FALSE = ;
 : !=    ( a b -- c ) = NOT ;
 : 1+    ( a -- a+1 ) 1 + ;
@@ -192,7 +203,7 @@
 : TUCK  ( a b -- b a b )      SWAP OVER ;
 : 2DUP  ( a b -- a b a b )    OVER OVER ;
 : 2DROP ( a b -- )            DROP DROP ;
-: ?DUP  ( 0 -- 0 | x -- x x ) DUP DUP 0= IF DROP THEN ;
+: 3DROP ( a b c -- )          2DROP DROP ;
 : ROT   ( a b c -- b c a )    >R SWAP R> SWAP ;
 : -ROT  ( a b c -- c a b )    SWAP >R SWAP R> ;
 : PICK  ( x0 ... xn i -- x0 ... xi x0 )
@@ -203,6 +214,13 @@
 : >  ( a b -- c ) 2DUP = NOT IF < NOT ELSE 2DROP FALSE THEN ;
 : <= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE < THEN ;
 : >= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE > THEN ;
+: 0=    ( a -- b )   0 = ;
+: 0<    ( a -- b )   0 < ;
+: 0>    ( a -- b )   0 > ;
+: 0<=   ( a -- b )   0 <= ;
+: 0>=   ( a -- b )   0 >= ;
+
+: ?DUP  ( 0 -- 0 | x -- x x ) DUP DUP 0= IF DROP THEN ;
 
 \
 \ String utils
@@ -342,4 +360,53 @@
     3 PICK >       \ ( val lo hi val --> val lo <hi )
     -ROT >=        \ ( <hi val lo    --> <hi >=lo)
     AND
+;
+
+: STATE-ON  ( -- )  1 STATE ! ;
+: STATE-OFF ( -- )  0 STATE ! ;
+
+: EXECUTE-COMPILING ( i*x xt --j*x )
+    STATE @ IF
+        EXECUTE
+        EXIT
+    ELSE
+        STATE-ON
+        EXECUTE
+        STATE-OFF
+    THEN
+;
+
+\ Compile a reference to the word currently being defined.
+: RECURSE IMMEDIATE ( -- )
+    LATEST @ >CFA ,
+;
+
+
+VARIABLE HANDLER 0 HANDLER !     \ last exception handler
+
+\ TODO: document me
+\
+\ CATCH and THROW are from the implementation given in
+\ https://forth-standard.org/standard/exception/THROW
+: CATCH ( xt -- exception# | 0 )
+   SP@ >R                ( xt )       \ save data stack pointer
+   HANDLER @ >R          ( xt )       \ and previous handler
+   RP@ HANDLER !         ( xt )       \ set current handler
+   EXECUTE               ( )          \ execute returns if no THROW
+   R> HANDLER !          ( )          \ restore previous handler
+   R> DROP               ( )          \ discard saved stack ptr
+   0                     ( 0 )        \ normal completion
+;
+
+: THROW ( ??? exception# -- ??? exception# )
+    ?DUP IF	             ( exc# )     \ 0 THROW is no-op
+      HANDLER @ RP!      ( exc# )     \ restore prev return stack
+      R> HANDLER !	     ( exc# )     \ restore prev handler
+      R> SWAP >R	     ( saved-sp ) \ exc# on return stack
+      SP! DROP R>	     ( exc# )     \ restore stack
+
+      \ Return to the caller of CATCH because return
+      \ stack is restored to the state that existed
+      \ when CATCH began execution
+    THEN
 ;
