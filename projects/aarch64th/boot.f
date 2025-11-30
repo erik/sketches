@@ -161,9 +161,9 @@
 
 
 : NOP ;
-: CELL+ ( a -- a+cell ) CELL + ;
-: CELL- ( a -- a-cell ) CELL - ;
-: CELLS ( a -- a*CELL-size) CELL * ;
+: CELL+ ( a -- a+CELL ) CELL + ;
+: CELL- ( a -- a-CELL ) CELL - ;
+: CELLS ( a -- a*CELL) CELL * ;
 : TRUE  ( -- a )     1 ;
 : FALSE ( -- a )     0 ;
 : NOT   ( a -- b )   FALSE = ;
@@ -273,7 +273,7 @@
 : ?interpreting ( -- a )
     STATE @ 0= ;
 : ?compiling ( -- a )
-    STATE @ 0= NOT ;
+    STATE @ ;
 
 : S" IMMEDIATE ( -- addr len )
     ?compiling IF
@@ -423,7 +423,8 @@
     BEGIN
         ?DUP
     WHILE
-        DUP CELL+ C@ hidden-bit AND UNLESS
+        DUP
+        CELL+ C@ hidden-bit AND UNLESS
             DUP ID. SPACE
         THEN
         @

@@ -539,6 +539,17 @@ DEFINE_CODE "HIDDEN", 6, 0, HIDDEN, IMMEDIATE
     strb      w1, [x0, #8]       ; write the byte back
     NEXT
 
+; Return address of and number of characters in the input buffer;
+;
+; ( -- c-addr u )
+DEFINE_CODE "SOURCE", 6, 0, SOURCE, HIDDEN
+    LDR_LABEL x0, buffer_pos
+    ADR_LABEL x1, input_buffer
+    sub       x0, x0, x1
+    PUSH_DS   x1
+    PUSH_DS   x0
+    NEXT
+
 ; Push the word immediately after this instruction (a literal value) to the
 ; stack.
 ;
@@ -546,7 +557,7 @@ DEFINE_CODE "HIDDEN", 6, 0, HIDDEN, IMMEDIATE
 ; we just need to load from it and then increment it
 ;
 ; ( -- a)
-DEFINE_CODE "LIT", 3, 0, LIT, HIDDEN
+DEFINE_CODE "LIT", 3, 0, LIT, SOURCE
     ldr     x0, [IP], #8  ; load immediate value
     PUSH_DS x0            ; push it to the stack
     NEXT
