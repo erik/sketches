@@ -400,6 +400,37 @@
     HERE +!        \ Increment *here
 ;
 
+\ Print name of the word
+: ID. ( nt -- )
+    CELL+ 1+
+    DUP C@
+    BEGIN
+        DUP 0>
+    WHILE
+        SWAP
+        1+ DUP C@ EMIT
+        SWAP 1-
+    REPEAT
+    2DROP
+;
+
+: immediate-bit 1 ;
+: hidden-bit    2 ;
+
+\ Print all known (and not hidden) words
+: WORDS
+    LATEST @
+    BEGIN
+        ?DUP
+    WHILE
+        DUP CELL+ C@ hidden-bit AND UNLESS
+            DUP ID. SPACE
+        THEN
+        @
+    REPEAT
+    CR
+;
+
 \ Create a new named word which pushes its own address to the stack when called.
 \
 \ This can be used as a primitive to build variables, constants, etc.
