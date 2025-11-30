@@ -1,14 +1,56 @@
 VARIABLE actual-depth
-CREATE actual-stack 20 CELLS ALLOT
+CREATE actual-stack 32 CELLS ALLOT
 
-VARIABLE #fail 0 #fail !
+: Term.red  27 EMIT ." [0;31m" ;
+: Term.yellow 27 EMIT ." [0;33m" ;
+: Term.green 27 EMIT ." [0;32m" ;
+: Term.reset 27 EMIT ." [0m" ;
+
+\ Given a base addr and count, find the first instance of T{ before addr+u
+: find-start  ( addr u -- addr' u' )
+    OVER +                   ( addr addr-end )
+    TUCK                     ( addr-end addr-start addr-ptr )
+    BEGIN
+        1-                   ( addr-end addr-start addr-ptr )
+        2DUP <               \ while addr-ptr >= addr-start
+    WHILE
+        DUP C@               \ See if we're pointing at a "T{"
+            [CHAR] { =
+        OVER 1- C@
+            [CHAR] T =
+        AND IF               \ We are! Top of stack points to "{"
+            NIP              \ Get rid of base addr
+            1-               \ Move back to the "T"
+            SWAP OVER 1+ -   \ See how far we've moved from start of string, trim NL
+            EXIT
+        THEN
+    REPEAT
+    DROP
+
+    0
+;
+
+\ Display error message followed by line that produced the error
+: locate-error
+    \ Search backward for matching T{
+    SOURCE find-start
+    ?DUP IF
+        TELL CR
+    ELSE
+        ." no matching T{ found" CR
+    THEN
+;
+
 VARIABLE #pass 0 #pass !
+VARIABLE #fail 0 #fail !
 
-: failed! 1 #fail +! ;
 : passed! 1 #pass +! ;
+: failed!
+    1 #fail +!
+    CR Term.red ." fail "
+    Term.yellow locate-error Term.reset
+;
 
-\ Define a unit test syntax
-\
 \ T{ setup-part -> assert part }T
 : T{ ( -- ) ;
 
@@ -26,10 +68,11 @@ VARIABLE #pass 0 #pass !
 
 : }T
     DEPTH actual-depth @ != IF
-        ." stack effect incorrect " CR
-        ."   have depth: " actual-depth @ . CR
-        ."   want depth: " DEPTH . CR
         failed!
+
+        ."     stack effect incorrect " CR
+        ."       have depth: " actual-depth @ . CR
+        ."       want depth: " DEPTH . CR
         EXIT
     THEN
     \ Keep track of success state (so we can clear the stack)
@@ -46,13 +89,13 @@ VARIABLE #pass 0 #pass !
         ROT
         2DUP != IF
             failed!
-            ." value mismatch at offset " 3 PICK . CR
-            ."   expected: " . CR
-            ."   actual: " . CR
+
+            ."     value mismatch at offset " 3 PICK . CR
+            ."       expected: " . CR
+            ."       actual: " . CR
             R> R> SWAP
             DROP
-            FALSE >R
-            >R
+            FALSE >R >R
         ELSE
             2DROP
         THEN
@@ -65,8 +108,7 @@ VARIABLE #pass 0 #pass !
         ." ."
         passed!
     ELSE
-        CR ." TEST FAILED" CR
-        failed!
+        SP0 SP!
     THEN
 ;
 
@@ -103,6 +145,7 @@ T{ 5 4 3 2 1
 T{ 1 2 3 ROT   -> 2 3 1 }T
 T{ 1 2 3 -ROT  -> 3 1 2 }T
 T{ 1 2 NIP     -> 2 }T
+T{ 1 2 2DUP    -> 1 2 1 2 }T
 T{ 1 2 TUCK    -> 2 1 2 }T
 T{ 0 ?DUP      -> 0 }T
 T{ 1 ?DUP      -> 1 1 }T
@@ -241,6 +284,16 @@ T{ (ctr) x (ctr) y -> }T
 T{ x x             -> 0 1 }T
 T{ y               -> 0 }T
 
-CR ." Finished with "
-    #fail @ . ."  failures out of "
-    #pass @ . ."  tests." CR
+:NONAME
+    #fail @ IF
+        Term.red
+    ELSE
+        Term.green
+    THEN
+
+    CR ." Finished with "
+        #fail @ . ."  failures out of "
+        #pass @ . ."  tests." CR
+
+    Term.reset
+; EXECUTE
