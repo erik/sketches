@@ -118,6 +118,8 @@ VARIABLE #fail 0 #fail !
 CR ." ===[Test framework]===" CR
 T{ -> }T
 T{ 1 2 3 -> 1 2 3 }T
+T{ \ check case insensitivity
+  1 DuP dup DUP -> 1 1 1 1 }T
 
 CR ." ===[Binary Operations]===" CR
 T{ 2 1 > -> TRUE }T

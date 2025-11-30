@@ -1110,6 +1110,16 @@ _read_number:
     mov x1, #1                    ; error flag
     ret
 
+; If \reg is an ASCII letter, convert it to UPPER_CASE
+.macro TO_UPPER reg
+    cmp \reg, #'a'
+    blt _upper\@
+    cmp \reg, #'z'
+    bgt _upper\@
+    sub \reg, \reg, #32
+    _upper\@:
+.endm
+
 ; Try to look up a word in the dictionary. Return its address, or 0 if not
 ; found.
 ;
@@ -1144,6 +1154,12 @@ _lookup_word:
 
     ldrb w6, [x4], #1         ; load next search char
     ldrb w7, [x5], #1         ; load next candidate char
+
+    ; TODO: this is an inefficient lookup, should at least avoid repeatedly
+    ; upper-casing the same values
+    TO_UPPER w6
+    TO_UPPER w7
+5:
     cmp w6, w7                ; do characters match?
     bne 1b                    ; if not, skip
     add  x3, x3, #1           ; increment counter
