@@ -159,10 +159,11 @@
 \ Basic helper utils
 \
 
-: cell-size CELL ;
-: cell+ ( a -- a+cell ) CELL + ;
-: cell- ( a -- a-cell ) CELL - ;
-: CELLS ( a -- a*cell-size) CELL * ;
+
+: NOP ;
+: CELL+ ( a -- a+cell ) CELL + ;
+: CELL- ( a -- a-cell ) CELL - ;
+: CELLS ( a -- a*CELL-size) CELL * ;
 : TRUE  ( -- a )     1 ;
 : FALSE ( -- a )     0 ;
 : NOT   ( a -- b )   FALSE = ;
@@ -183,7 +184,7 @@
 : >R ( a -- R:a )
     RP@          \ get current rstack ptr         (a -- a &rp)
     RP@ @        \ get current return addr        (a &rp -- a &rp *rp)
-    RP@ cell-    \ get next rstack ptr            (a &rp *rp -- a &rp *rp &rp-1)
+    RP@ CELL-    \ get next rstack ptr            (a &rp *rp -- a &rp *rp &rp-1)
     DUP RP!      \ set rstack ptr to next
     !            \ store cur return addr in       (a &rp *rp &rp-1 -- a &rp)
                  \ next position (so it's on top)
@@ -192,9 +193,9 @@
 
 \ Push to data stack from return stack
 : R> ( R:a -- a )
-    RP@ cell+ @  \ get data before current return addr   ( -- a )
+    RP@ CELL+ @  \ get data before current return addr   ( -- a )
     RP@ @        \ get current return addr               ( a -- a *rp )
-    RP@ cell+    \ get addr below top of stack           ( a *rp -- a *rp &rp-1 )
+    RP@ CELL+    \ get addr below top of stack           ( a *rp -- a *rp &rp-1 )
     DUP RP!      \ "pop" rstack ptr
     !            \ move return addr to new top of stack  ( a *rp &rp-1 -- a )
 ;
@@ -247,18 +248,18 @@
 ;
 
 \ Return the number of elements in the stack
-: DEPTH     SP0 SP@ - cell- cell-size / ;
-: RDEPTH    RP0 RP@ - cell-size / ;
+: DEPTH     SP0 SP@ - CELL- CELL / ;
+: RDEPTH    RP0 RP@ - CELL / ;
 
 \ Align input to cell size (e.g. 3 -> 8, 15 -> 16)
 : ALIGNED ( a -- a )
-    cell-size 1- +
-    cell-size 1- INVERT
+    CELL 1- +
+    CELL 1- INVERT
     AND
 ;
 
 : ?ALIGNED ( a -- a )
-    cell-size 1-
+    CELL 1-
     AND
     0=
 ;
@@ -269,10 +270,10 @@
     HERE !
 ;
 
-: ?immediate ( -- a )
+: ?interpreting ( -- a )
     STATE @ 0= ;
 : ?compiling ( -- a )
-    ?immediate NOT ;
+    STATE @ 0= NOT ;
 
 : S" IMMEDIATE ( -- addr len )
     ?compiling IF
@@ -289,7 +290,7 @@
         DROP           \ drop final quote char
         DUP            \ ( len_addr len_addr )
         HERE @ SWAP -  \ push length of string
-        cell-          \ placeholder one cell before start of string
+        CELL-          \ placeholder one cell before start of string
         SWAP !         \ write length back to original addr
 
         ALIGN          \ keep HERE aligned
@@ -327,34 +328,6 @@
     THEN
 ;
 
-\ val CONSTANT name
-\
-\ Define a word (immediate value) which pushes a constant value to the stack
-: CONSTANT ( val -- )
-    CREATE
-    DOCOL ,
-    ' LIT ,
-    ,
-    ' EXIT ,
-;
-
-: ALLOT ( n -- ) HERE +! ;
-
-\ Allocate a cell of memory as a named variable
-\
-\ Define: VARIABLE foo
-\ Read  : foo @
-\ Write : 1 foo !
-: VARIABLE
-    HERE @
-    cell-size ALLOT
-    CREATE
-    DOCOL ,
-    ' LIT ,
-    ,
-    ' EXIT ,
-;
-
 \ val >= lo && val < hi
 : WITHIN ( val lo hi -- a )
     3 PICK >       \ ( val lo hi val --> val lo <hi )
@@ -362,27 +335,154 @@
     AND
 ;
 
-: STATE-ON  ( -- )  1 STATE ! ;
-: STATE-OFF ( -- )  0 STATE ! ;
-
-: EXECUTE-COMPILING ( i*x xt --j*x )
-    STATE @ IF
-        EXECUTE
-        EXIT
-    ELSE
-        STATE-ON
-        EXECUTE
-        STATE-OFF
-    THEN
-;
-
 \ Compile a reference to the word currently being defined.
 : RECURSE IMMEDIATE ( -- )
     LATEST @ >CFA ,
 ;
 
+\ CASE c1 OF v1 ENDOF c2 OF v2 ENDOF ... default ENDCASE
+\
+\ This word pushes a marker word to the stack to be consumed by the child
+\ branches.
+\
+\ Compiles into an IF/ELSE/THEN chain.
+: CASE IMMEDIATE ( -- 0 )
+    0
+;
 
-VARIABLE HANDLER 0 HANDLER !     \ last exception handler
+\ ... cond OF value ENDOF ...
+: OF IMMEDIATE ( 0 ... -- 0 ... if-marker )
+    ' OVER ,
+    ' = ,
+    [COMPILE] IF
+    ' DROP ,
+;
+
+\ ... cond OF value ENDOF ...
+: ENDOF IMMEDIATE ( 0 ... if-marker -- 0 ... else-marker )
+    [COMPILE] ELSE
+;
+
+\ Pops the if/else jump positions until we reach the 0 placed by CASE.
+: ENDCASE IMMEDIATE ( 0 ... marker -- )
+    ' DROP ,
+    BEGIN
+        ?DUP
+    WHILE
+        [COMPILE] THEN
+    REPEAT
+;
+
+: >BODY ( xt -- a-addr )
+    5 CELLS +
+;
+
+\ Copy u bytes from c-from to c-to.
+\ The memory regions must not be overlapped.
+: memcpy ( c-from c-to u -- )
+    BEGIN
+        DUP 0>
+    WHILE
+        1- >R   \ decrement u, save
+        OVER C@
+        OVER C! \ copy character
+        1+ >R   \ increment c-to, save
+        1+      \ increment c-from
+        R> R>
+    REPEAT
+    3DROP
+;
+
+: memcpy, ( addr-from size -- )
+    TUCK           \ (.. -- size a-from size)
+    HERE @ SWAP    \ (.. -- size a-from a-here size)
+    memcpy         \ Copy `size` bytes from `a-from` to `HERE`
+    HERE +!        \ Increment *here
+;
+
+\ Create a new named word which pushes its own address to the stack when called.
+\
+\ This can be used as a primitive to build variables, constants, etc.
+: CREATE ( -- )
+    ALIGN
+    LATEST @ ,               \ prev word link
+    HERE @ CELL- LATEST !    \ update latest
+    0 C,                     \ flags byte
+    WORD
+    DUP C,                   \ length byte
+    memcpy,                  \ copy name
+    ALIGN                    \ add padding
+    DOCOL ,                  \ compile docol
+    ' LIT ,
+    HERE @ 3 CELLS + ,       \ compile the address after the EXIT
+    ' NOP ,                  \ DOES>, can modify this later
+    ' EXIT ,                 \ compile exit
+;
+
+\ :NONAME body-part ; EXECUTE
+\
+\ Anonymous (unnamed) word. Leaves an "execution token" on the stack which can
+\ be EXECUTE'd or compiled to run the body of the word.
+: :NONAME ( -- xt )
+    ALIGN
+    LATEST @ ,             \ back-link
+    HERE @ CELL- LATEST !  \ update word
+    0 C,                   \ flags byte
+    0 C,                   \ length byte
+    ( notice: no name here )
+    ALIGN                  \ padding
+    HERE @                 \ the execution token (= DOCOL entry)
+    [ DOCOL ] LITERAL ,    \ compile DOCOL
+    ]                      \ start compiling body
+;
+
+\ Runtime helper for DOES>
+\
+\ Swaps out the NOP of a CREATE'd word with xt from the stack
+: (does>) ( xt -- )
+    LATEST @ >CFA  \ DOCOL addr of last defined word
+    3 CELLS +      \ Point to addr of NOP
+    !              \ Swap it out with the xt
+;
+
+\ Magic trick which allows the call behavior of a word to be changed at runtime
+\
+\   CREATE a 0 , DOES> @ 1+ ;
+\   a @    --> 0
+\   a      --> 1
+\   1 a !  --> 1
+\   a      --> 2
+: DOES> IMMEDIATE
+    ALIGN
+    0                  \ Placeholder, will store xt from :NONAME call
+    [COMPILE] LITERAL  \ (run) push value in prev cell
+    HERE @ CELL-       \ Push pointer to the placeholder cell
+
+    ' (does>) ,        \ (run) rewrite NOP addr with :NONAME xt
+    [COMPILE] ;        \ (run) finish compilation of DOES>
+
+    :NONAME            \ (comp) write body of DOES> into anon word
+    SWAP !             \ (comp) (xt &placholder)
+;
+
+\ val CONSTANT name
+\
+\ Define a word (immediate value) which pushes a constant value to the stack
+: CONSTANT ( val -- )
+    CREATE , DOES> @
+;
+
+\ "allocate memory" by incrementing the data pointer by n bytes
+: ALLOT ( n -- ) HERE +! ;
+
+\ Allocate a cell of memory as a named variable
+\
+\ Define: VARIABLE foo
+\ Read  : foo @
+\ Write : 1 foo !
+: VARIABLE CREATE 0 , ;
+
+VARIABLE exc-handler
 
 \ TODO: document me
 \
@@ -390,18 +490,18 @@ VARIABLE HANDLER 0 HANDLER !     \ last exception handler
 \ https://forth-standard.org/standard/exception/THROW
 : CATCH ( xt -- exception# | 0 )
    SP@ >R                ( xt )       \ save data stack pointer
-   HANDLER @ >R          ( xt )       \ and previous handler
-   RP@ HANDLER !         ( xt )       \ set current handler
+   exc-handler @ >R      ( xt )       \ and previous handler
+   RP@ exc-handler !     ( xt )       \ set current handler
    EXECUTE               ( )          \ execute returns if no THROW
-   R> HANDLER !          ( )          \ restore previous handler
+   R> exc-handler !      ( )          \ restore previous handler
    R> DROP               ( )          \ discard saved stack ptr
    0                     ( 0 )        \ normal completion
 ;
 
 : THROW ( ??? exception# -- ??? exception# )
     ?DUP IF	             ( exc# )     \ 0 THROW is no-op
-      HANDLER @ RP!      ( exc# )     \ restore prev return stack
-      R> HANDLER !	     ( exc# )     \ restore prev handler
+      exc-handler @ RP!  ( exc# )     \ restore prev return stack
+      R> exc-handler !	 ( exc# )     \ restore prev handler
       R> SWAP >R	     ( saved-sp ) \ exc# on return stack
       SP! DROP R>	     ( exc# )     \ restore stack
 

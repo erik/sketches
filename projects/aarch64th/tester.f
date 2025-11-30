@@ -1,47 +1,11 @@
-: NOP ;
-
-\ Copy u bytes from c-from to c-to.
-\ The memory regions must not be overlapped.
-: memcpy ( c-from c-to u -- )
-    BEGIN
-        DUP 0>
-    WHILE
-        1- >R   \ decrement u, save
-        OVER C@
-        OVER C! \ copy character
-        1+ >R   \ increment c-to, save
-        1+      \ increment c-from
-        R> R>
-    REPEAT
-    3DROP
-;
-
-: memcpy, ( addr-from size -- )
-    TUCK           \ (.. -- size a-from size)
-    HERE @ SWAP    \ (.. -- size a-from a-here size)
-    memcpy         \ Copy `size` bytes from `a-from` to `HERE`
-    HERE +!        \ Increment *here
-;
-
-\ TODO: make this the official impl
-: create!
-    ALIGN
-    LATEST @ ,                  \ prev word link
-    HERE @ cell- LATEST !       \ update latest
-    0 C,                        \ flags byte
-    WORD
-    DUP C,                      \ length byte
-    memcpy,                     \ copy name
-    ALIGN                       \ add padding
-    DOCOL ,                     \ compile docol
-    ['] LIT ,
-    HERE @ 3 CELLS + ,          \ compile the address
-    ['] NOP ,                   \ DOES>, if any, will fill this cell
-    ['] EXIT ,                  \ compile exit
-;
-
 VARIABLE actual-depth
-create! actual-stack 20 CELLS ALLOT
+CREATE actual-stack 20 CELLS ALLOT
+
+VARIABLE #fail 0 #fail !
+VARIABLE #pass 0 #pass !
+
+: failed! 1 #fail +! ;
+: passed! 1 #pass +! ;
 
 \ Define a unit test syntax
 \
@@ -55,17 +19,17 @@ create! actual-stack 20 CELLS ALLOT
     BEGIN
         ?DUP
     WHILE
-        -ROT DUP cell+ >R ! R> SWAP 1-
+        -ROT DUP CELL+ >R ! R> SWAP 1-
     REPEAT
     DROP
 ;
-
 
 : }T
     DEPTH actual-depth @ != IF
         ." stack effect incorrect " CR
         ."   have depth: " actual-depth @ . CR
         ."   want depth: " DEPTH . CR
+        failed!
         EXIT
     THEN
     \ Keep track of success state (so we can clear the stack)
@@ -81,6 +45,7 @@ create! actual-stack 20 CELLS ALLOT
         @
         ROT
         2DUP != IF
+            failed!
             ." value mismatch at offset " 3 PICK . CR
             ."   expected: " . CR
             ."   actual: " . CR
@@ -92,14 +57,16 @@ create! actual-stack 20 CELLS ALLOT
             2DROP
         THEN
         1-             \ decrement counter
-        R> cell+
+        R> CELL+
         SWAP
     REPEAT
-    DROP                \ drop array pointer
+    DROP               \ drop array pointer
     R> IF
         ." ."
+        passed!
     ELSE
         CR ." TEST FAILED" CR
+        failed!
     THEN
 ;
 
@@ -148,8 +115,8 @@ T{ 1 1 5 WITHIN -> 1 }T
 T{ 1 2 5 WITHIN -> 0 }T
 T{ 5 2 5 WITHIN -> 0 }T
 T{ 6 2 5 WITHIN -> 0 }T
-T{ ?immediate ?compiling -> 1 0 }T
-T{ : tt ?immediate [ ?compiling ] ; tt -> 0 1 }T
+T{ ?interpreting ?compiling -> 1 0 }T
+T{ : tt ?interpreting [ ?compiling ] ; tt -> 0 1 }T
 T{ 0 ALIGNED 7 ALIGNED 8 ALIGNED 15 ALIGNED -> 0 8 8 16 }T
 T{ 1 ?ALIGNED -> FALSE }T
 T{ 0 ?ALIGNED -> TRUE }T
@@ -171,6 +138,15 @@ T{ t1 t2 -> CHAR X CHAR A }T
 T{ t3 -> CHAR A }T
 
 CR ." ===[Interpretation / compilation semantics]===" CR
+T{ : [c1] [COMPILE] DUP ; IMMEDIATE -> }T
+T{ 123 [c1] -> 123 123 }T
+T{ : [c2] [COMPILE] [c1] ; -> }T
+T{ 234 [c2] -> 234 234 }T
+T{ : [cif] [COMPILE] IF ; IMMEDIATE -> }T
+T{ : [c3]  [cif] 111 ELSE 222 THEN ; -> }T
+T{ -1 [c3] -> 111 }T
+T{  0 [c3] -> 222 }T
+
 T{ : t1 123 ;           -> }T
 T{ : t2 IMMEDIATE 456 ; -> }T
 T{ : t3 t1 t2 ;         -> 456 }T
@@ -205,10 +181,6 @@ T{ c4 -> 3 4 5 0 999 -111 }T        \ Test return stack unwinding
    DEPTH >R DROP 2DROP 2DROP R> ;    \ after stack has been emptied
 T{ c5 -> 5 }T
 
-CR ." ===[CREATE]===" CR
-T{ create! CR1 -> }T
-T{ CR1   -> HERE @ }T
-
 CR ." ===[RECURSE]===" CR
 : count-up
     DUP IF
@@ -220,5 +192,55 @@ CR ." ===[RECURSE]===" CR
 
 T{ 0 count-up -> 0 }T
 T{ 4 count-up -> 0 1 2 3 4 }T
+T{ :NONAME DUP IF DUP >R 1- RECURSE R> THEN ;
+   3 SWAP EXECUTE -> 0 1 2 3 }T
 
-CR ." All tests completed." CR
+CR ." ===[CASE]===" CR
+: cs1
+    CASE
+        1 OF 111 ENDOF
+        2 OF 222 ENDOF
+        3 OF 333 ENDOF
+        >R 999 R>
+    ENDCASE
+;
+
+T{ 1 cs1 -> 111 }T
+T{ 2 cs1 -> 222 }T
+T{ 3 cs1 -> 333 }T
+T{ 4 cs1 -> 999 }T
+
+CR ." ===[:NONAME]===" CR
+VARIABLE nn1
+VARIABLE nn2
+T{ :NONAME 123 ; EXECUTE -> 123 }T
+T{ :NONAME 1234 ; nn1 ! -> }T
+T{ :NONAME 9876 ; nn2 ! -> }T
+T{ nn1 @ EXECUTE -> 1234 }T
+T{ nn2 @ EXECUTE -> 9876 }T
+
+CR ." ===[CREATE + DOES>]===" CR
+: add-1 DOES> @ 1 + ;
+: add-2 DOES> @ 2 + ;
+T{ CREATE tt ->        }T
+T{ tt        -> HERE @ }T
+T{ 1 ,       ->        }T
+T{ tt @      -> 1      }T
+T{ add-1     ->        }T
+T{ tt        -> 2      }T
+T{ add-2     ->        }T
+T{ tt        -> 3      }T
+
+: (ctr)
+    CREATE 0 ,
+    DOES>
+        DUP @ ( addr val )
+        1 ROT ( addr val 1 -- val 1 addr )
+        +! ;
+T{ (ctr) x (ctr) y -> }T
+T{ x x             -> 0 1 }T
+T{ y               -> 0 }T
+
+CR ." Finished with "
+    #fail @ . ."  failures out of "
+    #pass @ . ."  tests." CR
