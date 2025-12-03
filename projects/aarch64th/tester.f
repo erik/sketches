@@ -26,19 +26,14 @@ CREATE actual-stack 32 CELLS ALLOT
         THEN
     REPEAT
     DROP
-
     0
 ;
 
 \ Display error message followed by line that produced the error
 : locate-error
     \ Search backward for matching T{
-    SOURCE find-start
-    ?DUP IF
-        TELL CR
-    ELSE
-        ." no matching T{ found" CR
-    THEN
+    SOURCE find-start ?DUP UNLESS ." BUG no matching T{ found" CR EXIT THEN
+    TELL CR
 ;
 
 VARIABLE #pass 0 #pass !
@@ -65,6 +60,7 @@ VARIABLE #fail 0 #fail !
     REPEAT
     DROP
 ;
+
 
 : }T
     DEPTH actual-depth @ != IF
@@ -123,6 +119,7 @@ T{ \ check case insensitivity
 
 CR ." ===[Binary Operations]===" CR
 T{ 2 1 > -> TRUE }T
+T{ 0 1 < -> TRUE }T
 T{ 2 1 >= -> TRUE }T
 T{ 2 2 >= -> TRUE }T
 T{ 0 0 AND -> 0 }T
@@ -143,11 +140,13 @@ T{ 1S 1S XOR -> 0S }T
 CR ." ===[Stack Manipulation]===" CR
 T{ 1 2 OVER    -> 1 2 1 }T
 T{ 5 4 3 2 1
-   4 PICK      -> 5 4 3 2 1 4 }T
+   4 PICK      -> 5 4 3 2 1 5 }T
 T{ 1 2 3 ROT   -> 2 3 1 }T
 T{ 1 2 3 -ROT  -> 3 1 2 }T
+T{ 1 2 3 ROT -ROT -> 1 2 3 }T
 T{ 1 2 NIP     -> 2 }T
 T{ 1 2 2DUP    -> 1 2 1 2 }T
+T{ 1 2 3 3DUP  -> 1 2 3 1 2 3 }T
 T{ 1 2 TUCK    -> 2 1 2 }T
 T{ 0 ?DUP      -> 0 }T
 T{ 1 ?DUP      -> 1 1 }T
@@ -285,6 +284,15 @@ T{ tt        -> 3      }T
 T{ (ctr) x (ctr) y -> }T
 T{ x x             -> 0 1 }T
 T{ y               -> 0 }T
+
+CR ." ===[DO..LOOP]===" CR
+: loop1 DO I LOOP ;
+: loop2 DO I -1 +LOOP ;
+T{  4  1 loop1 ->  1 2 3 }T
+T{  2 -1 loop1 -> -1 0 1 }T
+
+T{  1 4 loop2 -> 4 3 2 1 }T
+T{ -1 2 loop2 -> 2 1 0 -1 }T
 
 :NONAME
     #fail @ IF

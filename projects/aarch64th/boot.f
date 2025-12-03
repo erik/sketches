@@ -178,7 +178,7 @@
     +      ( addr nval )
     SWAP ! ( val addr )
 ;
-: -! ( val addr -- ) SWAP OVER @ - SWAP ! ;
+: -! ( val addr -- ) SWAP OVER @ SWAP - SWAP ! ;
 
 \ Push to return stack from data stack.
 : >R ( a -- R:a )
@@ -208,10 +208,10 @@
 : ROT   ( a b c -- b c a )    >R SWAP R> SWAP ;
 : -ROT  ( a b c -- c a b )    SWAP >R SWAP R> ;
 : PICK  ( x0 ... xn i -- x0 ... xi x0 )
-    CELLS
-    SP@ +
-    @
+    CELLS SP@ CELL+ + @
 ;
+: 3DUP  ( a b c -- a b c a b c )
+    2 PICK 2 PICK 2 PICK ;
 : >  ( a b -- c ) 2DUP = NOT IF < NOT ELSE 2DROP FALSE THEN ;
 : <= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE < THEN ;
 : >= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE > THEN ;
@@ -330,7 +330,7 @@
 
 \ val >= lo && val < hi
 : WITHIN ( val lo hi -- a )
-    3 PICK >       \ ( val lo hi val --> val lo <hi )
+    2 PICK >       \ ( val lo hi val --> val lo <hi )
     -ROT >=        \ ( <hi val lo    --> <hi >=lo)
     AND
 ;
@@ -541,4 +541,75 @@ VARIABLE exc-handler
       \ stack is restored to the state that existed
       \ when CATCH began execution
     THEN
+;
+
+: RDROP R> RP@ ! ;
+: RPICK CELLS RP@ + CELL + @ ;
+
+: I 2 RPICK ;
+
+1 CONSTANT DO-MARK
+2 CONSTANT LEAVE-MARK
+
+CREATE DO-STACK 16 CELLS ALLOT
+VARIABLE DO-IDX
+    DO-STACK 16 CELLS + DO-IDX !
+
+\ push `a` onto the `do-stack`
+: PUSH-DO ( a -- do: a )
+    CELL DO-IDX -!
+    DO-IDX @ !
+;
+
+\ pop `a` from the `do-stack`
+: POP-DO ( do: a -- a )
+    DO-IDX @ @
+    CELL DO-IDX +!
+;
+
+\ peek at top of `do-stack`
+: PEEK-DO
+    DO-IDX @ @
+;
+
+\ limit initial DO loop-part LOOP
+\ limit initial DO loop-part increment +LOOP
+: DO IMMEDIATE ( C: -- do-sys ) ( limit init -- )
+    ' >R , ' >R ,   \ save init and limit
+    HERE @ PUSH-DO
+    DO-MARK PUSH-DO
+;
+
+: LOOP IMMEDIATE ( C: do-sys -- ) ( -- ) ( R: loop-sys -- )
+    ' R> ,   ' R> , ' 1+ ,  \ restore limit and index, increment index
+    ' 2DUP , ' >R , ' >R ,  \ copy and save
+    ' = , ' 0BRANCH ,       \ if we haven't reached the end
+    POP-DO DROP             \   ignore the marker
+    POP-DO HERE @ - ,       \   compile distance from matching `DO`
+    ' RDROP ,               \ drop start + limit
+    ' RDROP ,
+;
+
+\ Because +LOOP has an arbitrary increment, we can't check for exact equality.
+\ We don't know the starting value here, just the current index and the "limit",
+\ so the logic is to tell if we've crossed over that value on this iteration
+\
+\ Wizardry stolen from planckforth
+: ?LOOP-END
+    SWAP -
+    2DUP +
+    OVER XOR
+    >R XOR R>
+    AND 0<
+;
+
+: +LOOP IMMEDIATE ( C: do-sys -- ) ( -- ) ( R: loop-sys -- )
+    ' R> , ' R> , ' 3DUP ,      \ restore limit and index and copy ( incr limit index )
+    ' ROT , ' + ,               \ apply the increment              ( limit index+incr )
+    ' >R , ' >R ,               \ save limit and index             ( -- incr limit index )
+    ' ?LOOP-END , ' 0BRANCH ,   \ if we haven't reached the end
+    POP-DO DROP                 \   ignore the marker
+    POP-DO HERE @ - ,           \   compile distance from matching `DO`
+    ' RDROP ,                   \ drop start + limit
+    ' RDROP ,
 ;
