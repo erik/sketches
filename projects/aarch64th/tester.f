@@ -68,7 +68,29 @@ VARIABLE #fail 0 #fail !
 
         ."     stack effect incorrect " CR
         ."       have depth: " actual-depth @ . CR
+
+        actual-depth @ 0= UNLESS
+            ."          "
+            0 actual-depth @ 1- DO
+                actual-stack I CELLS + @ .
+                I actual-depth @ = UNLESS ." , " THEN
+                -1
+            +LOOP
+
+            CR
+        THEN
+
         ."       want depth: " DEPTH . CR
+        DEPTH 0= UNLESS
+            ."          "
+            DEPTH 1- 0 SWAP DO
+                I PICK .
+                DEPTH I = UNLESS ." , " THEN
+                -1
+            +LOOP
+
+            CR
+        THEN
         EXIT
     THEN
     \ Keep track of success state (so we can clear the stack)
@@ -181,6 +203,11 @@ T{ CHAR a -> 97 }T
 T{ t1 t2 -> CHAR X CHAR A }T
 T{ t3 -> CHAR A }T
 
+CR ." ===[WORD]===" CR
+: tt WORD SWAP C@ ;
+T{ BL tt HELLO -> 5 CHAR H }T
+T{ CHAR " tt GOODBYE" -> 7 CHAR G }T
+
 CR ." ===[Interpretation / compilation semantics]===" CR
 T{ : [c1] [COMPILE] DUP ; IMMEDIATE -> }T
 T{ 123 [c1] -> 123 123 }T
@@ -286,11 +313,10 @@ T{ x x             -> 0 1 }T
 T{ y               -> 0 }T
 
 CR ." ===[DO..LOOP]===" CR
-: loop1 DO I LOOP ;
-: loop2 DO I -1 +LOOP ;
+T{ : loop1 DO I LOOP ;     -> }T
+T{ : loop2 DO I -1 +LOOP ; -> }T
 T{  4  1 loop1 ->  1 2 3 }T
 T{  2 -1 loop1 -> -1 0 1 }T
-
 T{  1 4 loop2 -> 4 3 2 1 }T
 T{ -1 2 loop2 -> 2 1 0 -1 }T
 

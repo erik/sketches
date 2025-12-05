@@ -14,6 +14,24 @@
 \ Now it'll be easier to build more of the language in an understandable way.
 \ Onward!
 
+\ Pop a value off the stack and compile it into `LIT [val]`
+\
+\ ( a -- )
+: LITERAL IMMEDIATE
+    ' LIT , ,
+;
+
+\ We don't have a native concept of characters ('\n' is simply a word called
+\ "'\n'"), so let's define a few that we'll need later. Each simply pushes the
+\ named character to the stack.
+\
+\ ( -- a )
+: '\n' 10 ;
+: BL   32 ; \ space
+: '"' [ CHAR " ] LITERAL ;
+: '(' [ CHAR ( ] LITERAL ;
+: ')' [ CHAR ) ] LITERAL ;
+
 \
 \ Conditional logic
 \
@@ -74,18 +92,13 @@
     ,              \ compile the offset here
 ;
 
-\ Pop a value off the stack and compile it into `LIT [val]`
-\
-\ ( a -- )
-: LITERAL IMMEDIATE
-    ' LIT , ,
-;
-
 \ '[COMPILE] word' compiles a word that would otherwise be executed immediately
 \
 \ Conceptually similar to `' word ,` if `word` is immediate.
 : [COMPILE] IMMEDIATE
-	WORD FIND >CFA ,
+    BL WORD
+    FIND
+    >CFA ,
 ;
 
 \ "compile time tick". Leaves execution token (addr) of word on the stack
@@ -94,17 +107,6 @@
 : ['] IMMEDIATE
     ' LIT ,
 ;
-
-\ We don't have a native concept of characters ('\n' is simply a word called
-\ "'\n'"), so let's define a few that we'll need later. Each simply pushes the
-\ named character to the stack.
-\
-\ ( -- a )
-: '\n' 10 ;
-: BL   32 ;  \ BL(ank) = SPACE
-: '"' [ CHAR " ] LITERAL ;
-: '(' [ CHAR ( ] LITERAL ;
-: ')' [ CHAR ) ] LITERAL ;
 
 \ Let's implement block comments. Continues until it sees the matching ')', and
 \ can be nested to an arbitrary depth, as long as the parens are balanced
@@ -440,7 +442,7 @@
     LATEST @ ,               \ prev word link
     HERE @ CELL- LATEST !    \ update latest
     0 C,                     \ flags byte
-    WORD
+    BL WORD
     DUP C,                   \ length byte
     memcpy,                  \ copy name
     ALIGN                    \ add padding
@@ -531,11 +533,11 @@ VARIABLE exc-handler
 ;
 
 : THROW ( ??? exception# -- ??? exception# )
-    ?DUP IF	             ( exc# )     \ 0 THROW is no-op
-      exc-handler @ RP!  ( exc# )     \ restore prev return stack
-      R> exc-handler !	 ( exc# )     \ restore prev handler
-      R> SWAP >R	     ( saved-sp ) \ exc# on return stack
-      SP! DROP R>	     ( exc# )     \ restore stack
+    ?DUP IF                 ( exc# )     \ 0 THROW is no-op
+      exc-handler @ RP!     ( exc# )     \ restore prev return stack
+      R> exc-handler !      ( exc# )     \ restore prev handler
+      R> SWAP >R            ( saved-sp ) \ exc# on return stack
+      SP! DROP R>           ( exc# )     \ restore stack
 
       \ Return to the caller of CATCH because return
       \ stack is restored to the state that existed

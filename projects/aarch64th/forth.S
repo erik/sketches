@@ -391,6 +391,7 @@ _to_cfa:
 
 ; Create a dictionary header for a new word
 DEFINE_CODE "CREATE", 6, 0, CREATE, TO_CFA
+    mov x0, ' '              ; delimiter
     bl _read_word
 
     LDR_LABEL x2, var_HERE   ; Current value of HERE
@@ -433,6 +434,7 @@ DEFINE_CODE "EXECUTE", 7, 0, EXECUTE, CREATE
 DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, EXECUTE
     IS_LITERAL .req x24      ; keep track of whether we're reading a word or an int
 
+    mov x0, ' '              ; delimiter
     bl   _read_word          ; read a single word from input
     mov  IS_LITERAL, #0      ; start off with assumption that we're reading a word
 
@@ -564,8 +566,9 @@ DEFINE_CODE "LIT", 3, 0, LIT, SOURCE
 
 ; Read the next word of input and push the string and length to the stack.
 ;
-; ( -- addr len)
+; ( delim -- addr len)
 DEFINE_CODE "WORD", 4, 0, WORD, LIT
+    POP_DS  x0           ; Get word delimiter
     bl      _read_word   ; Read a word of input
     PUSH_DS x0           ; Push the addr of the read word
     PUSH_DS x1           ; Push the length of the word
@@ -604,6 +607,7 @@ DEFINE_CODE "NUMBER", 6, 0, NUMBER, FIND
 ;
 ; ( -- a)
 DEFINE_CODE "CHAR", 4, 0, CHAR, NUMBER
+    mov     x0, ' '      ; delimiter
     bl      _read_word   ; get the next word (x0: addr, x1: len)
     ldrb    w0, [x0]     ; read first character of the word
     PUSH_DS x0           ; push to stack
@@ -847,6 +851,7 @@ DEFINE_WORD ";", 1, FL_IMMED, SEMICOLON, QUIT
     .dword EXIT                        ; Finish ";" execution
 
 DEFINE_WORD "HIDE", 4, 0, HIDE, SEMICOLON
+    .dword LIT, ' '
     .dword WORD, FIND
     .dword HIDDEN
     .dword EXIT
@@ -947,42 +952,46 @@ print_prompt:
     PRINT_FMT "forth> "
     ret
 
-; Jump to \label if \reg contains whitespace (\s\t\n\r)
-;
-; Clobbers x9
-;
-; \t\n\v\f\r = 09 0A 0B 0C 0D
-.macro B.SPACE reg, label
-    cmp \reg, ' '        ; space?
+.macro B.DELIM reg, delim, label
+    cmp \reg, \delim
     beq \label
+
+    cmp \delim, ' '      ; special case: space represents all whitespace
+    bne \@f
+    ; Jump to \label if \reg contains whitespace (\s\t\n\r)
+    ;
+    ; \t\n\v\f\r = 09 0A 0B 0C 0D
     sub x9, \reg, #0x09  ; temp: reg - 9
     cmp x9, #4           ; is it in range [0x09, 0x0D]?
     bls \label           ; branch if unsigned less than or equal
+\@:
 .endm
 
-; Read the next forth word from stdin
+; Read the next forth word from stdin using given delimiter.
 ;
-; Returns
-;   x0: word pointer
-;   x1: word length
+; Input: x0: delimiter
+; Output x0: word pointer
+;        x1: word length
 .text
 .balign 8
 _read_word:
     PUSH_FRAME
+    mov x24, x0        ; copy delimiter to non-clobbered register
+
 1: ; Search for first non-blank character.
     bl _read_key
 
-    B.SPACE x0, 1b     ; read next if we saw a blank char
+    B.DELIM x0, x24, 1b ; keep looping until we see a non-delim char
 
     ADR_LABEL x22, _word_buffer
 
 2: ; start writing characters into the buffer (no bounds checks!)
-    strb w0, [x22], #1 ; append the character to the buffer
-    bl   _read_key     ; get the next key
+    strb w0, [x22], #1  ; append the character to the buffer
+    bl   _read_key      ; get the next key
 
-    B.SPACE x0, 3f     ; check if we've hit the end of the word
-    cbz     x0, 3f     ; is this the end of the file?
-    b       2b         ; otherwise, keep iterating
+    B.DELIM x0, x24, 3f ; check if we've hit the end of the word
+    cbz     x0, 3f      ; is this the end of the file?
+    b       2b          ; otherwise, keep iterating
 
 3: ; compute length of the word and return
     ADR_LABEL x0, _word_buffer  ; load address of buffer
