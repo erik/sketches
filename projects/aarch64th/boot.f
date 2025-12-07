@@ -31,6 +31,10 @@
 : '"' [ CHAR " ] LITERAL ;
 : '(' [ CHAR ( ] LITERAL ;
 : ')' [ CHAR ) ] LITERAL ;
+: '0' [ CHAR 0 ] LITERAL ;
+: '9' [ CHAR 9 ] LITERAL ;
+: 'A' [ CHAR A ] LITERAL ;
+: 'Z' [ CHAR Z ] LITERAL ;
 
 \
 \ Conditional logic
@@ -614,4 +618,104 @@ VARIABLE DO-IDX
     POP-DO HERE @ - ,           \   compile distance from matching `DO`
     ' RDROP ,                   \ drop start + limit
     ' RDROP ,
+;
+
+: DECIMAL ( -- ) 10 BASE ! ;
+: HEX ( -- )     16 BASE ! ;
+
+: ?digit     ( ch -- bool ) '0' '9' WITHIN ;
+: ?lowercase ( ch -- bool ) 97 122 WITHIN ;
+: ?uppercase ( ch -- bool ) 65 90 WITHIN ;
+
+: parse-uint ( addr n base -- val ok? )
+    ROT >R >R \ save base + addr ( R: addr base )
+    0         \ accumulator
+    SWAP
+    BEGIN
+        ?DUP
+    WHILE    ( acc n )
+        SWAP          ( n acc )
+        R>            \ restore base
+        DUP ROT       ( base acc base )
+        * SWAP        \ acc *= base           ( acc' base )
+        R>            \ restore addr
+        DUP C@        \ get next char         ( acc n base addr ch )
+        -ROT 1+       \ increment addr
+        >R >R         \ save base, addr       ( acc n ch )
+
+        \ Get decimal value of character
+        DUP ?digit IF
+            '0' -
+        ELSE DUP ?uppercase IF
+            'A' -
+            10 +
+        ELSE DUP ?lowercase IF
+            97 -     \ ascii code for 'a', we can't define both 'A' and 'a'
+                     \ due to insensitive lookup
+            10 +
+        ELSE
+            \ unknown char, set to invalid value
+            DROP 256
+        THEN THEN THEN
+        R>                \ restore base
+        2DUP > IF         \ check if the character is invalid in the base
+            2DROP 2DROP   \ clean up and exit with 0
+            RDROP
+            0 FALSE
+            EXiT
+        ELSE
+            >R        \ re-save base
+        THEN
+
+        +             \ acc += val ( n acc )
+        SWAP 1-       \ decr string length
+    REPEAT
+    RDROP RDROP
+
+    TRUE              \ success
+;
+
+\ Attempt to parse a number from string at `addr`.
+\
+\ NOTE: Doesn't follow Forth standard signature (because it feels too cumbersome to
+\ me?)
+: >NUMBER ( addr n -- val ok? )
+    ?DUP UNLESS          \ handle empty string
+        DROP
+        0 FALSE
+        EXIT
+    THEN
+
+    SWAP DUP C@     \ get first char of str
+
+    CASE
+        [CHAR] - OF       \ negative
+            1+ SWAP 1-
+            RECURSE IF
+                INVERT 1+ TRUE
+            ELSE
+                FALSE
+            THEN
+        ENDOF
+
+        [CHAR] $ OF        \ hex
+            1+ SWAP 1-
+            16 parse-uint
+        ENDOF
+
+        [CHAR] # OF        \ decimal
+            1+ SWAP 1-
+            10 parse-uint
+        ENDOF
+
+        \ TODO: support parsing character codes
+        \ [CHAR] ' OF        \ character code
+        \ ENDOF
+
+        DROP SWAP
+        BASE @      \ fall back to current base
+        parse-uint
+
+        0           \ ENDCASE drops top of stack
+    ENDCASE
 ;

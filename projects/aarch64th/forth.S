@@ -269,10 +269,10 @@ DOCOL:
 ;; Built-in variables
 DEFINE_VAR "STATE", 5, 0, STATE, NIL   ; Interpreter state: executing (0), or compiling (non-zero)
 DEFINE_VAR "HERE",  4, 0, HERE,  STATE ; Pointer to next free byte of memory
-// TODO: DEFINE_VAR "BASE", 4, 0, name_S0, BASE, 10
+DEFINE_VAR "BASE",  4, 0, BASE,  HERE  ; Numberic base to parse numbers in
 
 ;; Built-in constants
-DEFINE_CONST "VERSION", 7, 0, VERSION, HERE, 0
+DEFINE_CONST "VERSION", 7, 0, VERSION, BASE, 0
 DEFINE_CONST "CELL",    4, 0, CELL_SZ, VERSION, 8            ; Cell/word size in bytes
 DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, CELL_SZ, DOCOL   ; Push addr of DOCOL to the stack
 DEFINE_CONST_REF "SP0", 3, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP ; Pointer to top of param stack
@@ -427,14 +427,16 @@ DEFINE_CODE "EXECUTE", 7, 0, EXECUTE, CREATE
     mov    WP, x0            ; ensure we set current word so DOCOL works
     ldr    x1, [WP]          ; get codeword from word (DOCOL etc.)
     br     x1                ; jump to entry point
-    ; we won't ever return here, caller will call NEXT
+
+     ; we won't ever return here, caller will call NEXT
+    NEXT
 
 
 ; The REPL!
 DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, EXECUTE
     IS_LITERAL .req x24      ; keep track of whether we're reading a word or an int
 
-    mov x0, ' '              ; delimiter
+    mov x0, ' '              ; word delimiter
     bl   _read_word          ; read a single word from input
     mov  IS_LITERAL, #0      ; start off with assumption that we're reading a word
 
@@ -929,6 +931,10 @@ _main:
     ADR_LABEL RSP, RETURN_STACK_TOP
     ADR_LABEL DSP, DATA_STACK_TOP
 
+    ADR_LABEL x0, var_BASE
+    mov       x1, #10
+    str       x1, [x0]                ; *var_base = 10
+
     ADR_LABEL x0, var_HERE            ; x0 = &var_HERE
     ADR_LABEL x1, USER_DATA_SEGMENT   ; x1 = &USER_DATA_SEGMENT
     str       x1, [x0]                ; *HERE = &USER_DATA_SEGMENT
@@ -1100,7 +1106,7 @@ _read_number:
     bgt 5f
 
     sub x5, x5, '0'              ; Convert ASCII to digit value
-    mov x6, #10
+    LDR_LABEL x6, var_BASE
     mul x4, x4, x6               ; acc *= 10
     add x4, x4, x5               ; acc += digit
     add x3, x3, #1               ; ctr++

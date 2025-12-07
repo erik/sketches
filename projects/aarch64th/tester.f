@@ -1,5 +1,6 @@
 VARIABLE actual-depth
 CREATE actual-stack 32 CELLS ALLOT
+CREATE saved-stack 32 CELLS ALLOT
 
 : Term.red  27 EMIT ." [0;31m" ;
 : Term.yellow 27 EMIT ." [0;33m" ;
@@ -47,7 +48,9 @@ VARIABLE #fail 0 #fail !
 ;
 
 \ T{ setup-part -> assert part }T
-: T{ ( -- ) ;
+: T{ ( -- )
+    \ TODO: save anything on the stack and restore it in }T
+;
 
 : ->
     DEPTH actual-stack SWAP
@@ -99,33 +102,36 @@ VARIABLE #fail 0 #fail !
     actual-stack        \ get base of actual stack array
     actual-depth @
     BEGIN
-        ?DUP
-    WHILE
-        SWAP
-        DUP >R
-        @
-        ROT
-        2DUP != IF
+        ?DUP            \ loop until we consume the entire stack
+    WHILE               \ ( addr depth -- )
+        SWAP            \ ( depth addr )
+        DUP >R          \ save stack addr for later
+        @               \ get this item of the stack
+        ROT             \ ( depth val TOS ) -- pull expected stack val up
+        2DUP != IF      \ compare actual/expected
             failed!
 
-            ."     value mismatch at offset " 3 PICK . CR
+            ."     value mismatch at offset " 2 PICK . CR
             ."       expected: " . CR
             ."       actual: " . CR
-            R> R> SWAP
-            DROP
-            FALSE >R >R
+
+            R> R>          \ restore stack addr and true/false val ( addr res )
+            DROP FALSE     \ drop previous result, replace with false
+            >R >R          \ save addr and res ( R: res addr )
         ELSE
             2DROP
         THEN
-        1-             \ decrement counter
-        R> CELL+
-        SWAP
+        1-                 \ decrement stack depth counter
+        R> CELL+           \ next addr in stack
+        SWAP               \ ( addr depth )
     REPEAT
-    DROP               \ drop array pointer
+    DROP                   \ drop addr
+
     R> IF
         ." ."
         passed!
     ELSE
+        \ TODO: cleaner reset on error
         SP0 SP!
     THEN
 ;
@@ -319,6 +325,23 @@ T{  4  1 loop1 ->  1 2 3 }T
 T{  2 -1 loop1 -> -1 0 1 }T
 T{  1 4 loop2 -> 4 3 2 1 }T
 T{ -1 2 loop2 -> 2 1 0 -1 }T
+
+CR ." ===[Number parsing]===" CR
+T{ s" 123" 10 parse-uint -> 123 TRUE }T
+T{ s" 10"  16 parse-uint -> 16 TRUE  }T
+T{ s" ff"  16 parse-uint -> 255 TRUE }T
+T{ s" FF"  16 parse-uint -> 255 TRUE }T
+T{ s" 1F"  10 parse-uint -> 0 FALSE  }T
+T{ s" 12(3)" 10 parse-uint -> 0 FALSE  }T
+T{ s" 12.3"  10 parse-uint -> 0 FALSE  }T
+
+T{ s" 123" >NUMBER  -> 123 TRUE }T
+T{ s" -16" >NUMBER  -> -16 TRUE }T
+T{ s" $10" >NUMBER  -> 16 TRUE }T
+T{ s" -$10" >NUMBER -> -16 TRUE }T
+T{ s" #10" >NUMBER  -> 10 TRUE }T
+T{ HEX s" 10" >NUMBER DECIMAL ->
+    16 TRUE }T
 
 :NONAME
     #fail @ IF
