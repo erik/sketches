@@ -549,6 +549,8 @@ VARIABLE exc-handler
     THEN
 ;
 
+: ABORT -1 THROW ;
+
 : RDROP R> RP@ ! ;
 : RPICK CELLS RP@ + CELL + @ ;
 
@@ -623,9 +625,9 @@ VARIABLE DO-IDX
 : DECIMAL ( -- ) 10 BASE ! ;
 : HEX ( -- )     16 BASE ! ;
 
-: ?digit     ( ch -- bool ) '0' '9' WITHIN ;
-: ?lowercase ( ch -- bool ) 97 122 WITHIN ;
-: ?uppercase ( ch -- bool ) 65 90 WITHIN ;
+: ?digit     ( ch -- bool ) '0' '9' 1+ WITHIN ;
+: ?lowercase ( ch -- bool ) 97 122 1+ WITHIN ;
+: ?uppercase ( ch -- bool ) 65 90 1+ WITHIN ;
 
 : parse-uint ( addr n base -- val ok? )
     ROT >R >R \ save base + addr ( R: addr base )
@@ -762,3 +764,71 @@ VARIABLE DO-IDX
         0           \ ENDCASE drops top of stack
     ENDCASE
 ;
+
+\
+\ Stage 2 interpreter
+\
+
+CREATE word-buffer 64 CELLS ALLOT
+VARIABLE word-len
+
+\ Forth REPL, this time hosted in Forth
+: INTERPRET ( -- )
+    BL WORD ?DUP UNLESS
+        ." TODO: zero len word" CR
+        ABORT
+    THEN
+
+    DUP word-len !             \ Update len
+    2DUP word-buffer TUCK DROP ( addr len addr buf len )
+    memcpy                     \ copy word into word buffer
+
+    FIND ?DUP IF                                  \ Found the word
+        ?compiling IF                             \ compile mode
+            DUP CELL+ C@ immediate-bit AND IF     \ execute immediate word
+                >CFA EXECUTE
+            ELSE                                  \ compile the word
+                >CFA ,
+            THEN
+        ELSE                                      \ immediate mode
+            >CFA EXECUTE
+        THEN
+    ELSE
+        word-buffer word-len @ >NUMBER UNLESS
+            CR ." undefined word: '"
+            word-buffer word-len @ TELL ." '" CR
+
+            ABORT
+        THEN
+
+        \ If we're interpreting we leave the number on the stack
+        ?compiling IF
+            [COMPILE] LITERAL
+        THEN
+    THEN
+;
+
+: QUIT
+    RP0 RP!
+    BEGIN
+        \ TODO: ?interpreting IF ." > " THEN
+
+        ['] INTERPRET CATCH
+        CASE
+            0 OF
+                \ TODO: ?interpreting IF ." ok." CR THEN
+            ENDOF
+
+            -1 OF
+                ." [ aborted ]" CR
+                EXIT
+            ENDOF
+
+            ( else )
+            DUP ." Exception # " .
+        ENDCASE
+    AGAIN
+;
+
+\ Enter second stage interpreter - we're self-hosted baby
+QUIT

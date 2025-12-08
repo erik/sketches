@@ -488,7 +488,7 @@ DEFINE_CODE "INTERPRET", 9, 0, INTERPRET, EXECUTE
     NEXT
 
 6: ; Handle parse errors
-    PRINT_DEBUG "TODO: Parse error, unknown word: '%s'\n", x0
+    PRINT_DEBUG "err, unknown word: '%s'\n", x0
     NEXT
 
 DEFINE_CODE ",", 1, 0, COMMA, INTERPRET
@@ -594,21 +594,11 @@ DEFINE_CODE "FIND", 4, 0, FIND, KEY
     PUSH_DS x0           ; push addr (or nil)
     NEXT
 
-; Try to parse a number from a string (given as addr + length)
-;
-; (a b -- c d)
-DEFINE_CODE "NUMBER", 6, 0, NUMBER, FIND
-    POP_DS x1            ; length of string
-    POP_DS x0            ; address of string
-    bl     _read_number
-    PUSH_DS x0           ; parsed number
-    PUSH_DS x1           ; error value
-    NEXT
 
 ; Push a literal character (given as immediate value) onto the stack
 ;
 ; ( -- a)
-DEFINE_CODE "CHAR", 4, 0, CHAR, NUMBER
+DEFINE_CODE "CHAR", 4, 0, CHAR, FIND
     mov     x0, ' '      ; delimiter
     bl      _read_word   ; get the next word (x0: addr, x1: len)
     ldrb    w0, [x0]     ; read first character of the word
@@ -778,48 +768,48 @@ DEFINE_CODE "INVERT", 6, 0, INVERT, XOR
 
 ;; Debug utils
 
-DEFINE_CODE ".stack", 6, 0, PRINT_STACK, INVERT
+DEFINE_CODE ".S", 2, 0, PRINT_STACK, INVERT
     mov       x0, DSP
     ADR_LABEL x1, DATA_STACK_TOP
 
     sub       x2, x1, x0
     lsr       x2, x2, 3
 
-    PRINT_FMT "STACK [DSP: %p, size: %d]\n", x0, x2
+    PRINT_FMT "S[%p, %d]: ", x0, x2
 1:
     cmp       x0, x1       ; have we reached top of stack?
     beq       2f           ; we're done
     ldr       x2, [x0]     ; load stack item
     mov       x3, x2
 
-    PRINT_FMT "  %p (%d)\n", x2, x3
+    PRINT_FMT "(%p, %d)\t", x2, x3
 
     add       x0, x0, #8   ; next word
     b         1b
 2:
-    PRINT_FMT "----\n\n"
+    PRINT_FMT "----\n"
     NEXT
 
-DEFINE_CODE ".rstack", 7, 0, PRINT_RSTACK, PRINT_STACK
+DEFINE_CODE ".R", 2, 0, PRINT_RSTACK, PRINT_STACK
     mov       x0, RSP
     ADR_LABEL x1, RETURN_STACK_TOP
 
     sub       x2, x1, x0
     lsr       x2, x2, 3
 
-    PRINT_FMT "RSTACK [RSP: %p, size: %d]\n", x0, x2
+    PRINT_FMT "R[%p, %d]:\n", x0, x2
 1:
     cmp       x0, x1       ; have we reached top of stack?
     beq       2f           ; we're done
     ldr       x2, [x0]     ; load stack item
     mov       x3, x2
 
-    PRINT_FMT "  %p (%d)\n", x2, x3
+    PRINT_FMT "\t%p\n", x2
 
     add       x0, x0, #8   ; next word
     b         1b
 2:
-    PRINT_FMT "----\n\n"
+    PRINT_FMT "----\n"
     NEXT
 
 DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
@@ -851,12 +841,6 @@ DEFINE_WORD ";", 1, FL_IMMED, SEMICOLON, QUIT
     .dword LATEST, FETCH, HIDDEN       ; Unhide the current word definition
     .dword LBRACKET                    ; Back to immediate mode
     .dword EXIT                        ; Finish ";" execution
-
-DEFINE_WORD "HIDE", 4, 0, HIDE, SEMICOLON
-    .dword LIT, ' '
-    .dword WORD, FIND
-    .dword HIDDEN
-    .dword EXIT
 
 ; Pointer to most recently defined word in dictionary (to be convenient, we
 ; ensure it also starts out as the last defined word).

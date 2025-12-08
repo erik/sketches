@@ -178,7 +178,8 @@ T{ 1 2 3 3DUP  -> 1 2 3 1 2 3 }T
 T{ 1 2 TUCK    -> 2 1 2 }T
 T{ 0 ?DUP      -> 0 }T
 T{ 1 ?DUP      -> 1 1 }T
-T{ 1 >R R>     -> 1 }T
+T{ : tt >R R> ; -> }T
+T{ 123 tt -> 123 }T
 T{ DEPTH DEPTH -> 0 1 }T
 
 CR ." ===[Miscellaneous Words]===" CR
@@ -206,6 +207,7 @@ CR ." ===[Characters]===" CR
 
 T{ CHAR A -> 65 }T
 T{ CHAR a -> 97 }T
+T{ 'x' -> CHAR x }T
 T{ t1 t2 -> CHAR X CHAR A }T
 T{ t3 -> CHAR A }T
 
@@ -328,6 +330,12 @@ T{ -1 2 loop2 -> 2 1 0 -1 }T
 
 CR ." ===[Number parsing]===" CR
 T{ s" 123" 10 parse-uint -> 123 TRUE }T
+T{ s" 456" 10 parse-uint -> 456 TRUE }T
+T{ s" 789" 10 parse-uint -> 789 TRUE }T
+T{ s" ABC" 16 parse-uint -> 2748 TRUE }T
+T{ s" def" 16 parse-uint -> 3567 TRUE }T
+
+T{ s" 90"  10 parse-uint -> 90 TRUE }T
 T{ s" 10"  16 parse-uint -> 16 TRUE  }T
 T{ s" ff"  16 parse-uint -> 255 TRUE }T
 T{ s" FF"  16 parse-uint -> 255 TRUE }T
@@ -335,6 +343,7 @@ T{ s" 1F"  10 parse-uint -> 0 FALSE  }T
 T{ s" 12(3)" 10 parse-uint -> 0 FALSE  }T
 T{ s" 12.3"  10 parse-uint -> 0 FALSE  }T
 
+T{ s" 97" >NUMBER   -> 97 TRUE }T
 T{ s" 123" >NUMBER  -> 123 TRUE }T
 T{ s" -16" >NUMBER  -> -16 TRUE }T
 T{ s" $10" >NUMBER  -> 16 TRUE }T
