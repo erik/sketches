@@ -343,6 +343,17 @@ T{ s" #10" >NUMBER  -> 10 TRUE }T
 T{ HEX s" 10" >NUMBER DECIMAL ->
     16 TRUE }T
 
+T{ s" 'A'" >NUMBER  -> 65 TRUE }T
+T{ s" 'a'" >NUMBER  -> 97 TRUE }T
+T{ s" '\n'" >NUMBER -> 10 TRUE }T
+T{ s" '\''" >NUMBER -> 39 TRUE }T
+T{ s" '\\'" >NUMBER -> 92 TRUE }T
+T{ s" 'a" >NUMBER   NIP -> FALSE }T
+T{ s" '" >NUMBER    NIP -> FALSE }T
+T{ s" '\" >NUMBER   NIP -> FALSE }T
+T{ s" '\x'" >NUMBER NIP -> FALSE }T
+T{ s" '\n" >NUMBER  NIP -> FALSE }T
+
 :NONAME
     #fail @ IF
         Term.red

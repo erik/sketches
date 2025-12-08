@@ -675,6 +675,23 @@ VARIABLE DO-IDX
     TRUE              \ success
 ;
 
+: escaped-char ( ch -- val )
+    CASE
+        [CHAR] a OF  7 ENDOF  \ alert
+        [CHAR] b OF  8 ENDOF  \ backspace
+        [CHAR] t OF  9 ENDOF  \ tab
+        [CHAR] n OF 10 ENDOF  \ newline
+        [CHAR] v OF 11 ENDOF  \ vertical tab
+        [CHAR] f OF 12 ENDOF  \ formfeed
+        [CHAR] r OF 13 ENDOF  \ carriage return
+        [CHAR] e OF 27 ENDOF  \ escape
+        [CHAR] ' OF 39 ENDOF  \ single quote
+        [CHAR] \ OF 92 ENDOF  \ backslash
+        ( else )
+            0 SWAP
+    ENDCASE
+;
+
 \ Attempt to parse a number from string at `addr`.
 \
 \ NOTE: Doesn't follow Forth standard signature (because it feels too cumbersome to
@@ -708,9 +725,35 @@ VARIABLE DO-IDX
             10 parse-uint
         ENDOF
 
-        \ TODO: support parsing character codes
-        \ [CHAR] ' OF        \ character code
-        \ ENDOF
+        [CHAR] ' OF        \ character code
+            1+ SWAP 1-     ( addr size )
+
+            \ Check we have at least 2 more char (the actual char plus closing
+            \ quote, or \escaped-char plus closing quote)
+            DUP 2 4 WITHIN UNLESS
+                2DROP      \ drop addr + size
+                0 FALSE    \ return value
+                EXIT
+            THEN
+
+            1-            \ decr size for next char
+            SWAP DUP C@   ( size addr ch )
+            DUP [CHAR] \ = IF
+                DROP
+                SWAP 1- SWAP
+                1+ DUP C@    \ get escaped char
+                escaped-char ?DUP UNLESS
+                    2DROP
+                    0 FALSE
+                    EXIT
+                THEN
+            THEN
+
+            -ROT               ( ch size addr )
+            1+ C@ [CHAR] ' =   \ next char is a quote
+            SWAP 1- 0=         \ and it's the last one
+            AND
+        ENDOF
 
         DROP SWAP
         BASE @      \ fall back to current base
