@@ -10,31 +10,29 @@
 \   KEY 10 =         \ Read next key of input and check if it's a newline (0x0A)
 \   0BRANCH          \ If not, jump back ...
 \   [ HERE @ - , ]   \ By however many words we've compiled since start of fn
-\
-\ Now it'll be easier to build more of the language in an understandable way.
-\ Onward!
+
+\ Now let's build a simple version of block comments. We'll replace this
+\ definition later with one that balances parens.
+: ( IMMEDIATE
+    LIT [ CHAR ) , ]  \ Delimiter for the word lookup, a literal ')'
+    WORD              \ Read until next ')'
+    DROP DROP         \ WORD will place ( addr len ) on the stack, drop 'em
+;
+
+(
+    Now it'll be easier to build more of the language in an understandable way.
+    Onward!
+)
 
 \ Pop a value off the stack and compile it into `LIT [val]`
-\
-\ ( a -- )
-: LITERAL IMMEDIATE
+: LITERAL IMMEDIATE ( a -- )
     ' LIT , ,
 ;
 
-\ We don't have a native concept of characters ('\n' is simply a word called
-\ "'\n'"), so let's define a few that we'll need later. Each simply pushes the
-\ named character to the stack.
-\
-\ ( -- a )
-: '\n' 10 ;
+\ We don't have a native concept of characters yet ('\n' is simply a word called
+\ "'\n'" which pushes 0x0A to the stack)
+: '\n' 10 ; ( -- a )
 : BL   32 ; \ space
-: '"' [ CHAR " ] LITERAL ;
-: '(' [ CHAR ( ] LITERAL ;
-: ')' [ CHAR ) ] LITERAL ;
-: '0' [ CHAR 0 ] LITERAL ;
-: '9' [ CHAR 9 ] LITERAL ;
-: 'A' [ CHAR A ] LITERAL ;
-: 'Z' [ CHAR Z ] LITERAL ;
 
 \
 \ Conditional logic
@@ -46,18 +44,14 @@
 \ line comments. We don't want to have to count the number of words to jump by
 \ hand (it could change!), so we use THEN to rewrite the code compiled by IF
 \ based on how far we've moved (tracked by HERE).
-\
-\ ( cond -- cond offset )
-: IF IMMEDIATE
+: IF IMMEDIATE ( cond -- cond offset )
     ' 0BRANCH ,     \ compile 0BRANCH
     HERE @          \ push our current position to the stack
     0 ,             \ compile placeholder jump offset (overwritten later by THEN)
 ;
 
 \ Finalizer for IF
-\
-\ ( offset_addr -- )
-: THEN IMMEDIATE
+: THEN IMMEDIATE ( offset_addr -- )
     DUP             \ dup previous position set by IF
     HERE @          \ push current position to the stack
     SWAP -          \ how far have we moved? (curr - prev)
@@ -65,9 +59,7 @@
 ;
 
 \ cond IF true-part ELSE false-part THEN
-\
-\ ( if_offset_addr -- else_offset_addr )
-: ELSE IMMEDIATE
+: ELSE IMMEDIATE ( if_offset_addr -- else_offset_addr )
     ' BRANCH ,      \ compile a jump to end of ELSE
     HERE @          \ push current position to stack
     0 ,             \ compile placeholder offset for BRANCH (overwritten by THEN)
@@ -81,58 +73,15 @@
 \ BEGIN loop-part cond UNTIL
 \
 \ Loop as long as `cond` evaluates to 0.
-\
-\ ( -- jmp_offset_addr )
-: BEGIN IMMEDIATE
+: BEGIN IMMEDIATE ( -- jmp_offset_addr )
     HERE @          \ push current position to stack
 ;
 
 \ Finalizer for BEGIN.
-\
-\ ( jmp_offset_addr cond -- )
-: UNTIL IMMEDIATE
+: UNTIL IMMEDIATE ( jmp_offset_addr cond -- )
     ' 0BRANCH ,    \ compile conditional branch
     HERE @ -       \ how far have we moved from BEGIN?
     ,              \ compile the offset here
-;
-
-\ '[COMPILE] word' compiles a word that would otherwise be executed immediately
-\
-\ Conceptually similar to `' word ,` if `word` is immediate.
-: [COMPILE] IMMEDIATE
-    BL WORD
-    FIND
-    >CFA ,
-;
-
-\ "compile time tick". Leaves execution token (addr) of word on the stack
-\
-\ ( -- xt )
-: ['] IMMEDIATE
-    ' LIT ,
-;
-
-\ Let's implement block comments. Continues until it sees the matching ')', and
-\ can be nested to an arbitrary depth, as long as the parens are balanced
-: ( IMMEDIATE
-    1                              \ nested level
-    BEGIN
-        KEY
-        DUP '(' =
-            IF
-                DROP 1 +           \ increase depth
-            ELSE ')' = IF 1 - THEN \ decrease depth
-            THEN
-        DUP 0 = UNTIL              \ do we have matched parens?
-    DROP
-;
-
-( now we have ( nested ) comment syntax! )
-
-\ Compile-time CHAR
-: [CHAR] IMMEDIATE
-    CHAR
-    [COMPILE] LITERAL
 ;
 
 \ BEGIN loop-part AGAIN
@@ -161,10 +110,29 @@
     SWAP !        \ ( w b d -- w d b ) -- write diff to begin offset
 ;
 
+\ '[COMPILE] word' compiles a word that would otherwise be executed immediately
+\
+\ Conceptually similar to `' word ,` if `word` is immediate.
+: [COMPILE] IMMEDIATE
+    BL WORD
+    FIND
+    >CFA ,
+;
+
+\ "compile time tick". Leaves execution token (addr) of word on the stack
+: ['] IMMEDIATE ( -- xt )
+    ' LIT ,
+;
+
+\ Compile-time CHAR
+: [CHAR] IMMEDIATE
+    CHAR
+    [COMPILE] LITERAL
+;
+
 \
 \ Basic helper utils
 \
-
 
 : NOP ;
 : CELL+ ( a -- a+CELL ) CELL + ;
@@ -229,6 +197,24 @@
 
 : ?DUP  ( 0 -- 0 | x -- x x ) DUP DUP 0= IF DROP THEN ;
 
+\ Now that we have better control flow constructs, let's reimplement block
+\ comments so they can be nested.
+: ( IMMEDIATE
+    1                         \ nested level
+    BEGIN
+        KEY
+        DUP [CHAR] ( = IF
+            DROP 1+           \ increase depth
+        ELSE [CHAR] ) = IF
+            1-                \ decrease depth
+        THEN THEN
+
+        ?DUP 0=               \ do we have matched parens?
+    UNTIL
+;
+
+( now we have ( nested ) comment syntax! )
+
 \
 \ String utils
 \
@@ -289,7 +275,7 @@
 
         BEGIN          \ compile byte by byte until we reach end of string
             KEY
-            DUP '"' !=
+            DUP [CHAR] " !=
         WHILE
             C,
         REPEAT
@@ -306,7 +292,7 @@
 
         BEGIN          \ write byte by byte until end of string
             KEY
-            DUP '"' !=
+            DUP [CHAR] " !=
         WHILE
             OVER C!
             1+
@@ -326,7 +312,7 @@
     ELSE              \ we're in immediate mode
         BEGIN         \ loop through each char of string until closing quote
             KEY
-            DUP '"' !=
+            DUP [CHAR] " !=
         WHILE
             EMIT     \ print each byte
         REPEAT
@@ -625,7 +611,7 @@ VARIABLE DO-IDX
 : DECIMAL ( -- ) 10 BASE ! ;
 : HEX ( -- )     16 BASE ! ;
 
-: ?digit     ( ch -- bool ) '0' '9' 1+ WITHIN ;
+: ?digit     ( ch -- bool ) [CHAR] 0 [CHAR] 9 1+ WITHIN ;
 : ?lowercase ( ch -- bool ) 97 122 1+ WITHIN ;
 : ?uppercase ( ch -- bool ) 65 90 1+ WITHIN ;
 
@@ -647,9 +633,9 @@ VARIABLE DO-IDX
 
         \ Get decimal value of character
         DUP ?digit IF
-            '0' -
+            [CHAR] 0 -
         ELSE DUP ?uppercase IF
-            'A' -
+            [CHAR] A -
             10 +
         ELSE DUP ?lowercase IF
             97 -     \ ascii code for 'a', we can't define both 'A' and 'a'
