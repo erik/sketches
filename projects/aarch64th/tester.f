@@ -216,8 +216,10 @@ T{ 1 2 3 3DUP  -> 1 2 3 1 2 3 }T
 T{ 1 2 TUCK    -> 2 1 2 }T
 T{ 0 ?DUP      -> 0 }T
 T{ 1 ?DUP      -> 1 1 }T
-T{ : tt >R R> ; -> }T
-T{ 123 tt -> 123 }T
+T{ : tt1 >R R> ; -> }T
+T{ : tt2 >R R@ RDROP ; -> }T
+T{ 123 tt1 -> 123 }T
+T{ 123 tt2 -> 123 }T
 T{ DEPTH DEPTH -> 0 1 }T
 
 CR ." ===[Miscellaneous Words]===" CR
@@ -319,14 +321,17 @@ CR ." ===[CASE]===" CR
         1 OF 111 ENDOF
         2 OF 222 ENDOF
         3 OF 333 ENDOF
-        >R 999 R>
+        4 6 RANGEOF 444 ENDOF
+        999 SWAP
     ENDCASE
 ;
 
 T{ 1 cs1 -> 111 }T
 T{ 2 cs1 -> 222 }T
 T{ 3 cs1 -> 333 }T
-T{ 4 cs1 -> 999 }T
+T{ 4 cs1 -> 444 }T
+T{ 5 cs1 -> 444 }T
+T{ 9 cs1 -> 999 }T
 
 CR ." ===[:NONAME]===" CR
 VARIABLE nn1
@@ -395,8 +400,7 @@ T{ s" -16" >NUMBER  -> -16 TRUE }T
 T{ s" $10" >NUMBER  -> 16 TRUE }T
 T{ s" -$10" >NUMBER -> -16 TRUE }T
 T{ s" #10" >NUMBER  -> 10 TRUE }T
-T{ HEX s" 10" >NUMBER DECIMAL ->
-    16 TRUE }T
+T{ HEX s" 10" >NUMBER DECIMAL -> 16 TRUE }T
 
 T{ s" 'A'" >NUMBER  -> 65 TRUE }T
 T{ s" 'a'" >NUMBER  -> 97 TRUE }T

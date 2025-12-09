@@ -174,6 +174,11 @@
     !            \ move return addr to new top of stack  ( a *rp &rp-1 -- a )
 ;
 
+\ Copy head of return stack to data stack
+: R@ ( R: a -- a )
+    RP@ CELL+ @
+;
+
 \ Simple stack effects, best described by their signature
 : NIP   ( a b -- b )          SWAP DROP ;
 : TUCK  ( a b -- b a b )      SWAP OVER ;
@@ -353,6 +358,16 @@
 : OF IMMEDIATE ( 0 ... -- 0 ... if-marker )
     ' OVER ,
     ' = ,
+    [COMPILE] IF
+    ' DROP ,
+;
+
+\ ... lo hi RANGEOF value ENDOF ...
+: RANGEOF IMMEDIATE ( 0 ... -- 0 ... if-marker )
+    ' LIT , 2 ,
+    ' PICK ,
+    ' -ROT ,
+    ' WITHIN ,
     [COMPILE] IF
     ' DROP ,
 ;
@@ -653,19 +668,10 @@ VARIABLE DO-IDX
         >R >R         \ save base, addr       ( acc n ch )
 
         \ Get decimal value of character
-        DUP ?digit IF
-            [CHAR] 0 -
-        ELSE DUP ?uppercase IF
-            [CHAR] A -
-            10 +
-        ELSE DUP ?lowercase IF
-            97 -     \ ascii code for 'a', we can't define both 'A' and 'a'
-                     \ due to insensitive lookup
-            10 +
-        ELSE
-            \ unknown char, set to invalid value
-            DROP 256
-        THEN THEN THEN
+        DUP ?digit     IF [CHAR] 0 - ELSE
+        DUP ?lowercase IF [CHAR] a - 10 + ELSE
+        DUP ?uppercase IF [CHAR] A - 10 + THEN THEN THEN
+
         R>                \ restore base
         2DUP > IF         \ check if the character is invalid in the base
             2DROP 2DROP   \ clean up and exit with 0
