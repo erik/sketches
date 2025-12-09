@@ -562,7 +562,9 @@ VARIABLE exc-handler
 : RDROP R> RP@ ! ;
 : RPICK CELLS RP@ + CELL + @ ;
 
-: I 2 RPICK ;
+: I 2 RPICK ; \ iteration of inner-most loop param
+: J 4 RPICK ; \ ... 2nd loop
+: K 4 RPICK ; \ ... 3rd loop
 
 1 CONSTANT DO-MARK
 \ TODO: implement leave
@@ -610,6 +612,7 @@ VARIABLE DO-IDX
     DO-MARK PUSH-DO
 ;
 
+\ Check loop bounds and jump back to the top
 : LOOP IMMEDIATE ( C: do-sys -- ) ( -- ) ( R: loop-sys -- )
     ' R> ,   ' R> , ' 1+ ,  \ restore limit and index, increment index
     ' 2DUP , ' >R , ' >R ,  \ copy and save
@@ -617,6 +620,13 @@ VARIABLE DO-IDX
     POP-DO DROP             \   ignore the marker
     POP-DO HERE @ - ,       \   compile distance from matching `DO`
     ' RDROP ,               \ drop start + limit
+    ' RDROP ,
+;
+
+\ Pop the loop control parameters off the return stack so the loop can be
+\ cleanly exited early.
+: UNLOOP IMMEDIATE ( -- ) ( R: loop-sys -- )
+    ' RDROP ,
     ' RDROP ,
 ;
 
@@ -672,14 +682,12 @@ VARIABLE DO-IDX
         DUP ?lowercase IF [CHAR] a - 10 + ELSE
         DUP ?uppercase IF [CHAR] A - 10 + THEN THEN THEN
 
-        R>                \ restore base
-        2DUP > IF         \ check if the character is invalid in the base
-            2DROP 2DROP   \ clean up and exit with 0
-            RDROP
+        DUP R@           \ restore base
+        > IF             \ check if the character is invalid in the base
+            DROP 2DROP   \ clean up and exit with 0
+            RDROP RDROP
             0 FALSE
             EXiT
-        ELSE
-            >R        \ re-save base
         THEN
 
         +             \ acc += val ( n acc )

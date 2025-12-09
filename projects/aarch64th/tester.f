@@ -379,6 +379,23 @@ T{  1  1 loop3 -> }T
 T{  4  1 loop3 -> 1 2 3 }T
 T{  2 -1 loop3 -> -1 0 1 }T
 
+: tt
+    0
+    SWAP 0 DO
+        I 1+ 0 DO
+            I J + 3 = IF
+                I UNLOOP
+                I UNLOOP
+                EXIT
+            THEN
+            1+
+         LOOP
+      LOOP
+;
+T{ 1 tt -> 1 }T
+T{ 2 tt -> 3 }T
+T{ 3 tt -> 4 1 2 }T
+
 CR ." ===[Number parsing]===" CR
 T{ s" 123" 10 parse-uint -> 123 TRUE }T
 T{ s" 456" 10 parse-uint -> 456 TRUE }T
