@@ -12,7 +12,7 @@
 \   [ HERE @ - , ]   \ By however many words we've compiled since start of fn
 
 \ Now let's build a simple version of block comments. We'll replace this
-\ definition later with one that balances parens.
+\ definition later with one that balances parens so we can nest them.
 : ( IMMEDIATE
     LIT [ CHAR ) , ]  \ Delimiter for the word lookup, a literal ')'
     WORD              \ Read until next ')'
@@ -198,14 +198,14 @@
 \ Comparisons
 \
 
-: >     ( a b -- c )          SWAP < ;
-: <=    ( a b -- c )          > NOT ;
-: >=    ( a b -- c )          < NOT ;
-: 0=    ( a -- b )            0 = ;
-: 0<    ( a -- b )            0 < ;
-: 0>    ( a -- b )            0 > ;
-: 0<=   ( a -- b )            0 <= ;
-: 0>=   ( a -- b )            0 >= ;
+: >   ( a b -- c )  SWAP < ;
+: <=  ( a b -- c )  > NOT ;
+: >=  ( a b -- c )  < NOT ;
+: 0=  ( a -- b )    0 = ;
+: 0<  ( a -- b )    0 < ;
+: 0>  ( a -- b )    0 > ;
+: 0<= ( a -- b )    0 <= ;
+: 0>= ( a -- b )    0 >= ;
 
 \ Now that we have better control flow constructs, let's reimplement block
 \ comments so they can be nested.
@@ -223,7 +223,9 @@
     UNTIL
 ;
 
-( now we have ( nested ) comment syntax! )
+( now we have
+    ( nested )
+  comment syntax! )
 
 \
 \ String utils
@@ -268,6 +270,7 @@
 
 : ?interpreting ( -- a )
     STATE @ 0= ;
+
 : ?compiling ( -- a )
     STATE @ ;
 
@@ -547,6 +550,7 @@ VARIABLE exc-handler
 : I 2 RPICK ;
 
 1 CONSTANT DO-MARK
+\ TODO: implement leave
 2 CONSTANT LEAVE-MARK
 
 CREATE DO-STACK 16 CELLS ALLOT
@@ -573,6 +577,19 @@ VARIABLE DO-IDX
 \ limit initial DO loop-part LOOP
 \ limit initial DO loop-part increment +LOOP
 : DO IMMEDIATE ( C: -- do-sys ) ( limit init -- )
+    ' >R , ' >R ,   \ save init and limit
+    HERE @ PUSH-DO
+    DO-MARK PUSH-DO
+;
+
+\ DO will always loop at least once, but ?DO will skip if there's nothing to
+\ do.
+: ?DO IMMEDIATE ( C: -- do-sys ) ( limit init -- )
+    ' 2DUP , ' = , [COMPILE] IF
+        ' 2DROP ,
+        ' EXIT ,
+    [COMPILE] THEN
+
     ' >R , ' >R ,   \ save init and limit
     HERE @ PUSH-DO
     DO-MARK PUSH-DO

@@ -1,4 +1,5 @@
 VARIABLE actual-depth
+VARIABLE saved-depth
 CREATE actual-stack 32 CELLS ALLOT
 CREATE saved-stack 32 CELLS ALLOT
 
@@ -33,8 +34,22 @@ CREATE saved-stack 32 CELLS ALLOT
 \ Display error message followed by line that produced the error
 : locate-error
     \ Search backward for matching T{
-    SOURCE find-start ?DUP UNLESS ." BUG no matching T{ found" CR EXIT THEN
+    SOURCE find-start ?DUP UNLESS
+        ." BUG no matching T{ found" CR
+        EXIT
+    THEN
     TELL CR
+;
+
+: restore-stack
+    DEPTH IF
+        ." [clearing stack]" CR
+        SP0 SP!
+    THEN
+
+    saved-depth @ 0 ?DO
+        saved-stack I CELLS + @
+    LOOP
 ;
 
 VARIABLE #pass 0 #pass !
@@ -49,7 +64,11 @@ VARIABLE #fail 0 #fail !
 
 \ T{ setup-part -> assert part }T
 : T{ ( -- )
-    \ TODO: save anything on the stack and restore it in }T
+    \ save anything currently on the stack so it can be restored later
+    DEPTH saved-depth !
+    DEPTH 0 ?DO
+        saved-stack I CELLS + !
+    LOOP
 ;
 
 : ->
@@ -94,6 +113,8 @@ VARIABLE #fail 0 #fail !
 
             CR
         THEN
+
+        restore-stack
         EXIT
     THEN
     \ Keep track of success state (so we can clear the stack)
@@ -130,10 +151,9 @@ VARIABLE #fail 0 #fail !
     R> IF
         ." ."
         passed!
-    ELSE
-        \ TODO: cleaner reset on error
-        SP0 SP!
     THEN
+
+    restore-stack
 ;
 
 0  CONSTANT 0S
@@ -142,8 +162,10 @@ VARIABLE #fail 0 #fail !
 CR ." ===[Test framework]===" CR
 T{ -> }T
 T{ 1 2 3 -> 1 2 3 }T
-T{ \ check case insensitivity
-  1 DuP dup DUP -> 1 1 1 1 }T
+
+123 T{ -> }T \ stack outside the tests shouldn't affect tests
+T{ saved-depth @ saved-stack @ -> 1 123 }T DROP \ Stack should be preserved after test
+T{ 1 DuP dup DUP -> 1 1 1 1 }T \ check case insensitivity
 
 CR ." ===[Binary Operations]===" CR
 T{ 0 1 > -> FALSE }T
@@ -338,12 +360,19 @@ T{ x x             -> 0 1 }T
 T{ y               -> 0 }T
 
 CR ." ===[DO..LOOP]===" CR
-T{ : loop1 DO I LOOP ;     -> }T
-T{ : loop2 DO I -1 +LOOP ; -> }T
+T{ : loop1 DO I LOOP ;      -> }T
+T{ : loop2 DO I -1 +LOOP ;  -> }T
+T{ : loop3 ?DO I LOOP ;     -> }T
+
 T{  4  1 loop1 ->  1 2 3 }T
 T{  2 -1 loop1 -> -1 0 1 }T
+
 T{  1 4 loop2 -> 4 3 2 1 }T
 T{ -1 2 loop2 -> 2 1 0 -1 }T
+
+T{  1  1 loop3 -> }T
+T{  4  1 loop3 -> 1 2 3 }T
+T{  2 -1 loop3 -> -1 0 1 }T
 
 CR ." ===[Number parsing]===" CR
 T{ s" 123" 10 parse-uint -> 123 TRUE }T
