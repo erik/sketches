@@ -224,7 +224,6 @@ DOCOL:
     .text
     .balign 8
     code_\label:
-        ; PRINT_DEBUG "(exec \name)\n"
         ; body filled in after macro call
 .endm
 
@@ -721,25 +720,25 @@ DEFINE_CODE "/", 1, 0, DIV, MUL
     PUSH_DS     x0
     NEXT
 
-; Push 1 if equal, 0 else
+; Push -1 if equal, 0 else
 ;
 ; (a b -- c)
 DEFINE_CODE "=", 1, 0, EQ, DIV
     POP_DS      x1
     POP_DS      x0
     cmp         x0, x1
-    cset        x0, eq
+    csetm       x0, eq
     PUSH_DS     x0
     NEXT
 
-; Push 1 if a < b, 0 else
+; Push -1 if a < b, 0 else
 ;
 ; (a b -- c)
 DEFINE_CODE "<", 1, 0, LT, EQ
     POP_DS      x1
     POP_DS      x0
     cmp         x0, x1
-    cset        x0, lt
+    csetm       x0, lt
     PUSH_DS     x0
     NEXT
 
@@ -759,8 +758,16 @@ DEFINE_CODE "XOR", 3, 0, XOR, AND
     PUSH_DS x2
     NEXT
 
+; (a b -- c)
+DEFINE_CODE "OR", 2, 0, OR, XOR
+    POP_DS  x1
+    POP_DS  x0
+    orr     x2, x0, x1
+    PUSH_DS x2
+    NEXT
+
 ; (a -- b)
-DEFINE_CODE "INVERT", 6, 0, INVERT, XOR
+DEFINE_CODE "INVERT", 6, 0, INVERT, OR
     POP_DS  x0
     orn     x0, xzr, x0
     PUSH_DS x0

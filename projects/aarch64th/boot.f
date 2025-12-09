@@ -138,8 +138,8 @@
 : CELL+ ( a -- a+CELL ) CELL + ;
 : CELL- ( a -- a-CELL ) CELL - ;
 : CELLS ( a -- a*CELL) CELL * ;
-: TRUE  ( -- a )     1 ;
-: FALSE ( -- a )     0 ;
+: TRUE  ( -- a )     -1 ;
+: FALSE ( -- a )      0 ;
 : NOT   ( a -- b )   FALSE = ;
 : !=    ( a b -- c ) = NOT ;
 : 1+    ( a -- a+1 ) 1 + ;
@@ -174,6 +174,7 @@
     !            \ move return addr to new top of stack  ( a *rp &rp-1 -- a )
 ;
 
+\ Simple stack effects, best described by their signature
 : NIP   ( a b -- b )          SWAP DROP ;
 : TUCK  ( a b -- b a b )      SWAP OVER ;
 : 2DUP  ( a b -- a b a b )    OVER OVER ;
@@ -181,21 +182,30 @@
 : 3DROP ( a b c -- )          2DROP DROP ;
 : ROT   ( a b c -- b c a )    >R SWAP R> SWAP ;
 : -ROT  ( a b c -- c a b )    SWAP >R SWAP R> ;
+
+\ Grab the n'th value from the stack and put it on top
 : PICK  ( x0 ... xn i -- x0 ... xi x0 )
-    CELLS SP@ CELL+ + @
-;
+    CELLS SP@ CELL+ + @ ;
+
 : 3DUP  ( a b c -- a b c a b c )
     2 PICK 2 PICK 2 PICK ;
-: >  ( a b -- c ) 2DUP = NOT IF < NOT ELSE 2DROP FALSE THEN ;
-: <= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE < THEN ;
-: >= ( a b -- c ) 2DUP = IF 2DROP TRUE ELSE > THEN ;
-: 0=    ( a -- b )   0 = ;
-: 0<    ( a -- b )   0 < ;
-: 0>    ( a -- b )   0 > ;
-: 0<=   ( a -- b )   0 <= ;
-: 0>=   ( a -- b )   0 >= ;
 
-: ?DUP  ( 0 -- 0 | x -- x x ) DUP DUP 0= IF DROP THEN ;
+\ DUP if top of stack is not zero
+: ?DUP  ( 0 -- 0 | x -- x x )
+    DUP DUP 0 = IF DROP THEN ;
+
+\
+\ Comparisons
+\
+
+: >     ( a b -- c )          SWAP < ;
+: <=    ( a b -- c )          > NOT ;
+: >=    ( a b -- c )          < NOT ;
+: 0=    ( a -- b )            0 = ;
+: 0<    ( a -- b )            0 < ;
+: 0>    ( a -- b )            0 > ;
+: 0<=   ( a -- b )            0 <= ;
+: 0>=   ( a -- b )            0 >= ;
 
 \ Now that we have better control flow constructs, let's reimplement block
 \ comments so they can be nested.
@@ -248,12 +258,6 @@
     CELL 1- +
     CELL 1- INVERT
     AND
-;
-
-: ?ALIGNED ( a -- a )
-    CELL 1-
-    AND
-    0=
 ;
 
 \ Update HERE to be cell aligned
@@ -807,7 +811,7 @@ VARIABLE word-len
 
             -1 OF
                 ." [ aborted ]" CR
-                EXIT
+                RECURSE
             ENDOF
 
             ( else )

@@ -2,10 +2,10 @@ VARIABLE actual-depth
 CREATE actual-stack 32 CELLS ALLOT
 CREATE saved-stack 32 CELLS ALLOT
 
-: Term.red  27 EMIT ." [0;31m" ;
-: Term.yellow 27 EMIT ." [0;33m" ;
-: Term.green 27 EMIT ." [0;32m" ;
-: Term.reset 27 EMIT ." [0m" ;
+: Term.red    '\e' EMIT ." [0;31m" ;
+: Term.yellow '\e' EMIT ." [0;33m" ;
+: Term.green  '\e' EMIT ." [0;32m" ;
+: Term.reset  '\e' EMIT ." [0m" ;
 
 \ Given a base addr and count, find the first instance of T{ before addr+u
 : find-start  ( addr u -- addr' u' )
@@ -146,29 +146,45 @@ T{ \ check case insensitivity
   1 DuP dup DUP -> 1 1 1 1 }T
 
 CR ." ===[Binary Operations]===" CR
-T{ 2 1 > -> TRUE }T
-T{ 0 1 < -> TRUE }T
-T{ 2 1 >= -> TRUE }T
-T{ 2 2 >= -> TRUE }T
-T{ 0 0 AND -> 0 }T
-T{ 0 1 AND -> 0 }T
-T{ 1 0 AND -> 0 }T
-T{ 1 1 AND -> 1 }T
+T{ 0 1 > -> FALSE }T
+T{ 1 0 > -> TRUE }T
+T{ 1 1 > -> FALSE }T
 
-T{ 0 INVERT 1 AND -> 1 }T
-T{ 1 INVERT 1 AND -> 0 }T
-T{ 0 INVERT -> -1 }T
-T{ -1 INVERT -> 0 }T
+T{ 0 1 < -> TRUE }T
+T{ 1 0 < -> FALSE }T
+T{ 1 1 < -> FALSE }T
+
+T{ 0 0 >= -> TRUE }T
+T{ 0 1 >= -> FALSE }T
+T{ 1 0 >= -> TRUE }T
+
+T{ 0 0 <= -> TRUE }T
+T{ 0 1 <= -> TRUE }T
+T{ 1 0 <= -> FALSE }T
+
+T{ 0S 0S AND -> 0S }T
+T{ 0S 1S AND -> 0S }T
+T{ 1S 0S AND -> 0S }T
+T{ 1S 1S AND -> 1S }T
+
+T{ 0S 0S OR -> 0S }T
+T{ 0S 1S OR -> 1S }T
+T{ 1S 0S OR -> 1S }T
+T{ 1S 1S OR -> 1S }T
 
 T{ 0S 0S XOR -> 0S }T
 T{ 0S 1S XOR -> 1S }T
 T{ 1S 0S XOR -> 1S }T
 T{ 1S 1S XOR -> 0S }T
 
+T{ 0 INVERT 1 AND -> 1 }T
+T{ 1 INVERT 1 AND -> 0 }T
+T{ 0 INVERT -> -1 }T
+T{ -1 INVERT -> 0 }T
+
 CR ." ===[Stack Manipulation]===" CR
 T{ 1 2 OVER    -> 1 2 1 }T
-T{ 5 4 3 2 1
-   4 PICK      -> 5 4 3 2 1 5 }T
+T{ 3 2 1 2 PICK -> 3 2 1 3 }T
 T{ 1 2 3 ROT   -> 2 3 1 }T
 T{ 1 2 3 -ROT  -> 3 1 2 }T
 T{ 1 2 3 ROT -ROT -> 1 2 3 }T
@@ -183,17 +199,17 @@ T{ 123 tt -> 123 }T
 T{ DEPTH DEPTH -> 0 1 }T
 
 CR ." ===[Miscellaneous Words]===" CR
-T{ 1 0 5 WITHIN -> 1 }T
-T{ 1 1 5 WITHIN -> 1 }T
-T{ 1 2 5 WITHIN -> 0 }T
-T{ 5 2 5 WITHIN -> 0 }T
-T{ 6 2 5 WITHIN -> 0 }T
-T{ ?interpreting ?compiling -> 1 0 }T
-T{ : tt ?interpreting [ ?compiling ] ; tt -> 0 1 }T
-T{ 0 ALIGNED 7 ALIGNED 8 ALIGNED 15 ALIGNED -> 0 8 8 16 }T
-T{ 1 ?ALIGNED -> FALSE }T
-T{ 0 ?ALIGNED -> TRUE }T
-T{ 8 ?ALIGNED -> TRUE }T
+T{ 1 0 5 WITHIN -> TRUE }T
+T{ 1 1 5 WITHIN -> TRUE }T
+T{ 1 2 5 WITHIN -> FALSE }T
+T{ 5 2 5 WITHIN -> FALSE }T
+T{ 6 2 5 WITHIN -> FALSE }T
+T{ ?interpreting ?compiling -> TRUE FALSE }T
+T{ : tt ?interpreting [ ?compiling ] ; tt -> FALSE TRUE }T
+T{ 0 ALIGNED          -> 0 }T
+T{ CELL 1- ALIGNED    -> CELL }T
+T{ CELL ALIGNED       -> CELL }T
+T{ 2 CELLS 1- ALIGNED -> 2 CELLS }T
 
 CR ." ===[Ticks and tacks]===" CR
 T{ : t1 123 ;
@@ -208,6 +224,7 @@ CR ." ===[Characters]===" CR
 T{ CHAR A -> 65 }T
 T{ CHAR a -> 97 }T
 T{ 'x' -> CHAR x }T
+T{ '\n' -> $0a }T
 T{ t1 t2 -> CHAR X CHAR A }T
 T{ t3 -> CHAR A }T
 
