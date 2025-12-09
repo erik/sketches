@@ -12,7 +12,7 @@ for Apple Silicon out there, and since this was an educational project for me,
 the code is heavily commented in both assembly and Forth. This is probably one
 of the gentler introductions to both.
 
-As much as is practicle is implemented inside Forth itself from a small set of
+As much as is practical is implemented inside Forth itself from a small set of
 words written in assembly, but we don't go anywhere near as far down the rabbit
 hole as something like [Planckforth](https://github.com/nineties/planckforth)
 (check it out, it's very cool!).
