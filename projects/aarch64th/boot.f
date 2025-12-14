@@ -13,16 +13,14 @@
 
 \ Now let's build a simple version of block comments. We'll replace this
 \ definition later with one that balances parens so we can nest them.
+\
+\ Implementation is the same as line comments, but using 41 (i.e. ')') as the
+\ delimiter.
 : ( IMMEDIATE
-    LIT [ CHAR ) , ]  \ Delimiter for the word lookup, a literal ')'
-    WORD              \ Read until next ')'
-    DROP DROP         \ WORD will place ( addr len ) on the stack, drop 'em
+    [ HERE @ ] KEY 41 = 0BRANCH [ HERE @ - , ]
 ;
 
-(
-    Now it'll be easier to build more of the language in an understandable way.
-    Onward!
-)
+( Now it'll be easier to build more of the language in an understandable way. Onward!)
 
 \ Pop a value off the stack and compile it into `LIT [val]`
 : LITERAL IMMEDIATE ( a -- )
@@ -33,6 +31,24 @@
 \ "'\n'" which pushes 0x0A to the stack)
 : '\n' 10 ; ( -- a )
 : BL   32 ; \ space
+
+\ Later on we want to swap out the implementations of the native words KEY and
+\ WORD. We can't (easily) modify the assembly implementations, so we add a
+\ layer of indirection here that's easier to swap.
+\
+\ NOTE: this isn't a recursive call, it compiles the reference to the OLD
+\ definition of the word.
+: KEY  ( -- a ) KEY ;
+: WORD ( -- addr len ) WORD ;
+
+\ Return first character of word after this call.
+\
+\ CHAR abc => a
+: CHAR ( -- a )
+    BL WORD
+    DROP     \ drop len (TODO: zero case?)
+    C@
+;
 
 \
 \ Conditional logic
@@ -179,6 +195,9 @@
     RP@ CELL+ @
 ;
 
+: RDROP ( R:a -- ) R> RP@ ! ;
+: RPICK ( R:xn x0 n -- xn ) CELLS RP@ + CELL + @ ;
+
 \ Simple stack effects, best described by their signature
 : NIP   ( a b -- b )          SWAP DROP ;
 : TUCK  ( a b -- b a b )      SWAP OVER ;
@@ -211,6 +230,9 @@
 : 0>  ( a -- b )    0 > ;
 : 0<= ( a -- b )    0 <= ;
 : 0>= ( a -- b )    0 >= ;
+
+: MAX ( a b -- c ) 2DUP > IF DROP ELSE NIP THEN ;
+: MIN ( a b -- c ) 2DUP < IF DROP ELSE NIP THEN ;
 
 \ Now that we have better control flow constructs, let's reimplement block
 \ comments so they can be nested.
@@ -260,17 +282,30 @@
 : DEPTH     SP0 SP@ - CELL- CELL / ;
 : RDEPTH    RP0 RP@ - CELL / ;
 
+\ Align `a` to size `b`
+\ 1 4 aligned-by -- 4
+\ ( a b-1 & ~(b-1) )
+: aligned-by ( a b -- a' )
+    1- DUP
+    INVERT
+    -ROT +
+    AND
+;
+
+\ Align HERE by `a`
+: align-by ( a -- )
+    HERE @ SWAP aligned-by
+    HERE !
+;
+
 \ Align input to cell size (e.g. 3 -> 8, 15 -> 16)
 : ALIGNED ( a -- a )
-    CELL 1- +
-    CELL 1- INVERT
-    AND
+    CELL aligned-by
 ;
 
 \ Update HERE to be cell aligned
 : ALIGN  ( -- )
-    HERE @ ALIGNED
-    HERE !
+    CELL align-by
 ;
 
 : ?interpreting ( -- a )
@@ -291,6 +326,7 @@
         WHILE
             C,
         REPEAT
+        0 C,           \ add a null byte for good measure
         DROP           \ drop final quote char
         DUP            \ ( len_addr len_addr )
         HERE @ SWAP -  \ push length of string
@@ -310,6 +346,7 @@
             1+
         REPEAT
         DROP           \ ignore final quote
+        0 OVER 1+ C!   \ add null byte for good measure
         HERE @ -       \ calculate length
         HERE @         \ push start addr (doesn't change because of immediate mode)
         SWAP           \ ( addr len )
@@ -397,11 +434,11 @@
     BEGIN
         DUP 0>
     WHILE
-        1- >R   \ decrement u, save
+        1- >R     \ decrement u, save
         OVER C@
-        OVER C! \ copy character
-        1+ >R   \ increment c-to, save
-        1+      \ increment c-from
+        OVER C!   \ copy character
+        1+ >R     \ increment c-to, save
+        1+        \ increment c-from
         R> R>
     REPEAT
     3DROP
@@ -528,6 +565,9 @@
 \ Write : 1 foo !
 : VARIABLE CREATE 0 , ;
 
+: ON  ( addr -- ) TRUE SWAP ! ;
+: OFF ( addr -- ) FALSE SWAP ! ;
+
 VARIABLE exc-handler
 
 \ TODO: document me
@@ -558,9 +598,6 @@ VARIABLE exc-handler
 ;
 
 : ABORT -1 THROW ;
-
-: RDROP R> RP@ ! ;
-: RPICK CELLS RP@ + CELL + @ ;
 
 : I 2 RPICK ; \ iteration of inner-most loop param
 : J 4 RPICK ; \ ... 2nd loop
@@ -845,6 +882,11 @@ VARIABLE word-len
                 RECURSE
             ENDOF
 
+            -2 OF
+                ." [ EOF ]" CR
+                EXIT
+            ENDOF
+
             ( else )
             DUP ." Exception # " .
         ENDCASE
@@ -853,3 +895,446 @@ VARIABLE word-len
 
 \ Enter second stage interpreter - we're self-hosted baby
 QUIT
+
+\ Counted string to null-terminated string.
+: >c-str ( addr u -- c-str ) DROP ;
+
+\ Push length of null terminated string to stack
+: c-str> ( addr -- addr len )
+    0
+    BEGIN
+        2DUP + C@
+    WHILE
+        1+
+    REPEAT
+;
+
+0 CONSTANT R/O
+1 CONSTANT W/O
+2 CONSTANT R/W
+
+1 CONSTANT sys-exit  \ void exit(int rval)
+2 CONSTANT sys-fork  \ int fork(void)
+3 CONSTANT sys-read  \ ssize_t read(int fd, void *buf, size_t count)
+4 CONSTANT sys-write \ ssize_t write(int fd, const void *buf, size_t count)
+5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
+6 CONSTANT sys-close \ int close(int fd)
+
+: die ( val -- )
+    sys-exit SYSCALL1
+;
+
+: OPEN-FILE ( addr u flags -- fd ok )
+    -ROT >c-str SWAP (open)
+    DUP 0< IF
+        DUP
+    ELSE
+        0
+    THEN
+;
+
+: CLOSE-FILE ( fd -- ok )
+    (close) 0< IF
+        DUP
+    ELSE
+        0
+    THEN
+;
+
+: READ-FILE ( addr len fd -- len ok )
+    (read)
+    DUP 0< IF
+        DUP
+    ELSE
+        0
+    THEN
+;
+
+: STRUCT{
+    0
+;
+
+: CELL% ( -- align size ) CELL CELL ;
+: CHAR% ( -- align size ) 1 1 ;
+: BYTE% 1 1 ;
+: PTR% CELL% ;
+: INT% CELL% ;
+: I32% 4 4 ;
+: U32% 4 4 ;
+: I16% 2 2 ;
+: U16% 2 2 ;
+
+: FIELD ( align size -- addr )
+    -ROT aligned-by     \ ( size offset )
+    CREATE
+        DUP ,           \ fill offset
+        +               \ new offset
+    DOES> @ +
+;
+
+: }STRUCT
+    CREATE
+        ,
+    DOES>
+        @
+        CELL SWAP
+;
+
+: %ALLOT ( align size -- addr )
+    HERE @
+    -ROT SWAP
+    align-by ALLOT
+;
+
+1024 CONSTANT BUFSIZE
+0    CONSTANT stdin
+0    CONSTANT EOF
+
+0 CONSTANT success
+
+STRUCT{
+    cell%           FIELD magic
+    cell%           FIELD stream>fd
+    char% 128 *     FIELD stream>name
+    char% BUFSIZE * FIELD stream>buf
+    cell%           FIELD stream>buf-pos
+    cell%           FIELD stream>buf-end
+    cell%           FIELD stream>lineno
+    ptr%            FIELD stream>next
+}STRUCT stream%
+
+VARIABLE streams
+    0 streams !
+
+: push-stream ( fd -- )
+    stream% %allot            \ ( fd addr )
+    $CAFEBABE OVER magic !
+    TUCK stream>fd !          \ ( addr )
+    0 OVER stream>buf-pos !
+    0 OVER stream>buf-end !
+    0 OVER stream>lineno !
+    streams @ OVER stream>next !
+    streams !
+;
+
+: pop-stream ( -- fd )
+    streams @ DUP
+    stream>next @ streams !
+    stream>fd
+;
+
+\ Get the length in bytes of the data currently in this stream's
+\ buffer.
+: stream-buffer-count ( s -- len )
+    DUP stream>buf-end @ SWAP stream>buf-pos @ -
+;
+
+: stream-inspect ( s -- s )
+    ." stream { " cr
+    ."    base: " DUP . cr
+    ."    magic " DUP @ . cr
+    ."    fd:   " DUP stream>fd DUP . @ .  cr
+    ."    name: " DUP stream>name c-str> TELL cr
+    ."    buf:  " DUP stream>buf DUP . @ . cr
+    ."    bpos  " DUP stream>buf-pos DUP . @ . cr
+    ."    bend  " DUP stream>buf-end DUP . @ . cr
+    ."    line  " DUP stream>lineno DUP . @ . cr
+    ."    next  " DUP stream>next DUP . @ . cr
+    ." }" cr
+;
+
+: stream-buffer-clear ( s -- )
+    0 OVER stream>buf-end !
+    0 SWAP stream>buf-pos !
+;
+
+: stream-buffer-refill ( s -- len e )
+    DUP >R
+
+    DUP stream-buffer-clear
+
+    stream>buf
+        OVER stream>fd @
+        BUFSIZE
+        SWAP
+        READ-FILE
+
+    OVER R> stream>buf-end !
+;
+
+: stream-buffer-read ( to-addr len s -- len )
+    DUP stream>buf-pos @ OVER stream>buf +
+        3 PICK             \ addr
+        3 PICK             \ len
+        memcpy
+
+    stream>buf-pos OVER SWAP +!
+    NIP
+;
+
+: PUSH-FILE ( addr u -- err )
+    2DUP
+
+    R/O OPEN-FILE THROW
+    push-stream
+
+    streams @ stream>name SWAP memcpy
+
+    success
+;
+
+
+VARIABLE source-buffer
+    BUFSIZE ALLOT
+
+VARIABLE source-buffer-pos
+    0 source-buffer-pos !
+
+VARIABLE source-buffer-end
+    0 source-buffer-end !
+
+\ TODO: clean up native definition.
+: (source) ( -- addr len ) SOURCE ;
+
+VARIABLE SOURCE-ID
+    -1 SOURCE-ID !
+
+: SOURCE ( -- addr u ) source-buffer source-buffer-end @ ;
+: >IN    ( -- addr )   source-buffer-pos ;
+
+: stream-read ( addr len s -- len err )
+    \ check if we have enough buffered data to avoid calling read()
+    DUP stream-buffer-count ( addr len s cnt )
+    2 PICK >= IF            ( addr len s )
+        stream-buffer-read
+        success EXIT
+    THEN
+
+    DUP stream-buffer-count 0> IF
+        \ we need to read more data, first copy whatever was in the
+        \ buffer
+        DUP stream>buf-pos @
+        OVER stream-buffer-count DUP >R
+        4 PICK SWAP memcpy             ( addr len s )
+        ROT R@ + -ROT                  ( addr' len s )
+        SWAP R@ - SWAP                 ( addr rem' s )
+    ELSE
+        0 >R
+    THEN
+
+    \ Refill the buffer, read next `BUFSIZE` bytes from stream
+    DUP stream-buffer-refill
+
+    ?DUP IF
+        ." err read:" DUP . CR
+        >R 2DROP
+        0 R>
+        EXIT
+    THEN
+
+    ?DUP UNLESS             \ check that we've read something
+        3DROP
+        R> SUCCESS
+        EXIT
+    THEN
+
+    SWAP >R MIN R>          \ avoid reading past end of buffer
+    stream-buffer-read      ( addr rem s -- len )
+    R> +                    \ add whatever we transfered from the old buffer
+    SUCCESS
+;
+
+VARIABLE key-buf
+
+\ read single character from stream, return EOF on end
+: stream-key ( s -- ch e )
+    \ push pointer to own address to stack, we'll write our character here.
+    key-buf
+    1
+    ROT
+    stream-read THROW
+
+    0= IF
+        EOF success
+        EXIT
+    THEN
+
+    key-buf C@
+    success
+;
+
+: eol? ( ch -- bool )
+    CASE
+        EOF  OF TRUE ENDOF
+        0    OF TRUE ENDOF
+        '\n' OF TRUE ENDOF
+        ( else)
+            FALSE SWAP
+    ENDCASE
+;
+
+\ Read next line of input from current file
+: REFILL ( -- ok )
+    streams @ 0= IF
+        \ TODO: this should return up to the INTERPRET loop cleanly
+        ." [EOF] exhausted all inputs" cr
+        -1 die
+        FALSE EXIT
+    THEN
+
+    0 source-buffer-pos !
+    0 source-buffer-end !
+
+    \ TODO: this can overflow the buffer
+    BEGIN
+        streams @ stream-key THROW
+
+        DUP EOF = IF
+            DROP
+            pop-stream CLOSE-FILE THROW
+            RECURSE EXIT
+        THEN
+
+        DUP
+        source-buffer source-buffer-end @ + c!
+        1 source-buffer-end +!
+    EOL? UNTIL
+
+    TRUE
+;
+
+\ Reimplement KEY to pull from current buffer
+: new-key ( -- a )
+    source-buffer-pos @ source-buffer-end @ >= IF
+        REFILL UNLESS
+            EOF EXIT
+        THEN
+    THEN
+
+    source-buffer
+        source-buffer-pos @ +
+
+    1 source-buffer-pos +!
+    C@
+;
+
+: whitespace? ( ch -- bool )
+    CASE
+        '\n' OF TRUE ENDOF
+        BL   OF TRUE ENDOF
+        '\t' OF TRUE ENDOF
+        '\r' OF TRUE ENDOF
+        ( else )
+            FALSE SWAP
+    ENDCASE
+;
+
+: skip-whitespace ( d -- k )
+    BEGIN
+        KEY                ( delim key )
+        DUP whitespace?    ( delim key key -- delim key is-sp )
+    WHILE
+        DROP               ( delim )
+    REPEAT
+;
+
+\ Advance past the delimiter given. If delimiter is BL, will skip ALL
+\ whitespace chars.
+: skip-delim ( d -- k )
+    DUP BL = IF
+        DROP
+        skip-whitespace
+    ELSE
+        BEGIN
+            KEY  ( delim k )
+            OVER ( delim k delim )
+            OVER ( delim k delim k )
+        = WHILE
+            DROP ( delim )
+        REPEAT
+        NIP      ( k )
+    THEN
+;
+
+VARIABLE word-buffer
+    64 ALLOT
+
+: new-word ( delim -- c-addr u )
+    DUP skip-delim
+    DUP EOF = IF
+        DROP word-buffer 0
+        EXIT
+    THEN
+
+    word-buffer TUCK C!
+    1+                     ( delim buf )
+    BEGIN
+        SWAP KEY           ( buf delim k )
+        OVER BL = IF
+            DUP whitespace?
+        ELSE
+            2DUP =
+        THEN               ( buf delim k is-delim? )
+
+        IF                 \ We've found the delimiter, end the word
+            2DROP
+            0 SWAP C!
+            word-buffer c-str>
+            EXIT
+        THEN
+                          \ Haven't hit the delim yet, write the char and
+                          \ continue
+        ROT               ( delim k buf )
+        2DUP c!           ( delim k buf k buf -- delim k buf )
+        1+
+        NIP
+    AGAIN
+;
+
+\ Re-define line comments to use the updated key implementation
+: \ IMMEDIATE BEGIN KEY EOL? UNTIL ;
+
+\ Similarly, redefine creation word `:` in Forth so we don't reference the
+\ native `WORD` definition.
+: :
+    ALIGN
+    LATEST @ ,
+    HERE @ CELL- LATEST !
+    hidden-bit C,
+    BL WORD
+    DUP C,
+    memcpy,
+    ALIGN
+    DOCOL ,
+    ]
+;
+
+:NONAME
+    stdin push-stream
+
+    \ Transfer remaining content of boot.f into Forth-hosted buffer.
+    \
+    \ This will contain everything AFTER the :NONAME block.
+    (source) DUP BUFSIZE > IF
+        ." [BUG] too many characters remain in boot.f: " . CR
+        ABORT
+    THEN
+
+    streams @
+        2DUP stream>buf-end !          \ Update buffer length of Forth impl
+        stream>buf SWAP memcpy         \ Copy bytes from native buffer
+
+    s" (stdin)"
+        streams @ stream>name SWAP
+        memcpy
+
+    \ Transfer control of reading to our self-hosted implementations
+    ' new-key
+        ' KEY CELL+ !
+
+    ' new-word
+        ' WORD CELL+ !
+
+    \ From this point on the interpreter is fully self-hosted. The assembly
+    \ implementations are no longer running
+; EXECUTE

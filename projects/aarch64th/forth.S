@@ -37,11 +37,8 @@
     POP4  x0, x1, x2, x3              ; Discard args we pushed to the stack
 .endm
 
-.set DEBUG_PRINT_ENABLED, 1
 .macro PRINT_DEBUG fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
-    .if DEBUG_PRINT_ENABLED == 1
-        PRINT_FMT "\fmt", \arg1, \arg2, \arg3, \arg4
-    .endif
+    PRINT_FMT "\fmt", \arg1, \arg2, \arg3, \arg4
 .endm
 
 .macro PRINT_FMT fmt, arg1=x0, arg2=x1, arg3=x2, arg4=x3
@@ -547,10 +544,10 @@ DEFINE_CODE "HIDDEN", 6, 0, HIDDEN, IMMEDIATE
 ; ( -- c-addr u )
 DEFINE_CODE "SOURCE", 6, 0, SOURCE, HIDDEN
     LDR_LABEL x0, buffer_pos
-    ADR_LABEL x1, input_buffer
-    sub       x0, x0, x1
-    PUSH_DS   x1
+    LDR_LABEL x1, buffer_top
+    sub       x2, x1, x0
     PUSH_DS   x0
+    PUSH_DS   x2
     NEXT
 
 ; Push the word immediately after this instruction (a literal value) to the
@@ -594,21 +591,11 @@ DEFINE_CODE "FIND", 4, 0, FIND, KEY
     NEXT
 
 
-; Push a literal character (given as immediate value) onto the stack
-;
-; ( -- a)
-DEFINE_CODE "CHAR", 4, 0, CHAR, FIND
-    mov     x0, ' '      ; delimiter
-    bl      _read_word   ; get the next word (x0: addr, x1: len)
-    ldrb    w0, [x0]     ; read first character of the word
-    PUSH_DS x0           ; push to stack
-    NEXT
-
 ; Used to implement string words in forth (." and S"). Takes an immediate value
 ; for string length.
 ;
 ; ( -- addr len )
-DEFINE_CODE "LITSTRING", 9, 0, LITSTRING, CHAR
+DEFINE_CODE "LITSTRING", 9, 0, LITSTRING, FIND
     ldr     x0, [IP], #8 ; read length of string as immediate value
     PUSH_DS IP           ; push the addr of the string
     PUSH_DS x0           ; push the length
@@ -674,7 +661,7 @@ DEFINE_CODE ".", 1, 0, DOT, OVER
 .data
 .balign 4
 _dot_buffer: .zero 64
-_dot_sprintf_fmt: .asciz "%d (0x%x)"
+_dot_sprintf_fmt: .asciz "[%p]"
 .text
 
 ; Print a single byte to output
@@ -782,14 +769,14 @@ DEFINE_CODE ".S", 2, 0, PRINT_STACK, INVERT
     sub       x2, x1, x0
     lsr       x2, x2, 3
 
-    PRINT_FMT "S[%p, %d]: ", x0, x2
+    PRINT_FMT "S[%p, %d]:\n", x0, x2
 1:
     cmp       x0, x1       ; have we reached top of stack?
     beq       2f           ; we're done
     ldr       x2, [x0]     ; load stack item
     mov       x3, x2
 
-    PRINT_FMT "(%p, %d)\t", x2, x3
+    PRINT_FMT "  %p (%d)\n", x2, x3
 
     add       x0, x0, #8   ; next word
     b         1b
@@ -823,9 +810,78 @@ DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
     bl print_dictionary
     NEXT
 
+;; I/O utils
+
+; ( filename mode -- fd )
+DEFINE_CODE "(open)", 6, 0, OPEN_FD, PRINT_DICT
+    POP_DS  x1    ; file mode
+    POP_DS  x0    ; file path
+    SYSCALL open
+    PUSH_DS x0    ; file descriptor (or err)
+    NEXT
+
+; ( fd -- ok? )
+DEFINE_CODE "(close)", 7, 0, CLOSE_FD, OPEN_FD
+    POP_DS  x0    ; file descriptor
+    SYSCALL close
+    PUSH_DS x0
+    NEXT
+
+; ( addr len fd -- len )
+DEFINE_CODE "(read)", 6, 0, READ_FD, CLOSE_FD
+    POP_DS  x0    ; file descriptor
+    POP_DS  x2    ; len
+    POP_DS  x1    ; buf addr
+    SYSCALL read
+    PUSH_DS x0    ; bytes read
+    NEXT
+
+; ( addr len fd -- len )
+DEFINE_CODE "(write)", 7, 0, WRITE_FD, READ_FD
+    POP_DS  x0    ; file descriptor
+    POP_DS  x2    ; len
+    POP_DS  x1    ; buf addr
+    SYSCALL write
+    PUSH_DS x0    ; bytes written
+    NEXT
+
+; ( sys -- res )
+DEFINE_CODE "SYSCALL0", 8, 0, SYSCALL0, WRITE_FD
+    POP_DS  x16
+    svc     0x80
+    PUSH_DS x0
+    NEXT
+
+; ( a sys -- res )
+DEFINE_CODE "SYSCALL1", 8, 0, SYSCALL1, SYSCALL0
+    POP_DS  x16
+    POP_DS  x0
+    svc     0x80
+    PUSH_DS x0
+    NEXT
+
+; ( b a sys -- res )
+DEFINE_CODE "SYSCALL2", 8, 0, SYSCALL2, SYSCALL1
+    POP_DS  x16
+    POP_DS  x0
+    POP_DS  x1
+    svc     0x80
+    PUSH_DS x0
+    NEXT
+
+; ( c b a sys -- res )
+DEFINE_CODE "SYSCALL3", 8, 0, SYSCALL3, SYSCALL2
+    POP_DS  x16
+    POP_DS  x0
+    POP_DS  x1
+    POP_DS  x2
+    svc     0x80
+    PUSH_DS x0
+    NEXT
+
 ;; Words implemented in terms of other Forth words.
 
-DEFINE_WORD ":", 1, 0, COLON, PRINT_DICT
+DEFINE_WORD ":", 1, 0, COLON, SYSCALL3
     .dword CREATE                      ; Create a dictionary header for the word
     .dword LIT, DOCOL, COMMA           ; Append "DOCOL" prefix to the header
     .dword LATEST, FETCH, HIDDEN       ; Hide the current word while we define it

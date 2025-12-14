@@ -8,39 +8,6 @@ CREATE saved-stack 32 CELLS ALLOT
 : Term.green  '\e' EMIT ." [0;32m" ;
 : Term.reset  '\e' EMIT ." [0m" ;
 
-\ Given a base addr and count, find the first instance of T{ before addr+u
-: find-start  ( addr u -- addr' u' )
-    OVER +                   ( addr addr-end )
-    TUCK                     ( addr-end addr-start addr-ptr )
-    BEGIN
-        1-                   ( addr-end addr-start addr-ptr )
-        2DUP <               \ while addr-ptr >= addr-start
-    WHILE
-        DUP C@               \ See if we're pointing at a "T{"
-            [CHAR] { =
-        OVER 1- C@
-            [CHAR] T =
-        AND IF               \ We are! Top of stack points to "{"
-            NIP              \ Get rid of base addr
-            1-               \ Move back to the "T"
-            SWAP OVER 1+ -   \ See how far we've moved from start of string, trim NL
-            EXIT
-        THEN
-    REPEAT
-    DROP
-    0
-;
-
-\ Display error message followed by line that produced the error
-: locate-error
-    \ Search backward for matching T{
-    SOURCE find-start ?DUP UNLESS
-        ." BUG no matching T{ found" CR
-        EXIT
-    THEN
-    TELL CR
-;
-
 : restore-stack
     DEPTH IF
         ." [clearing stack]" CR
@@ -59,7 +26,7 @@ VARIABLE #fail 0 #fail !
 : failed!
     1 #fail +!
     CR Term.red ." fail "
-    Term.yellow locate-error Term.reset
+    Term.yellow SOURCE TELL Term.reset
 ;
 
 \ T{ setup-part -> assert part }T
@@ -255,6 +222,7 @@ T{ t3 -> CHAR A }T
 CR ." ===[WORD]===" CR
 : tt WORD SWAP C@ ;
 T{ BL tt HELLO -> 5 CHAR H }T
+T{ ')' tt HELLO) -> 5 CHAR H }T
 T{ CHAR " tt GOODBYE" -> 7 CHAR G }T
 
 CR ." ===[Interpretation / compilation semantics]===" CR
@@ -342,6 +310,14 @@ T{ :NONAME 9876 ; nn2 ! -> }T
 T{ nn1 @ EXECUTE -> 1234 }T
 T{ nn2 @ EXECUTE -> 9876 }T
 
+CR ." ===[SOURCE + >IN]===" CR
+T{ 123456 DEPTH OVER 9 < 35 AND + 3 + >IN !
+-> 123456 23456 3456 456 56 6 }T
+
+: tt SOURCE >IN ! DROP ;
+T{ tt 123 456
+    -> }T
+
 CR ." ===[CREATE + DOES>]===" CR
 : add-1 DOES> @ 1 + ;
 : add-2 DOES> @ 2 + ;
@@ -402,7 +378,6 @@ T{ s" 456" 10 parse-uint -> 456 TRUE }T
 T{ s" 789" 10 parse-uint -> 789 TRUE }T
 T{ s" ABC" 16 parse-uint -> 2748 TRUE }T
 T{ s" def" 16 parse-uint -> 3567 TRUE }T
-
 T{ s" 90"  10 parse-uint -> 90 TRUE }T
 T{ s" 10"  16 parse-uint -> 16 TRUE  }T
 T{ s" ff"  16 parse-uint -> 255 TRUE }T
@@ -429,6 +404,7 @@ T{ s" '" >NUMBER    NIP -> FALSE }T
 T{ s" '\" >NUMBER   NIP -> FALSE }T
 T{ s" '\x'" >NUMBER NIP -> FALSE }T
 T{ s" '\n" >NUMBER  NIP -> FALSE }T
+
 
 :NONAME
     #fail @ IF
