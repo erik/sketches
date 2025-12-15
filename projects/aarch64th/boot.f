@@ -925,8 +925,8 @@ QUIT
 : die ( val -- ) sys-exit SYSCALL1 ;
 : BYE ( -- ) success die ;
 
-: OPEN-FILE ( addr u flags -- fd ok )
-    \ open(path, mode)
+\ TODO: this doesn't handle non-existent files correctly
+: OPEN-FILE ( addr u mode -- fd ok )
     >R >c-str R> SWAP
     sys-open SYSCALL2
     DUP 0< IF DUP ELSE success THEN
@@ -1408,4 +1408,39 @@ VARIABLE word-buffer
 
     \ From this point on the interpreter is fully self-hosted. The assembly
     \ implementations are no longer running
+; EXECUTE
+
+VARIABLE argc
+    (argc) @ argc !
+
+VARIABLE argv
+    (argv) @ argv !
+
+: SHIFT-ARGS ( -- )
+    argc @ ?DUP UNLESS EXIT THEN
+    1- argc !
+    argv @ CELL+ argv !
+;
+
+: NEXT-ARG ( -- addr u )
+    argc @ UNLESS 0 0 EXIT THEN
+    argv @ @ c-str>
+    SHIFT-ARGS
+;
+
+: ARG ( i -- addr u )
+    DUP argc @ < UNLESS DROP 0 0 EXIT THEN
+    CELLS argv @ + @ c-str>
+;
+
+:NONAME
+    SHIFT-ARGS        \ skip past executable name
+
+    BEGIN
+        NEXT-ARG
+    DUP WHILE
+        2DUP ." importing: " tell cr
+        INCLUDED
+    REPEAT
+    2DROP
 ; EXECUTE

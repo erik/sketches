@@ -275,10 +275,13 @@ DEFINE_CONST_REF "DOCOL", 5, 0, PUSH_DOCOL, CELL_SZ, DOCOL   ; Push addr of DOCO
 DEFINE_CONST_REF "SP0", 3, 0, SZ, PUSH_DOCOL, DATA_STACK_TOP ; Pointer to top of param stack
 DEFINE_CONST_REF "RP0", 3, 0, RZ, SZ, RETURN_STACK_TOP       ; Pointer to top of return stack
 
+DEFINE_CONST_REF "(argc)", 6, 0, ARGC, RZ,   _ARGC
+DEFINE_CONST_REF "(argv)", 6, 0, ARGV, ARGC, _ARGV
+
 ;; Built-in words
 
 ; ( -- a)
-DEFINE_CODE "RP@", 3, 0, RSPFETCH, RZ
+DEFINE_CODE "RP@", 3, 0, RSPFETCH, ARGV
     PUSH_DS RSP
     NEXT
 
@@ -939,6 +942,13 @@ _entry_point:
 .text
 .balign 8
 _main:
+    ; Save int argc (x0) and char** argv (x1) so they can be exposed to
+    ; Forth.
+    ADR_LABEL x2, _ARGC
+    str       x0, [x2]
+    ADR_LABEL x3, _ARGV
+    str       x1, [x3]
+
     ; Initialize stack pointers
     ADR_LABEL RSP, RETURN_STACK_TOP
     ADR_LABEL DSP, DATA_STACK_TOP
@@ -1160,6 +1170,9 @@ _lookup_word:
 
 .bss
 .balign 8
+_ARGC: .dword 0
+_ARGV: .dword 0
+
 DATA_STACK:       .zero (8 * 2048)
 DATA_STACK_TOP:
 
