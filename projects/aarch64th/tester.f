@@ -405,6 +405,29 @@ T{ s" '\" >NUMBER   NIP -> FALSE }T
 T{ s" '\x'" >NUMBER NIP -> FALSE }T
 T{ s" '\n" >NUMBER  NIP -> FALSE }T
 
+cr ." ===[streq?]===" cr
+: s1 s" abc" ;
+: s2 s" abd" ;
+: s3 s" abcde" ;
+: s4 s" xyz" ;
+
+T{ s1 s1 streq? -> TRUE }T
+T{ s1 s2 streq? -> FALSE }T
+T{ s1 s3 streq? -> FALSE }T
+T{ s1 s4 streq? -> FALSE }T
+
+CR ." ===[INCLUDE/REQUIRE]===" CR
+
+T{ 1 INCLUDE ./test/data/_incr.f
+   -> 2 }T
+
+T{ 1 INCLUDE ./test/data/_incr.f
+     INCLUDE ./test/data/_incr.f
+   -> 3 }T
+
+T{ 1 REQUIRE ./test/data/_incr.f
+     REQUIRE ./test/data/_incr.f
+   -> 2 }T
 
 :NONAME
     #fail @ IF

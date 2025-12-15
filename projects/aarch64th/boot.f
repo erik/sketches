@@ -1072,16 +1072,101 @@ VARIABLE streams
     NIP
 ;
 
-: PUSH-FILE ( addr u -- err )
-    2DUP
 
-    R/O OPEN-FILE THROW
+\ Read from already open file descriptor
+: INCLUDE-FILE ( fd -- )
     push-stream
 
-    streams @ stream>name SWAP memcpy
-
-    success
+    \ We can't know the name from the file descriptor, caller can overwrite
+    \ later
+    s" (INCLUDE-FILE fd)" streams @ stream>name SWAP memcpy
 ;
+
+
+\ Read from a named file
+: INCLUDED ( addr u -- )
+    2DUP R/O OPEN-FILE THROW
+        push-stream
+
+    streams @ stream>name SWAP memcpy
+;
+
+\ Convenience wrapper for INCLUDED, read from a named word
+: INCLUDE ( -- ) BL WORD INCLUDED ;
+
+STRUCT{
+    ptr%        FIELD required>next
+    char% 128 * FIELD required>name
+}STRUCT required%
+
+VARIABLE required-files
+    0 required-files !
+
+: streq? ( addr1 u addr2 u -- b )
+    \ Check string len first
+    ROT ( a1 a2 u u )
+    DUP = UNLESS
+        3DROP
+        FALSE EXIT
+    THEN
+
+    0 DO
+        ( a1 a2 )
+        DUP C@        ( a1 a2 c2 )
+        ROT DUP C@   ( a2 c2 a1 c1 )
+        ROT = UNLESS
+            2DROP
+            UNLOOP
+            FALSE EXIT
+        THEN
+        1+ SWAP 1+
+    LOOP
+
+    2DROP
+    TRUE
+;
+
+: required? ( addr u -- b )
+    required-files @
+    BEGIN
+        ?DUP UNLESS
+            2DROP
+            FALSE EXIT
+        THEN
+
+        ( addr u ptr )
+        DUP required>name c-str> ( addr u ptr name len )
+        4 PICK 4 PICK            ( addr u ptr name len addr u )
+        streq? IF
+            DROP 2DROP
+            TRUE EXIT
+        THEN
+
+        required>next @
+    AGAIN
+;
+
+\ Read from a named file, but dedupe so it's only done once.
+: REQUIRED ( addr u -- )
+    2DUP required? IF
+        2DROP
+    ELSE
+        2DUP
+
+        required% %allot
+
+        DUP required-files @ SWAP required>next !
+        DUP required-files !
+
+        ( addr len ptr )
+        required>name SWAP memcpy
+
+        INCLUDED
+    THEN
+;
+
+\ Just like `INCLUDE`, but checking if the import has already been done.
+: REQUIRE ( -- ) BL WORD REQUIRED ;
 
 
 VARIABLE source-buffer
@@ -1310,8 +1395,6 @@ VARIABLE word-buffer
 ;
 
 :NONAME
-    stdin push-stream
-
     \ Transfer remaining content of boot.f into Forth-hosted buffer.
     \
     \ This will contain everything AFTER the :NONAME block.
@@ -1320,6 +1403,7 @@ VARIABLE word-buffer
         ABORT
     THEN
 
+    stdin INCLUDE-FILE
     streams @
         2DUP stream>buf-end !          \ Update buffer length of Forth impl
         stream>buf SWAP memcpy         \ Copy bytes from native buffer
