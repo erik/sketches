@@ -920,40 +920,29 @@ QUIT
 5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
 6 CONSTANT sys-close \ int close(int fd)
 
-: die ( val -- )
-    sys-exit SYSCALL1
-;
+0 CONSTANT success
+
+: die ( val -- ) sys-exit SYSCALL1 ;
+: BYE ( -- ) success die ;
 
 : OPEN-FILE ( addr u flags -- fd ok )
-    -ROT >c-str SWAP (open)
-    DUP 0< IF
-        DUP
-    ELSE
-        0
-    THEN
+    \ open(path, mode)
+    >R >c-str R> SWAP
+    sys-open SYSCALL2
+    DUP 0< IF DUP ELSE success THEN
 ;
 
 : CLOSE-FILE ( fd -- ok )
-    (close) 0< IF
-        DUP
-    ELSE
-        0
-    THEN
+    sys-close SYSCALL1 0< IF DUP ELSE success THEN
 ;
 
 : READ-FILE ( addr len fd -- len ok )
-    (read)
-    DUP 0< IF
-        DUP
-    ELSE
-        0
-    THEN
+    >R SWAP R>          \ read(fd, &addr, len)
+    sys-read SYSCALL3
+    DUP 0< IF DUP ELSE success THEN
 ;
 
-: STRUCT{
-    0
-;
-
+: STRUCT{ 0 ;
 : CELL% ( -- align size ) CELL CELL ;
 : CHAR% ( -- align size ) 1 1 ;
 : BYTE% 1 1 ;
@@ -989,8 +978,6 @@ QUIT
 1024 CONSTANT BUFSIZE
 0    CONSTANT stdin
 0    CONSTANT EOF
-
-0 CONSTANT success
 
 STRUCT{
     cell%           FIELD magic

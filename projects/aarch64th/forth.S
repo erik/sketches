@@ -82,7 +82,8 @@
 .set SYS_NR_open,  5    ; int open(const char *path, int flags, mode_t mode)
 .set SYS_NR_close, 6    ; int close(int fd)
 
-; Make a syscall. Params will be in x0, x1, etc.
+; Make a syscall. Params will be in x0, x1, etc., and return value will be in
+; x0
 .macro SYSCALL op
     mov x16, SYS_NR_\op
     svc 0x80
@@ -543,8 +544,8 @@ DEFINE_CODE "HIDDEN", 6, 0, HIDDEN, IMMEDIATE
 ;
 ; ( -- c-addr u )
 DEFINE_CODE "SOURCE", 6, 0, SOURCE, HIDDEN
-    LDR_LABEL x0, buffer_pos
-    LDR_LABEL x1, buffer_top
+    LDR_LABEL x0, _boot_buffer_pos
+    ADR_LABEL x1, _boot_buffer_end
     sub       x2, x1, x0
     PUSH_DS   x0
     PUSH_DS   x2
@@ -812,41 +813,8 @@ DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
 
 ;; I/O utils
 
-; ( filename mode -- fd )
-DEFINE_CODE "(open)", 6, 0, OPEN_FD, PRINT_DICT
-    POP_DS  x1    ; file mode
-    POP_DS  x0    ; file path
-    SYSCALL open
-    PUSH_DS x0    ; file descriptor (or err)
-    NEXT
-
-; ( fd -- ok? )
-DEFINE_CODE "(close)", 7, 0, CLOSE_FD, OPEN_FD
-    POP_DS  x0    ; file descriptor
-    SYSCALL close
-    PUSH_DS x0
-    NEXT
-
-; ( addr len fd -- len )
-DEFINE_CODE "(read)", 6, 0, READ_FD, CLOSE_FD
-    POP_DS  x0    ; file descriptor
-    POP_DS  x2    ; len
-    POP_DS  x1    ; buf addr
-    SYSCALL read
-    PUSH_DS x0    ; bytes read
-    NEXT
-
-; ( addr len fd -- len )
-DEFINE_CODE "(write)", 7, 0, WRITE_FD, READ_FD
-    POP_DS  x0    ; file descriptor
-    POP_DS  x2    ; len
-    POP_DS  x1    ; buf addr
-    SYSCALL write
-    PUSH_DS x0    ; bytes written
-    NEXT
-
 ; ( sys -- res )
-DEFINE_CODE "SYSCALL0", 8, 0, SYSCALL0, WRITE_FD
+DEFINE_CODE "SYSCALL0", 8, 0, SYSCALL0, PRINT_DICT
     POP_DS  x16
     svc     0x80
     PUSH_DS x0
@@ -965,11 +933,8 @@ print_dictionary:
 ; to be a memory address due to the double indirection of our interpreter).
 .data
 .balign 8
-forth_entry_point:
+_entry_point:
     .dword QUIT
-    ; the QUIT loop is never expected to terminate, so add some obvious marker
-    ; data if we overrun it somehow
-    .dword 0xfafafafafafafafa
 
 .text
 .balign 8
@@ -990,20 +955,13 @@ _main:
     ADR_LABEL x1, name_LATEST         ; x1 = &LATEST
     str       x1, [x0]                ; *var_LATEST = &LATEST
 
-    ; bl print_prompt
-
     ; Initialize interpreter to point at QUIT
-    ADR_LABEL IP, forth_entry_point
+    ADR_LABEL IP, _entry_point
     NEXT
 
     ; We should never actually get here, the interpreter loop keeps going.
     mov     x0,  0   ; return value
     SYSCALL exit
-
-print_prompt:
-    ; TODO: refactor this
-    PRINT_FMT "forth> "
-    ret
 
 .macro B.DELIM reg, delim, label
     cmp \reg, \delim
@@ -1063,58 +1021,25 @@ _read_word:
 _read_key:
     PUSH_FRAME
 1:
-    LDR_LABEL x0, buffer_top  ; last valid position in input buffer
-    ADR_LABEL x2, buffer_pos  ; addr of current position in input buffer
-    ldr       x1, [x2]        ; current position in input buffer
+    ADR_LABEL x0, _boot_buffer_end  ; last valid position in input buffer
+    ADR_LABEL x2, _boot_buffer_pos  ; addr of current position in input buffer
+    ldr       x1, [x2]              ; current position in input buffer
 
-    cmp x1, x0                ; if cur_pos >= top
-    bge 2f                    ; we've exhausted input buffer, need to read
+    cmp x1, x0                      ; if cur_pos >= top
+    bge 2f                          ; we've exhausted input buffer, need to read
 
-    ldrb w0, [x1], #1         ; read next byte from input buffer
-    str  x1, [x2]             ; persist updated buffer position
+    ldrb w0, [x1], #1               ; read next byte from input buffer
+    str  x1, [x2]                   ; persist updated buffer position
 
     POP_FRAME
     ret
 
-2: ; out of input, need to consume more from stdin
-    mov       x0, FD_STDIN      ; param 1, stdin
-    ADR_LABEL x1, input_buffer  ; param 2, destination
-    mov       x2, BUFFER_SIZE   ; param 3, max read size
-
-    SYSCALL read
-
-    cmp xzr, x0 ; check if we got an EOF or error return
-    bge 3f
-
-    ADR_LABEL x1, input_buffer ; load pointer to start of buffer
-    ADR_LABEL x2, buffer_top   ; addr of last valid position in input buffer
-    ADR_LABEL x3, buffer_pos   ; addr of current position in input buffer
-    add       x4, x1, x0       ; new top: input_buffer + bytes read
-
-    str       x1, [x3]         ; reset position to start of buffer
-    str       x4, [x2]         ; store new top
-
-    b 1b
-
-3: ; EOF (or error)
-    PRINT_DEBUG "eof, exit\n"
+2: ; EOF (or error) -- should never get here, Forth should take over EOF handling before boot file is finished.
+    PRINT_DEBUG "[BUG] native EOF"
     mov     x0, #-1  ; exit code
     SYSCALL exit
 
-; How to parse a number in base 10?
-;
-; sign = 1
-; ctr = 0
-; if char[0] == '-':
-;   sign = -1
-;   ctr = 1
-; acc = 0
-; for (ctr in range(len))
-;   tmp = char[ctr]
-;   if tmp < '0' || tmp > '9':
-;       throw
-;   acc = acc * 10 + tmp
-;  return acc * sign
+; Try to parse string as a number in current base
 ;
 ; inputs:
 ;   x0: addr of input string
@@ -1233,40 +1158,27 @@ _lookup_word:
     POP_FRAME
     ret
 
-.data
-.balign 8
-fmt_prompt: .asciz "forth> "
-
 .bss
 .balign 8
 DATA_STACK:       .zero (8 * 2048)
-DATA_STACK_TOP:   .dword
+DATA_STACK_TOP:
 
 RETURN_STACK:     .zero (8 * 2048)
-RETURN_STACK_TOP: .dword
+RETURN_STACK_TOP:
 
-; TODO: allocate from system
 .balign 8
-USER_DATA_SEGMENT: .space 0x10000, 0xfafafafafafafafa
+; TODO: allocate from system
+USER_DATA_SEGMENT: .zero 0x10000
 
 ; Space to to store parsed words
 _word_buffer:      .zero 32
 
 .data
 .balign 8
-.set BUFFER_SIZE, 4096
 
-buffer_pos: .dword input_buffer    ; Current position in buffer (initialized to start)
-buffer_top: .dword _boot_file_end  ; End of data in buffer (initialized to end of the boot file)
-
-; This buffer is initially loaded with a boot-up script containing Forth code,
-; but after that's been consumed will be refilled with data read from stdin.
-input_buffer:
-    .incbin "./boot.f"                      ; Embed boot file as first thing to execute
-_boot_file_end:
-
-    ; Pad remaining space with zeros
-    .set BOOT_SIZE, (_boot_file_end - input_buffer)
-    .if BOOT_SIZE < BUFFER_SIZE
-        .zero BUFFER_SIZE - (. - input_buffer)
-    .endif
+; This buffer is initially loaded with a boot-up script containing Forth code.
+; By the end of the boot file we've moved to a self-hosted interpreter which has
+; its own input buffer which will continue reading from files or stdin.
+_boot_buffer_pos:    .dword _boot_buffer    ; Current position in buffer
+_boot_buffer:        .incbin "./boot.f"
+_boot_buffer_end:
