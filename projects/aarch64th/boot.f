@@ -732,10 +732,19 @@ VARIABLE DO-IDX
 
 : SPACES ( n -- ) BEGIN DUP 0> WHILE SPACE 1- REPEAT DROP ;
 : UWIDTH ( val -- w ) BASE @ / ?DUP IF RECURSE 1+ ELSE 1 THEN ;
+
+\ Print `val` right aligned to at least `pad` characters wide
 : U.R  ( val pad -- )
     OVER UWIDTH - SPACES
     BASE @ SWAP print-uint
 ;
+
+\ Print right aligned number, padded with zero instead of spaces
+: U.R0  ( val pad -- )
+    OVER UWIDTH - ?DUP IF 0 DO [CHAR] 0 EMIT LOOP THEN
+    BASE @ SWAP print-uint
+;
+
 : .R  ( val pad -- )
     OVER 0>= IF
         U.R
