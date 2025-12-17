@@ -748,7 +748,6 @@ VARIABLE DO-IDX
     THEN
 ;
 
-
 : ?digit     ( ch -- bool ) [CHAR] 0 [CHAR] 9 BETWEEN ;
 : ?lowercase ( ch -- bool ) 97 122 BETWEEN ;
 : ?uppercase ( ch -- bool ) 65 90 BETWEEN ;
@@ -882,15 +881,27 @@ VARIABLE DO-IDX
 \ Stage 2 interpreter
 \
 
+-1 CONSTANT err-abort
+-2 CONSTANT err-unexpected-eof
+-3 CONSTANT sig-eof
+-4 CONSTANT err-undefined-word
+-5 CONSTANT err-quit
+
 CREATE word-buffer 64 CELLS ALLOT
 VARIABLE word-len
 
 \ Forth REPL, this time hosted in Forth
 : INTERPRET ( -- )
-    BL WORD ?DUP UNLESS
-        ." TODO: zero len word" CR
-        ABORT
-    THEN
+    BL ['] WORD CATCH CASE
+        0 OF ( no error ) ENDOF
+
+        err-unexpected-eof OF
+            sig-eof THROW
+        ENDOF
+
+        ( else )
+            ." throw: " DUP . cr DUP THROW
+    ENDCASE
 
     DUP word-len !             \ Update len
     2DUP word-buffer TUCK DROP ( addr len addr buf len )
@@ -911,7 +922,7 @@ VARIABLE word-len
             CR ." undefined word: '"
             word-buffer word-len @ TELL ." '" CR
 
-            ABORT
+            err-undefined-word THROW
         THEN
 
         \ If we're interpreting we leave the number on the stack
@@ -921,8 +932,7 @@ VARIABLE word-len
     THEN
 ;
 
-: QUIT
-    RP0 RP!
+: (interpret-loop)
     BEGIN
         \ TODO: ?interpreting IF ." > " THEN
 
@@ -932,24 +942,49 @@ VARIABLE word-len
                 \ TODO: ?interpreting IF ." ok." CR THEN
             ENDOF
 
-            -1 OF
+            err-abort OF
                 ." [ aborted ]" CR
                 RECURSE
             ENDOF
 
-            -2 OF
+            err-unexpected-eof OF
                 ." [ EOF ]" CR
                 EXIT
             ENDOF
 
+            err-undefined-word OF
+                ." [ undefined ]" CR
+                QUIT
+            ENDOF
+
+            \ TODO: seems to work, but shaky
+            sig-eof OF
+                sig-eof THROW
+            ENDOF
+
             ( else )
-            DUP ." Exception # " .
+                DUP ." Exception #" .
         ENDCASE
     AGAIN
 ;
 
+1 CONSTANT sys-exit  \ void exit(int rval)
+2 CONSTANT sys-fork  \ int fork(void)
+3 CONSTANT sys-read  \ ssize_t read(int fd, void *buf, size_t count)
+4 CONSTANT sys-write \ ssize_t write(int fd, const void *buf, size_t count)
+5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
+6 CONSTANT sys-close \ int close(int fd)
+
+0 CONSTANT success
+
+: DIE ( val -- ) sys-exit SYSCALL1 ;
+: BYE ( -- )     success die ;
+
 \ Enter second stage interpreter - we're self-hosted baby
-QUIT
+:NONAME
+    RP0 RP!
+    ['] (interpret-loop) CATCH DIE
+; EXECUTE
 
 \ Counted string to null-terminated string.
 : >c-str ( addr u -- c-str ) DROP ;
@@ -967,18 +1002,6 @@ QUIT
 0 CONSTANT R/O
 1 CONSTANT W/O
 2 CONSTANT R/W
-
-1 CONSTANT sys-exit  \ void exit(int rval)
-2 CONSTANT sys-fork  \ int fork(void)
-3 CONSTANT sys-read  \ ssize_t read(int fd, void *buf, size_t count)
-4 CONSTANT sys-write \ ssize_t write(int fd, const void *buf, size_t count)
-5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
-6 CONSTANT sys-close \ int close(int fd)
-
-0 CONSTANT success
-
-: die ( val -- ) sys-exit SYSCALL1 ;
-: BYE ( -- ) success die ;
 
 \ TODO: this doesn't handle non-existent files correctly
 : OPEN-FILE ( addr u mode -- fd ok )
@@ -1035,7 +1058,6 @@ QUIT
 0    CONSTANT EOF
 
 STRUCT{
-    cell%           FIELD magic
     cell%           FIELD stream>fd
     char% 128 *     FIELD stream>name
     char% BUFSIZE * FIELD stream>buf
@@ -1050,7 +1072,6 @@ VARIABLE streams
 
 : push-stream ( fd -- )
     stream% %allot            \ ( fd addr )
-    $CAFEBABE OVER magic !
     TUCK stream>fd !          \ ( addr )
     0 OVER stream>buf-pos !
     0 OVER stream>buf-end !
@@ -1074,7 +1095,6 @@ VARIABLE streams
 : stream-inspect ( s -- s )
     ." stream { " cr
     ."    base: " DUP . cr
-    ."    magic " DUP @ . cr
     ."    fd:   " DUP stream>fd DUP . @ .  cr
     ."    name: " DUP stream>name c-str> TELL cr
     ."    buf:  " DUP stream>buf DUP . @ . cr
@@ -1092,7 +1112,6 @@ VARIABLE streams
 
 : stream-buffer-refill ( s -- len e )
     DUP >R
-
     DUP stream-buffer-clear
 
     stream>buf
@@ -1122,6 +1141,9 @@ VARIABLE streams
     \ We can't know the name from the file descriptor, caller can overwrite
     \ later
     s" (INCLUDE-FILE fd)" streams @ stream>name SWAP memcpy
+
+    ['] (interpret-loop) CATCH DROP
+    pop-stream CLOSE-FILE THROW
 ;
 
 
@@ -1131,6 +1153,10 @@ VARIABLE streams
         push-stream
 
     streams @ stream>name SWAP memcpy
+
+    ['] (interpret-loop) CATCH DROP
+
+    pop-stream CLOSE-FILE THROW
 ;
 
 \ Convenience wrapper for INCLUDED, read from a named word
@@ -1295,7 +1321,6 @@ VARIABLE key-buf
     streams @ 0= IF
         \ TODO: this should return up to the INTERPRET loop cleanly
         ." [EOF] exhausted all inputs" cr
-        -1 die
         FALSE EXIT
     THEN
 
@@ -1308,8 +1333,7 @@ VARIABLE key-buf
 
         DUP EOF = IF
             DROP
-            pop-stream CLOSE-FILE THROW
-            RECURSE EXIT
+            FALSE EXIT
         THEN
 
         DUP
@@ -1324,7 +1348,7 @@ VARIABLE key-buf
 : new-key ( -- a )
     source-buffer-pos @ source-buffer-end @ >= IF
         REFILL UNLESS
-            EOF EXIT
+            err-unexpected-eof THROW
         THEN
     THEN
 
@@ -1378,11 +1402,6 @@ VARIABLE word-buffer
 
 : new-word ( delim -- c-addr u )
     DUP skip-delim
-    DUP EOF = IF
-        DROP word-buffer 0
-        EXIT
-    THEN
-
     word-buffer TUCK C!
     1+                     ( delim buf )
     BEGIN
@@ -1435,7 +1454,7 @@ VARIABLE word-buffer
         ABORT
     THEN
 
-    stdin INCLUDE-FILE
+    stdin push-stream
     streams @
         2DUP stream>buf-end !          \ Update buffer length of Forth impl
         stream>buf SWAP memcpy         \ Copy bytes from native buffer
@@ -1484,7 +1503,7 @@ VARIABLE argv
     BEGIN
         NEXT-ARG
     DUP WHILE
-        2DUP ." importing: " tell cr
+        2DUP ." INCLUDE " tell cr
         INCLUDED
     REPEAT
     2DROP
