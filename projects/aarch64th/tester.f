@@ -19,6 +19,9 @@ CREATE saved-stack 32 CELLS ALLOT
     LOOP
 ;
 
+VARIABLE verbose
+    verbose ON
+
 VARIABLE #pass 0 #pass !
 VARIABLE #fail 0 #fail !
 
@@ -27,6 +30,15 @@ VARIABLE #fail 0 #fail !
     1 #fail +!
     CR Term.red ." fail "
     Term.yellow SOURCE TELL Term.reset
+;
+
+: TESTING"
+    [compile] s"
+    verbose @ IF
+        CR TELL SPACE
+    ELSE
+        2DROP
+    THEN
 ;
 
 \ T{ setup-part -> assert part }T
@@ -62,7 +74,6 @@ VARIABLE #fail 0 #fail !
             ."          "
             0 actual-depth @ 1- DO
                 actual-stack I CELLS + @ .
-                I actual-depth @ = UNLESS ." , " THEN
                 -1
             +LOOP
 
@@ -74,7 +85,6 @@ VARIABLE #fail 0 #fail !
             ."          "
             DEPTH 1- 0 SWAP DO
                 I PICK .
-                DEPTH I = UNLESS ." , " THEN
                 -1
             +LOOP
 
@@ -116,7 +126,7 @@ VARIABLE #fail 0 #fail !
     DROP                   \ drop addr
 
     R> IF
-        ." ."
+        '.' EMIT
         passed!
     THEN
 
@@ -126,7 +136,7 @@ VARIABLE #fail 0 #fail !
 0  CONSTANT 0S
 -1 CONSTANT 1S
 
-CR ." ===[Test framework]===" CR
+TESTING" test framework"
 T{ -> }T
 T{ 1 2 3 -> 1 2 3 }T
 
@@ -134,7 +144,7 @@ T{ 1 2 3 -> 1 2 3 }T
 T{ saved-depth @ saved-stack @ -> 1 123 }T DROP \ Stack should be preserved after test
 T{ 1 DuP dup DUP -> 1 1 1 1 }T \ check case insensitivity
 
-CR ." ===[Binary Operations]===" CR
+TESTING" binary operations"
 T{ 0 1 > -> FALSE }T
 T{ 1 0 > -> TRUE }T
 T{ 1 1 > -> FALSE }T
@@ -166,12 +176,21 @@ T{ 0S 1S XOR -> 1S }T
 T{ 1S 0S XOR -> 1S }T
 T{ 1S 1S XOR -> 0S }T
 
+T{ 1 10 MIN -> 1 }T
+T{ 1 -1 MIN -> -1 }T
+T{ 1 10 MAX -> 10 }T
+T{ 1 -1 MAX -> 1 }T
+
 T{ 0 INVERT 1 AND -> 1 }T
 T{ 1 INVERT 1 AND -> 0 }T
 T{ 0 INVERT -> -1 }T
 T{ -1 INVERT -> 0 }T
 
-CR ." ===[Stack Manipulation]===" CR
+T{ 0 NEGATE   -> 0 }T
+T{ 10 NEGATE  -> -10 }T
+T{ -10 NEGATE -> 10 }T
+
+TESTING" stack manipulation"
 T{ 1 2 OVER    -> 1 2 1 }T
 T{ 3 2 1 2 PICK -> 3 2 1 3 }T
 T{ 1 2 3 ROT   -> 2 3 1 }T
@@ -189,7 +208,7 @@ T{ 123 tt1 -> 123 }T
 T{ 123 tt2 -> 123 }T
 T{ DEPTH DEPTH -> 0 1 }T
 
-CR ." ===[Miscellaneous Words]===" CR
+TESTING" misc words"
 T{ 1 0 5 WITHIN -> TRUE }T
 T{ 1 1 5 WITHIN -> TRUE }T
 T{ 1 2 5 WITHIN -> FALSE }T
@@ -202,12 +221,14 @@ T{ CELL 1- ALIGNED    -> CELL }T
 T{ CELL ALIGNED       -> CELL }T
 T{ 2 CELLS 1- ALIGNED -> 2 CELLS }T
 
-CR ." ===[Ticks and tacks]===" CR
+TESTING" ticks and tacks"
 T{ : t1 123 ;
    : t2 IMMEDIATE ['] t1 ;
    t2 EXECUTE -> 123 }T
+T{ : t3 ' t1 ; -> }T
+T{ t3 -> s" t1" FIND >CFA }T
 
-CR ." ===[Characters]===" CR
+TESTING" characters"
 : t1 [CHAR] XYZ ;
 : t2 [CHAR] A ;
 : t3 [ t2 ] LITERAL ;
@@ -219,13 +240,13 @@ T{ '\n' -> $0a }T
 T{ t1 t2 -> CHAR X CHAR A }T
 T{ t3 -> CHAR A }T
 
-CR ." ===[WORD]===" CR
+TESTING" word"
 : tt WORD SWAP C@ ;
 T{ BL tt HELLO -> 5 CHAR H }T
 T{ ')' tt HELLO) -> 5 CHAR H }T
 T{ CHAR " tt GOODBYE" -> 7 CHAR G }T
 
-CR ." ===[Interpretation / compilation semantics]===" CR
+TESTING" interpretation / compilation semantics"
 T{ : [c1] [COMPILE] DUP ; IMMEDIATE -> }T
 T{ 123 [c1] -> 123 123 }T
 T{ : [c2] [COMPILE] [c1] ; -> }T
@@ -247,7 +268,7 @@ T{ t3                   -> 123 }T
 \ T{ : t6 IMMEDIATE POSTPONE t2 ;       -> }T
 \ T{ t6                                 -> 456 }T
 
-CR ." ===[CATCH/THROW]===" CR
+TESTING" catch / throw"
 : t1 9 ;
 : c1 1 2 3 ['] t1 CATCH ;
 T{ c1 -> 1 2 3 9 0 }T    \ No THROW executed
@@ -269,7 +290,7 @@ T{ c4 -> 3 4 5 0 999 -111 }T        \ Test return stack unwinding
    DEPTH >R DROP 2DROP 2DROP R> ;    \ after stack has been emptied
 T{ c5 -> 5 }T
 
-CR ." ===[RECURSE]===" CR
+TESTING" recurse"
 : count-up
     DUP IF
         DUP >R
@@ -283,7 +304,7 @@ T{ 4 count-up -> 0 1 2 3 4 }T
 T{ :NONAME DUP IF DUP >R 1- RECURSE R> THEN ;
    3 SWAP EXECUTE -> 0 1 2 3 }T
 
-CR ." ===[CASE]===" CR
+TESTING" case"
 : cs1
     CASE
         1 OF 111 ENDOF
@@ -301,7 +322,7 @@ T{ 4 cs1 -> 444 }T
 T{ 5 cs1 -> 444 }T
 T{ 9 cs1 -> 999 }T
 
-CR ." ===[:NONAME]===" CR
+TESTING" :noname"
 VARIABLE nn1
 VARIABLE nn2
 T{ :NONAME 123 ; EXECUTE -> 123 }T
@@ -310,7 +331,7 @@ T{ :NONAME 9876 ; nn2 ! -> }T
 T{ nn1 @ EXECUTE -> 1234 }T
 T{ nn2 @ EXECUTE -> 9876 }T
 
-CR ." ===[SOURCE + >IN]===" CR
+TESTING" source / >IN"
 T{ 123456 DEPTH OVER 9 < 35 AND + 3 + >IN !
 -> 123456 23456 3456 456 56 6 }T
 
@@ -318,7 +339,7 @@ T{ 123456 DEPTH OVER 9 < 35 AND + 3 + >IN !
 T{ tt 123 456
     -> }T
 
-CR ." ===[CREATE + DOES>]===" CR
+TESTING" create / DOES>"
 : add-1 DOES> @ 1 + ;
 : add-2 DOES> @ 2 + ;
 T{ CREATE tt ->        }T
@@ -340,7 +361,7 @@ T{ (ctr) x (ctr) y -> }T
 T{ x x             -> 0 1 }T
 T{ y               -> 0 }T
 
-CR ." ===[DO..LOOP]===" CR
+TESTING" do loops"
 T{ : loop1 DO I LOOP ;      -> }T
 T{ : loop2 DO I -1 +LOOP ;  -> }T
 T{ : loop3 ?DO I LOOP ;     -> }T
@@ -372,7 +393,7 @@ T{ 1 tt -> 1 }T
 T{ 2 tt -> 3 }T
 T{ 3 tt -> 4 1 2 }T
 
-CR ." ===[Number parsing]===" CR
+TESTING" number parsing"
 T{ s" 123" 10 parse-uint -> 123 TRUE }T
 T{ s" 456" 10 parse-uint -> 456 TRUE }T
 T{ s" 789" 10 parse-uint -> 789 TRUE }T
@@ -405,7 +426,7 @@ T{ s" '\" >NUMBER   NIP -> FALSE }T
 T{ s" '\x'" >NUMBER NIP -> FALSE }T
 T{ s" '\n" >NUMBER  NIP -> FALSE }T
 
-cr ." ===[streq?]===" cr
+TESTING" streq?"
 : s1 s" abc" ;
 : s2 s" abd" ;
 : s3 s" abcde" ;
@@ -416,8 +437,7 @@ T{ s1 s2 streq? -> FALSE }T
 T{ s1 s3 streq? -> FALSE }T
 T{ s1 s4 streq? -> FALSE }T
 
-CR ." ===[INCLUDE/REQUIRE]===" CR
-
+TESTING" include / require"
 T{ 1 INCLUDE ./test/data/_incr.f
    -> 2 }T
 
@@ -430,15 +450,13 @@ T{ 1 REQUIRE ./test/data/_incr.f
    -> 2 }T
 
 :NONAME
-    #fail @ IF
-        Term.red
-    ELSE
-        Term.green
-    THEN
+    #fail @ 0> IF Term.red ELSE Term.green THEN
 
     CR ." Finished with "
-        #fail @ . ."  failures out of "
-        #pass @ . ."  tests." CR
+        #fail @ . ." failures out of "
+        #pass @ . ." tests." CR
 
     Term.reset
+
+    #fail @ DIE
 ; EXECUTE
