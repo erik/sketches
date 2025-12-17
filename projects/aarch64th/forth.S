@@ -703,18 +703,20 @@ DEFINE_CODE "*", 1, 0, MUL, SUB
     PUSH_DS     x0
     NEXT
 
-; (a b -- c)
-DEFINE_CODE "/", 1, 0, DIV, MUL
+; (a b -- a%b a/b)
+DEFINE_CODE "/MOD", 4, 0, DIVMOD, MUL
     POP_DS      x1
     POP_DS      x0
-    sdiv        x0, x0, x1
-    PUSH_DS     x0
+    udiv        x2, x0, x1
+    msub        x3, x2, x1, x0
+    PUSH_DS     x3
+    PUSH_DS     x2
     NEXT
 
 ; Push -1 if equal, 0 else
 ;
 ; (a b -- c)
-DEFINE_CODE "=", 1, 0, EQ, DIV
+DEFINE_CODE "=", 1, 0, EQ, DIVMOD
     POP_DS      x1
     POP_DS      x0
     cmp         x0, x1

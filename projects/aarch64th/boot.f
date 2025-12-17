@@ -150,6 +150,9 @@
 \ Basic helper utils
 \
 
+: /   ( a b -- a/b ) /MOD SWAP DROP ;
+: MOD ( a b -- a%b ) /MOD DROP ;
+: NEGATE ( a -- -a ) 0 SWAP - ;
 : NOP ;
 : CELL+ ( a -- a+CELL ) CELL + ;
 : CELL- ( a -- a-CELL ) CELL - ;
@@ -375,6 +378,12 @@
     -ROT >=        \ ( <hi val lo    --> <hi >=lo)
     AND
 ;
+
+\ Not a standard word, but in practice I need inclusive intervals
+\ more often.
+\
+\ val >= lo && val <= hi
+: BETWEEN ( val lo hi -- a) 1+ WITHIN ;
 
 \ Compile a reference to the word currently being defined.
 : RECURSE IMMEDIATE ( -- )
@@ -694,9 +703,55 @@ VARIABLE DO-IDX
 : DECIMAL ( -- ) 10 BASE ! ;
 : HEX ( -- )     16 BASE ! ;
 
-: ?digit     ( ch -- bool ) [CHAR] 0 [CHAR] 9 1+ WITHIN ;
-: ?lowercase ( ch -- bool ) 97 122 1+ WITHIN ;
-: ?uppercase ( ch -- bool ) 65 90 1+ WITHIN ;
+: print-uint ( base val -- )
+    OVER /MOD ?DUP IF
+        >R OVER R>
+        RECURSE
+    THEN
+    DUP 10 < IF
+        [CHAR] 0 +
+    ELSE
+        10 - [CHAR] a +
+    THEN EMIT
+    DROP
+;
+
+: print-int ( base val -- )
+    DUP 0< IF
+        [CHAR] - EMIT
+        NEGATE
+    THEN
+    print-uint
+;
+
+: U.   ( val -- ) BASE @ SWAP print-uint SPACE ;
+: H.   ( val -- ) 16 SWAP print-uint SPACE ;
+: hex. ( val -- ) [CHAR] $ EMIT H. ;
+: dec. ( val -- ) 10 SWAP print-int SPACE ;
+: .    ( val -- ) BASE @ SWAP print-int SPACE ;
+
+: SPACES ( n -- ) BEGIN DUP 0> WHILE SPACE 1- REPEAT DROP ;
+: UWIDTH ( val -- w ) BASE @ / ?DUP IF RECURSE 1+ ELSE 1 THEN ;
+: U.R  ( val pad -- )
+    OVER UWIDTH - SPACES
+    BASE @ SWAP print-uint
+;
+: .R  ( val pad -- )
+    OVER 0>= IF
+        U.R
+    ELSE
+        SWAP NEGATE
+        DUP UWIDTH 1+
+        ROT SWAP - SPACES
+        [CHAR] - EMIT
+        BASE @ SWAP print-uint
+    THEN
+;
+
+
+: ?digit     ( ch -- bool ) [CHAR] 0 [CHAR] 9 BETWEEN ;
+: ?lowercase ( ch -- bool ) 97 122 BETWEEN ;
+: ?uppercase ( ch -- bool ) 65 90 BETWEEN ;
 
 : parse-uint ( addr n base -- val ok? )
     ROT >R >R \ save base + addr ( R: addr base )
