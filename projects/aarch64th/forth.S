@@ -642,36 +642,10 @@ DEFINE_CODE "OVER", 4, 0, OVER, SWAP
     PUSH_DS x1
     NEXT
 
-; TODO: write this in Forth when we have BASE
-;
-; (a -- )
-DEFINE_CODE ".", 1, 0, DOT, OVER
-    POP_DS      x2                    ; value to print
-    mov         x3, x2                ; copy it (we print it twice)
-
-    ADR_LABEL   x0, _dot_buffer       ; string buffer to write to
-    ADR_LABEL   x1, _dot_sprintf_fmt  ; string format
-    PUSH        x2, x3                ; format args go on the stack
-    bl          _sprintf              ; sprintf(&buffer, &fmt, ...args)
-    mov         x2, x0                ; number of bytes written returned in x0
-                                      ; (also third param to write())
-    mov         x0, FD_STDOUT         ; param 1: stdout
-    ADR_LABEL   x1, _dot_buffer       ; param 2: string addr
-    SYSCALL     write
-    add         sp, sp, #16           ; pop fmt args off the stack
-
-    NEXT
-
-.data
-.balign 4
-_dot_buffer: .zero 64
-_dot_sprintf_fmt: .asciz "[%p]"
-.text
-
 ; Print a single byte to output
 ;
 ; (a -- )
-DEFINE_CODE "EMIT", 4, 0, EMIT, DOT
+DEFINE_CODE "EMIT", 4, 0, EMIT, OVER
     mov     x0, FD_STDOUT  ; param 1: stdout
     mov     x1, DSP        ; param 2: string addr
     mov     x2, #1         ; param 3: length

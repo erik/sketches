@@ -1290,16 +1290,6 @@ VARIABLE key-buf
     success
 ;
 
-: eol? ( ch -- bool )
-    CASE
-        EOF  OF TRUE ENDOF
-        0    OF TRUE ENDOF
-        '\n' OF TRUE ENDOF
-        ( else)
-            FALSE SWAP
-    ENDCASE
-;
-
 \ Read next line of input from current file
 : REFILL ( -- ok )
     streams @ 0= IF
@@ -1325,7 +1315,7 @@ VARIABLE key-buf
         DUP
         source-buffer source-buffer-end @ + c!
         1 source-buffer-end +!
-    EOL? UNTIL
+    '\n' = UNTIL
 
     TRUE
 ;
@@ -1419,7 +1409,7 @@ VARIABLE word-buffer
 ;
 
 \ Re-define line comments to use the updated key implementation
-: \ IMMEDIATE BEGIN KEY EOL? UNTIL ;
+: \ IMMEDIATE BEGIN KEY '\n' = UNTIL ;
 
 \ Similarly, redefine creation word `:` in Forth so we don't reference the
 \ native `WORD` definition.
