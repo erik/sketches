@@ -943,13 +943,9 @@ VARIABLE word-len
 
 : (interpret-loop)
     BEGIN
-        \ TODO: ?interpreting IF ." > " THEN
-
         ['] INTERPRET CATCH
         CASE
-            0 OF
-                \ TODO: ?interpreting IF ." ok." CR THEN
-            ENDOF
+            0 OF ENDOF
 
             err-abort OF
                 ." [ aborted ]" CR
@@ -963,7 +959,7 @@ VARIABLE word-len
 
             err-undefined-word OF
                 ." [ undefined ]" CR
-                QUIT
+                RECURSE
             ENDOF
 
             \ TODO: seems to work, but shaky
@@ -1120,8 +1116,15 @@ VARIABLE streams
 ;
 
 : stream-buffer-refill ( s -- len e )
-    DUP >R
     DUP stream-buffer-clear
+
+    \ non-file based buffer, can't refill it
+    DUP stream>fd @ 0< IF
+        DROP
+        0 0 EXIT
+    THEN
+
+    DUP >R
 
     stream>buf
         OVER stream>fd @
@@ -1463,12 +1466,12 @@ VARIABLE word-buffer
         ABORT
     THEN
 
-    stdin push-stream
+    -1 push-stream
     streams @
         2DUP stream>buf-end !          \ Update buffer length of Forth impl
         stream>buf SWAP memcpy         \ Copy bytes from native buffer
 
-    s" (stdin)"
+    s" (bootstrap)"
         streams @ stream>name SWAP
         memcpy
 
@@ -1506,14 +1509,28 @@ VARIABLE argv
     CELLS argv @ + @ c-str>
 ;
 
+: print-usage
+    ." Usage: aarch64th [options] [file...]" cr
+    ." Options:" cr
+    ."   -h       Display this very helpful message." cr
+;
+
 :NONAME
     SHIFT-ARGS        \ skip past executable name
 
-    BEGIN
-        NEXT-ARG
-    DUP WHILE
-        2DUP ." INCLUDE " tell cr
-        INCLUDED
-    REPEAT
-    2DROP
+    argc @ 1 >= IF
+        BEGIN
+            NEXT-ARG DUP WHILE
+
+            2DUP s" -h" streq? IF
+                2DROP print-usage
+            ELSE
+                INCLUDED
+            THEN
+        REPEAT
+        2DROP
+    ELSE
+        ." aarch64th ok." cr
+        s" /dev/tty" included
+    THEN
 ; EXECUTE
