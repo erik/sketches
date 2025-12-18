@@ -896,6 +896,7 @@ VARIABLE DO-IDX
 -4 CONSTANT err-undefined-word
 -5 CONSTANT err-quit
 
+
 CREATE word-buffer 64 CELLS ALLOT
 VARIABLE word-len
 
@@ -1008,7 +1009,6 @@ VARIABLE word-len
 1 CONSTANT W/O
 2 CONSTANT R/W
 
-\ TODO: this doesn't handle non-existent files correctly
 : OPEN-FILE ( addr u mode -- fd ok )
     >R >c-str R> SWAP
     sys-open SYSCALL2
@@ -1088,7 +1088,7 @@ VARIABLE streams
 : pop-stream ( -- fd )
     streams @ DUP
     stream>next @ streams !
-    stream>fd
+    stream>fd @
 ;
 
 \ Get the length in bytes of the data currently in this stream's
