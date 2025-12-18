@@ -1185,15 +1185,16 @@ VARIABLE required-files
 : streq? ( addr1 u addr2 u -- b )
     \ Check string len first
     ROT ( a1 a2 u u )
-    DUP = UNLESS
-        3DROP
-        FALSE EXIT
-    THEN
+    OVER = UNLESS        \ length mismatch
+        3DROP FALSE EXIT
+    ELSE ?DUP UNLESS     \ length match, but both are zero
+        2DROP TRUE EXIT
+    THEN THEN
 
     0 DO
         ( a1 a2 )
         DUP C@        ( a1 a2 c2 )
-        ROT DUP C@   ( a2 c2 a1 c1 )
+        ROT DUP C@    ( a2 c2 a1 c1 )
         ROT = UNLESS
             2DROP
             UNLOOP
