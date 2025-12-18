@@ -764,7 +764,7 @@ DEFINE_CODE ".S", 2, 0, PRINT_STACK, INVERT
     PRINT_FMT "----\n"
     NEXT
 
-DEFINE_CODE ".R", 2, 0, PRINT_RSTACK, PRINT_STACK
+DEFINE_CODE ".RS", 3, 0, PRINT_RSTACK, PRINT_STACK
     mov       x0, RSP
     ADR_LABEL x1, RETURN_STACK_TOP
 
@@ -786,14 +786,10 @@ DEFINE_CODE ".R", 2, 0, PRINT_RSTACK, PRINT_STACK
     PRINT_FMT "----\n"
     NEXT
 
-DEFINE_CODE ".dict", 5, 0, PRINT_DICT, PRINT_RSTACK
-    bl print_dictionary
-    NEXT
-
 ;; I/O utils
 
 ; ( sys -- res )
-DEFINE_CODE "SYSCALL0", 8, 0, SYSCALL0, PRINT_DICT
+DEFINE_CODE "SYSCALL0", 8, 0, SYSCALL0, PRINT_RSTACK
     POP_DS  x16
     svc     0x80
     PUSH_DS x0
@@ -847,66 +843,16 @@ DEFINE_WORD "QUIT", 4, 0, QUIT, COLON
     .dword (-8 * 2)   ; ... by 2 words
 
 DEFINE_WORD ";", 1, FL_IMMED, SEMICOLON, QUIT
-    .dword LIT, EXIT, COMMA            ; Append "EXIT" to current word definition
-    .dword LATEST, FETCH, HIDDEN       ; Unhide the current word definition
-    .dword LBRACKET                    ; Back to immediate mode
-    .dword EXIT                        ; Finish ";" execution
+    .dword LIT, EXIT, COMMA       ; Append "EXIT" to current word definition
+    .dword LIT, 0xfafafafa, COMMA ; Append magic value to identify end of
+                                  ; word definition
+    .dword LATEST, FETCH, HIDDEN  ; Unhide the current word definition
+    .dword LBRACKET               ; Back to immediate mode
+    .dword EXIT                   ; Finish ";" execution
 
 ; Pointer to most recently defined word in dictionary (to be convenient, we
 ; ensure it also starts out as the last defined word).
 DEFINE_VAR "LATEST", 6, 0, LATEST, SEMICOLON
-
-; Print the entire dictionary chain for debugging
-; Iterates from LATEST back through the linked list
-.text
-.balign 8
-print_dictionary:
-    PUSH_FRAME
-    PRINT_FMT "\n=== Dictionary ===\n"
-
-    ADR_LABEL x3, DOCOL
-    PRINT_DEBUG "docol:  %p\n", x3
-    LDR_LABEL x3, var_LATEST  ; start with LATEST
-
-1: ; loop through linked list
-    cbz x3, 2f                ; if nil, we're done
-
-    ; Get and print name length
-    ldrb w4, [x3, #9]         ; load length byte (offset 9)
-
-    ; Print name - need to copy to null-terminated buffer
-    mov  x5, #0               ; counter
-    ADR_LABEL x6, _word_buffer
-    add  x7, x3, #10         ; point to start of name
-3:
-    cmp x5, x4               ; reached end of name?
-    bge 4f
-    ldrb w8, [x7, x5]       ; load character
-    strb w8, [x6, x5]       ; store to buffer
-    add  x5, x5, #1
-    b 3b
-4:
-    strb wzr, [x6, x5]       ; null terminate
-
-    PRINT_FMT "word: '%s'\n", x6
-    PRINT_FMT "\taddr\t%p  ", x3, xzr
-
-    ; Get and print codeword address
-    mov  x0, x3
-    bl   _to_cfa
-    mov  x1, x0
-    ldr  x2, [x0]              ; load actual codeword
-    PRINT_FMT "\tCFA\t%p\t*CFA\t%p", x1, x2
-
-    ; Move to next word in chain
-    ldr x3, [x3]             ; load link pointer
-    PRINT_FMT "\tnext\t%p\n", x3
-    b 1b
-
-2: ; done
-    PRINT_FMT "==================\n\n"
-    POP_FRAME
-    ret
 
 ; The "source code" of our interpreter. We start with IP pointed here (it needs
 ; to be a memory address due to the double indirection of our interpreter).
