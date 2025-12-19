@@ -1531,7 +1531,8 @@ VARIABLE argv
         REPEAT
         2DROP
     ELSE
+        ." [ " UNUSED CELL / . ." CELLS FREE ]" cr
         ." aarch64th ok." cr
-        s" /dev/tty" included
+        s" /dev/tty" INCLUDED
     THEN
 ; EXECUTE

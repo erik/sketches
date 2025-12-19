@@ -302,10 +302,18 @@ DEFINE_CODE "SP!", 3, 0, DSPSTORE, DSPFETCH
     mov    DSP, x0
     NEXT
 
+; ( -- a )
+DEFINE_CODE "UNUSED", 6, 0, UNUSED, DSPSTORE
+    ADR_LABEL x0, USER_DATA_TOP
+    LDR_LABEL x1, var_HERE
+    sub       x0, x0, x1
+    PUSH_DS   x0
+    NEXT
+
 ; Store data in a specific memory address
 ;
 ; (data addr --)
-DEFINE_CODE "!", 1, 0, STORE, DSPSTORE
+DEFINE_CODE "!", 1, 0, STORE, UNUSED
     POP_DS x0        ; address to write
     POP_DS x1        ; data to write
     str    x1, [x0]  ; *addr = data
@@ -1118,6 +1126,7 @@ RETURN_STACK_TOP:
 .balign 8
 ; TODO: allocate from system
 USER_DATA_SEGMENT: .zero 0x10000
+USER_DATA_TOP:
 
 ; Space to to store parsed words
 _word_buffer:      .zero 32
