@@ -1,0 +1,62 @@
+                                       ▗▄▖   ▗▄      ▗▖
+                                       █▀▜   ▟█  ▐▌  ▐▌
+                        ▟██▖ █▟█▌▐█▙█▖▐▌▄▖  ▐▘█ ▐███ ▐▙██▖
+                        ▘▄▟▌ █▘  ▐▌█▐▌▐█▀█▖▗▛ █  ▐▌  ▐▛ ▐▌
+                       ▗█▀▜▌ █   ▐▌█▐▌▐▌ ▐▌▐███▌ ▐▌  ▐▌ ▐▌
+                       ▐▙▄█▌ █   ▐▌█▐▌▝█▄█▘   █  ▐▙▄ ▐▌ ▐▌
+                        ▀▀▝▘ ▀   ▝▘▀▝▘ ▝▀▘    ▀   ▀▀ ▝▘ ▝▘
+
+A Forth for Apple Silicon bootstrapped from a small kernel written in arm64
+assembly. This is a 64 bit, indirect threaded Forth which runs on recent
+versions of Mac OS.
+
+It's "mostly standard", but doesn't implement every common word. Use this if
+you're curious, not if you need a production system.
+
+There are no dependencies, but you'll need the standard Apple development
+toolchain (i.e. clang) to build it.
+
+    # build the executable
+    make
+
+    # run tests
+    make test
+
+    # execute a file
+    ./forth demo.f
+
+    # start a REPL from stdin
+    ./forth
+
+See `demo.f` for a tiny crash course on Forth and the syntax supported by
+this system.
+
+                                ACKNOWLEDGEMENTS
+
+This project is my first experience with Forth and I was helped immensely
+by several resources.
+
+  1. Dave Gauer's blog is what nerd sniped me originally into this completely
+     unnecessary tangent which ate two months of my life. Sold me on the 1970s
+     magic on offer by Forth.
+
+     https://ratfactor.com/forth/the_programming_language_that_writes_itself.html
+
+  2. Jonesforth is a Forth for x86 written in a literate programming style. Very
+     helpful when trying to get the machine flying. This was the source of
+     several of the fundamental design decisions (such as being indirect
+     threaded).
+
+     http://git.annexia.org/?p=jonesforth.git
+
+  3. Planckforth builds off of a 1024 byte hand-written binary executable
+     defining a tiny set of operations which can peek and poke memory, then
+     bootstraps a full Forth environment from effectively nothing. It's very
+     cool!
+
+     https://github.com/nineties/planckforth
+
+
+                                     LICENSE
+
+Good luck, have fun.
