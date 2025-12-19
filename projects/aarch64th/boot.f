@@ -1536,7 +1536,7 @@ VARIABLE argv
 ;
 
 : print-usage
-    ." Usage: aarch64th [options] [file...]" cr
+    ." Usage: arm64th [options] [file...]" cr
     ." Options:" cr
     ."   -h       Display this very helpful message." cr
 ;
@@ -1556,7 +1556,7 @@ VARIABLE argv
         2DROP
     ELSE
         ." [ " UNUSED CELL / . ." CELLS FREE ]" cr
-        ." aarch64th ok." cr
+        ." arm64th ok." cr
         s" /dev/tty" INCLUDED
     THEN
 ; EXECUTE
