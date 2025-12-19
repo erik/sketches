@@ -31,7 +31,11 @@ control-flow
 ( Here's a tiny quine ) SOURCE TELL CR
 
 \ You can use SOURCE and >IN to manipulate where the interpreter is reading
-SOURCE NIP >IN ! -- this part isn't evaluated
+\
+\ Let's use this to define a new comment syntax
+: // SOURCE NIP >IN ! ;
+
+1 2 + DROP  // everything after this is ignored
 
 \ Pull in definitions from another file. This contains some debugging utilities
 \ which are helpful for investigating issues (for example, SEE)
