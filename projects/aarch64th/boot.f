@@ -896,7 +896,6 @@ VARIABLE DO-IDX
 -4 CONSTANT err-undefined-word
 -5 CONSTANT err-quit
 
-
 CREATE word-buffer 64 CELLS ALLOT
 VARIABLE word-len
 
@@ -905,6 +904,8 @@ VARIABLE word-len
     BL ['] WORD CATCH CASE
         0 OF ( no error ) ENDOF
 
+        \ An EOF here isn't really an issue, it's just the end of
+        \ the file.
         err-unexpected-eof OF
             sig-eof THROW
         ENDOF
@@ -946,7 +947,7 @@ VARIABLE word-len
     BEGIN
         ['] INTERPRET CATCH
         CASE
-            0 OF ENDOF
+            0 OF ( no error ) ENDOF
 
             err-abort OF
                 ." [ aborted ]" CR
@@ -954,7 +955,7 @@ VARIABLE word-len
             ENDOF
 
             err-unexpected-eof OF
-                ." [ EOF ]" CR
+                ." [ Unexpected EOF ]" CR
                 EXIT
             ENDOF
 
@@ -963,7 +964,6 @@ VARIABLE word-len
                 RECURSE
             ENDOF
 
-            \ TODO: seems to work, but shaky
             sig-eof OF
                 sig-eof THROW
             ENDOF
@@ -984,12 +984,22 @@ VARIABLE word-len
 0 CONSTANT success
 
 : DIE ( val -- ) sys-exit SYSCALL1 ;
-: BYE ( -- )     success die ;
+: BYE ( -- )     success DIE ;
 
 \ Enter second stage interpreter - we're self-hosted baby
 :NONAME
+    \ Clear out the return stack
     RP0 RP!
-    ['] (interpret-loop) CATCH DIE
+
+    ['] (interpret-loop) CATCH
+
+    \ This is the top-level interpreter, so when we catch an
+    \ exception here it should exit the process.
+    \
+    \ When we get a "normal" EOF (which happens when the entire
+    \ file is consumed), we exit cleanly, otherwise, return the
+    \ error status.
+    DUP sig-eof = IF DROP BYE ELSE DIE THEN
 ; EXECUTE
 
 \ Counted string to null-terminated string.
@@ -1332,7 +1342,6 @@ VARIABLE key-buf
 \ Read next line of input from current file
 : REFILL ( -- ok )
     streams @ 0= IF
-        \ TODO: this should return up to the INTERPRET loop cleanly
         ." [EOF] exhausted all inputs" cr
         FALSE EXIT
     THEN
@@ -1340,7 +1349,6 @@ VARIABLE key-buf
     0 source-buffer-pos !
     0 source-buffer-end !
 
-    \ TODO: this can overflow the buffer
     BEGIN
         streams @ stream-key THROW
 
@@ -1352,6 +1360,13 @@ VARIABLE key-buf
         DUP
         source-buffer source-buffer-end @ + c!
         1 source-buffer-end +!
+
+        \ Make sure we don't overrun the buffer on especially long
+        \ lines.
+        source-buffer-end @ BUFSIZE >= IF
+            ." [REFILL] max buf size exceeded." CR
+            DROP TRUE EXIT
+        THEN
     '\n' = UNTIL
 
     TRUE
