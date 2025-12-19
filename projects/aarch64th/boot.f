@@ -1545,10 +1545,9 @@ VARIABLE argv
     SHIFT-ARGS        \ skip past executable name
 
     argc @ 1 >= IF
-        BEGIN
-            NEXT-ARG DUP WHILE
-
-            2DUP s" -h" streq? IF
+        BEGIN NEXT-ARG DUP WHILE
+            \ FIXME c-str> length is wrong when it comes from a real C string
+            2DUP 1+ s" -h" streq? IF
                 2DROP print-usage
             ELSE
                 INCLUDED
