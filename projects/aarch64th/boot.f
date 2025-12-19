@@ -39,7 +39,7 @@
 \ NOTE: this isn't a recursive call, it compiles the reference to the OLD
 \ definition of the word.
 : KEY  ( -- a ) KEY ;
-: WORD ( -- addr len ) WORD ;
+: WORD ( delim -- addr len ) WORD ;
 
 \ Return first character of word after this call.
 \
@@ -890,151 +890,6 @@ VARIABLE DO-IDX
 \ Stage 2 interpreter
 \
 
--1 CONSTANT err-abort
--2 CONSTANT err-unexpected-eof
--3 CONSTANT sig-eof
--4 CONSTANT err-undefined-word
--5 CONSTANT err-quit
-
-CREATE word-buffer 64 CELLS ALLOT
-VARIABLE word-len
-
-\ Forth REPL, this time hosted in Forth
-: INTERPRET ( -- )
-    BL ['] WORD CATCH CASE
-        0 OF ( no error ) ENDOF
-
-        \ An EOF here isn't really an issue, it's just the end of
-        \ the file.
-        err-unexpected-eof OF
-            sig-eof THROW
-        ENDOF
-
-        ( else )
-            ." throw: " DUP . cr DUP THROW
-    ENDCASE
-
-    DUP word-len !             \ Update len
-    2DUP word-buffer TUCK DROP ( addr len addr buf len )
-    memcpy                     \ copy word into word buffer
-
-    FIND ?DUP IF                                  \ Found the word
-        ?compiling IF                             \ compile mode
-            DUP CELL+ C@ immediate-bit AND IF     \ execute immediate word
-                >CFA EXECUTE
-            ELSE                                  \ compile the word
-                >CFA ,
-            THEN
-        ELSE                                      \ immediate mode
-            >CFA EXECUTE
-        THEN
-    ELSE
-        word-buffer word-len @ >NUMBER UNLESS
-            CR ." undefined word: '"
-            word-buffer word-len @ TELL ." '" CR
-
-            err-undefined-word THROW
-        THEN
-
-        \ If we're interpreting we leave the number on the stack
-        ?compiling IF
-            [COMPILE] LITERAL
-        THEN
-    THEN
-;
-
-: (interpret-loop)
-    BEGIN
-        ['] INTERPRET CATCH
-        CASE
-            0 OF ( no error ) ENDOF
-
-            err-abort OF
-                ." [ aborted ]" CR
-                RECURSE
-            ENDOF
-
-            err-unexpected-eof OF
-                ." [ Unexpected EOF ]" CR
-                EXIT
-            ENDOF
-
-            err-undefined-word OF
-                ." [ undefined ]" CR
-                RECURSE
-            ENDOF
-
-            sig-eof OF
-                sig-eof THROW
-            ENDOF
-
-            ( else )
-                DUP ." Exception #" .
-        ENDCASE
-    AGAIN
-;
-
-1 CONSTANT sys-exit  \ void exit(int rval)
-2 CONSTANT sys-fork  \ int fork(void)
-3 CONSTANT sys-read  \ ssize_t read(int fd, void *buf, size_t count)
-4 CONSTANT sys-write \ ssize_t write(int fd, const void *buf, size_t count)
-5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
-6 CONSTANT sys-close \ int close(int fd)
-
-0 CONSTANT success
-
-: DIE ( val -- ) sys-exit SYSCALL1 ;
-: BYE ( -- )     success DIE ;
-
-\ Enter second stage interpreter - we're self-hosted baby
-:NONAME
-    \ Clear out the return stack
-    RP0 RP!
-
-    ['] (interpret-loop) CATCH
-
-    \ This is the top-level interpreter, so when we catch an
-    \ exception here it should exit the process.
-    \
-    \ When we get a "normal" EOF (which happens when the entire
-    \ file is consumed), we exit cleanly, otherwise, return the
-    \ error status.
-    DUP sig-eof = IF DROP BYE ELSE DIE THEN
-; EXECUTE
-
-\ Counted string to null-terminated string.
-: >c-str ( addr u -- c-str ) DROP ;
-
-\ Push length of null terminated string to stack
-: c-str> ( addr -- addr len )
-    0
-    BEGIN
-        2DUP + C@
-    WHILE
-        1+
-    REPEAT
-;
-
-0 CONSTANT R/O
-1 CONSTANT W/O
-2 CONSTANT R/W
-
-: OPEN-FILE ( addr u mode -- fd ok )
-    >R >c-str R> SWAP
-    sys-open SYSCALL2
-    DUP 0< IF DUP ELSE success THEN
-;
-
-: CLOSE-FILE ( fd -- ok )
-    sys-close SYSCALL1 0< IF DUP ELSE success THEN
-;
-
-: READ-FILE ( addr len fd -- len ok )
-    >R SWAP R>          \ read(fd, &addr, len)
-    sys-read SYSCALL3
-    DUP 0< IF DUP ELSE success THEN
-;
-
 : STRUCT{ 0 ;
 : CELL% ( -- align size ) CELL CELL ;
 : CHAR% ( -- align size ) 1 1 ;
@@ -1099,6 +954,181 @@ VARIABLE streams
     streams @ DUP
     stream>next @ streams !
     stream>fd @
+;
+
+\ Counted string to null-terminated string.
+: >c-str ( addr u -- c-str ) DROP ;
+
+\ Push length of null terminated string to stack
+: c-str> ( addr -- addr len )
+    0
+    BEGIN
+        2DUP + C@
+    WHILE
+        1+
+    REPEAT
+;
+
+-1 CONSTANT err-abort
+-2 CONSTANT err-unexpected-eof
+-3 CONSTANT sig-eof
+-4 CONSTANT err-undefined-word
+-5 CONSTANT err-quit
+
+VARIABLE source-buffer
+    BUFSIZE ALLOT
+
+VARIABLE source-buffer-pos
+    0 source-buffer-pos !
+
+VARIABLE source-buffer-end
+    0 source-buffer-end !
+
+\ TODO: clean up native definition.
+: (source) ( -- addr len ) SOURCE ;
+
+VARIABLE SOURCE-ID
+    -1 SOURCE-ID !
+
+: SOURCE ( -- addr u ) source-buffer source-buffer-end @ ;
+: >IN    ( -- addr )   source-buffer-pos ;
+
+\ CREATE word-buffer 64 CELLS ALLOT
+VARIABLE word-buffer
+    64 ALLOT
+
+VARIABLE word-len
+
+\ Forth REPL, this time hosted in Forth
+: INTERPRET ( -- )
+    BL ['] WORD CATCH CASE
+        0 OF ( no error ) ENDOF
+
+        \ An EOF here isn't really an issue, it's just the end of
+        \ the file.
+        err-unexpected-eof OF
+            sig-eof THROW
+        ENDOF
+
+        ( else )
+            ." throw: " DUP . cr DUP THROW
+    ENDCASE
+
+    DUP word-len !             \ Update len
+    2DUP word-buffer TUCK DROP ( addr len addr buf len )
+    memcpy                     \ copy word into word buffer
+
+    FIND ?DUP IF                                  \ Found the word
+        ?compiling IF                             \ compile mode
+            DUP CELL+ C@ immediate-bit AND IF     \ execute immediate word
+                >CFA EXECUTE
+            ELSE                                  \ compile the word
+                >CFA ,
+            THEN
+        ELSE                                      \ immediate mode
+            >CFA EXECUTE
+        THEN
+    ELSE
+        word-buffer word-len @ >NUMBER UNLESS
+            err-undefined-word THROW
+        THEN
+
+        \ If we're interpreting we leave the number on the stack
+        ?compiling IF
+            [COMPILE] LITERAL
+        THEN
+    THEN
+;
+
+: (interpret-loop)
+    BEGIN
+        ['] INTERPRET CATCH
+        ?DUP IF
+            DUP sig-eof = IF THROW THEN
+
+            streams @
+                DUP stream>lineno @
+                SWAP stream>name c-str>
+
+            CR TELL ." :" .
+            word-len @ ?DUP IF
+                ." @ '"
+                word-buffer SWAP TELL
+                ." ' "
+            THEN
+
+            CASE
+                err-abort OF ." [ Aborted ]" ENDOF
+                err-unexpected-eof OF ." [ Unexpected EOF ]" ENDOF
+                err-undefined-word OF ." undefined word" ENDOF
+                ( else ) ." unknown exception: " DUP .
+            ENDCASE
+
+            CR
+
+            \ Print out where the error occurred if there's
+            \ something useful in the input buffer
+            SOURCE ?DUP IF
+                SPACE TELL           \ print the line
+                >IN @ word-len @ -   \ point to start of word
+                1 MAX 0 ?DO
+                    [CHAR] ~ EMIT
+                LOOP
+                [CHAR] ^ EMIT CR
+            ELSE
+                DROP
+            THEN
+
+        THEN
+    AGAIN
+;
+
+1 CONSTANT sys-exit  \ void exit(int rval)
+2 CONSTANT sys-fork  \ int fork(void)
+3 CONSTANT sys-read  \ ssize_t read(int fd, void *buf, size_t count)
+4 CONSTANT sys-write \ ssize_t write(int fd, const void *buf, size_t count)
+5 CONSTANT sys-open  \ int open(const char *path, int flags, mode_t mode)
+6 CONSTANT sys-close \ int close(int fd)
+
+0 CONSTANT success
+
+: DIE ( val -- ) sys-exit SYSCALL1 ;
+: BYE ( -- )     success DIE ;
+
+\ Enter second stage interpreter - we're self-hosted baby
+:NONAME
+    \ Clear out the return stack
+    RP0 RP!
+
+    ['] (interpret-loop) CATCH
+
+    \ This is the top-level interpreter, so when we catch an
+    \ exception here it should exit the process.
+    \
+    \ When we get a "normal" EOF (which happens when the entire
+    \ file is consumed), we exit cleanly, otherwise, return the
+    \ error status.
+    DUP sig-eof = IF DROP BYE ELSE DIE THEN
+; EXECUTE
+
+0 CONSTANT R/O
+1 CONSTANT W/O
+2 CONSTANT R/W
+
+: OPEN-FILE ( addr u mode -- fd err )
+    >R >c-str R> SWAP
+    sys-open SYSCALL2
+    DUP 0< IF DUP ELSE success THEN
+;
+
+: CLOSE-FILE ( fd -- err )
+    sys-close SYSCALL1 0< IF DUP ELSE success THEN
+;
+
+: READ-FILE ( addr len fd -- len err )
+    >R SWAP R>          \ read(fd, &addr, len)
+    sys-read SYSCALL3
+    DUP 0< IF DUP ELSE success THEN
 ;
 
 \ Get the length in bytes of the data currently in this stream's
@@ -1259,25 +1289,6 @@ VARIABLE required-files
 \ Just like `INCLUDE`, but checking if the import has already been done.
 : REQUIRE ( -- ) BL WORD REQUIRED ;
 
-
-VARIABLE source-buffer
-    BUFSIZE ALLOT
-
-VARIABLE source-buffer-pos
-    0 source-buffer-pos !
-
-VARIABLE source-buffer-end
-    0 source-buffer-end !
-
-\ TODO: clean up native definition.
-: (source) ( -- addr len ) SOURCE ;
-
-VARIABLE SOURCE-ID
-    -1 SOURCE-ID !
-
-: SOURCE ( -- addr u ) source-buffer source-buffer-end @ ;
-: >IN    ( -- addr )   source-buffer-pos ;
-
 : stream-read ( addr len s -- len err )
     \ check if we have enough buffered data to avoid calling read()
     DUP stream-buffer-count ( addr len s cnt )
@@ -1345,6 +1356,8 @@ VARIABLE key-buf
         ." [EOF] exhausted all inputs" cr
         FALSE EXIT
     THEN
+
+    1 streams @ stream>lineno +!
 
     0 source-buffer-pos !
     0 source-buffer-end !
@@ -1424,9 +1437,6 @@ VARIABLE key-buf
         NIP      ( k )
     THEN
 ;
-
-VARIABLE word-buffer
-    64 ALLOT
 
 : new-word ( delim -- c-addr u )
     DUP skip-delim
