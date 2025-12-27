@@ -18,16 +18,7 @@ import {
 } from "./storage.js";
 import { createMap } from "./map.js";
 import L from "leaflet";
-import {
-  calculateCurrentPace,
-  calculateRequiredPace,
-  calculateEstimatedArrival,
-  calculateTimeAheadBehind,
-  calculateSummaryStats,
-  getCurrentCheckpointIndex,
-  formatTimeDifference,
-  getTimeDifferenceHours,
-} from "./pace.js";
+import { calculateSummaryStats, getCurrentCheckpointIndex } from "./pace.js";
 import {
   showInlineMessage,
   formatDateTime,
@@ -1010,8 +1001,8 @@ function renderTrackingMode() {
         <button id="toggleMap" class="toggle-map-btn">
           <span id="mapToggleIcon">▼</span> Map
         </button>
-        <div id="mapContainer" class="map-container map-container-inline">
-          <div id="map" class="map-inner"></div>
+        <div id="mapContainer" class="map-container" style="display: block;">
+          <div id="map" style="height: 100%;"></div>
         </div>
       </div>
 
