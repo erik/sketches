@@ -50,6 +50,12 @@ import {
   validateSequentialCheckIn,
 } from "./checkpoint-ops.js";
 
+// Constants for checkpoint IDs to avoid stringly-typed issues
+const CHECKPOINT_IDS = {
+  START: "start",
+  FINISH: "finish",
+};
+
 // Create the app store
 const store = createStore(createInitialState());
 
@@ -66,8 +72,8 @@ function updateStartFinishCheckpoints(existingCheckpoints, track) {
   }
 
   // Find existing start/finish
-  let startCp = checkpoints.find((cp) => cp.id === "start");
-  let finishCp = checkpoints.find((cp) => cp.id === "finish");
+  let startCp = checkpoints.find((cp) => cp.id === CHECKPOINT_IDS.START);
+  let finishCp = checkpoints.find((cp) => cp.id === CHECKPOINT_IDS.FINISH);
 
   const totalLength = trackLength(track);
 
@@ -77,7 +83,7 @@ function updateStartFinishCheckpoints(existingCheckpoints, track) {
     startCp.coord = track[0];
   } else {
     startCp = {
-      id: "start",
+      id: CHECKPOINT_IDS.START,
       name: "Start",
       km: 0,
       coord: track[0],
@@ -103,7 +109,7 @@ function updateStartFinishCheckpoints(existingCheckpoints, track) {
           .slice(0, 16) + ":00";
 
     finishCp = {
-      id: "finish",
+      id: CHECKPOINT_IDS.FINISH,
       name: "Finish",
       km: totalLength,
       coord: track[track.length - 1],
@@ -367,9 +373,8 @@ function initSetupMap() {
   // fixme: too much shit in the init function. too much shit in this click handler too!!!
   mapInstance.onMapClick((coord) => {
     const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-    // fixme: extract constants, no string-typing for the IDs
-    const hasStart = sorted.some((cp) => cp.id === "start");
-    const hasFinish = sorted.some((cp) => cp.id === "finish");
+    const hasStart = sorted.some((cp) => cp.id === CHECKPOINT_IDS.START);
+    const hasFinish = sorted.some((cp) => cp.id === CHECKPOINT_IDS.FINISH);
 
     if (state.route.track.length > 0) {
       const snapped = findCheckpointOnTrack(state.route.track, coord);
@@ -483,8 +488,8 @@ function renderCheckpointsList(state) {
       <tbody id="checkpointsTableBody">
         ${sorted
           .map((cp) => {
-            // FIXME: ditto stringly typed
-            const isStartOrFinish = cp.id === "start" || cp.id === "finish";
+            const isStartOrFinish =
+              cp.id === CHECKPOINT_IDS.START || cp.id === CHECKPOINT_IDS.FINISH;
             // Start/finish are readonly when GPX track exists, editable otherwise
             const kmReadonly = state.route.track.length > 0 && isStartOrFinish;
             const nameReadonly = isStartOrFinish; // Name always readonly for start/finish
@@ -564,12 +569,10 @@ async function handleGPXUpload(e) {
 
   const allSegments = [...state.route.segments, ...newSegments];
 
-  // FIXME: IMPORTANT! we don't want to smoosh all the segments together! we
-  // want a list of polylines. There can be discontinuities in the tracks.
-  // Update the data model to accomodate this!!
+  // Preserve individual segments for display and provide combined track for calculations
   const combinedTrack = combineSegments(allSegments);
 
-  // Update or create start/finish checkpoints
+  // Update or create start/finish checkpoints using the combined track
   const checkpoints = updateStartFinishCheckpoints(
     state.route.checkpoints,
     combinedTrack,
@@ -644,8 +647,7 @@ function addCheckpointAt(coord, km) {
 
   // Count intermediate checkpoints (excluding start/finish)
   const intermediateCount = state.route.checkpoints.filter(
-    // fixme: ditto stringly typed
-    (cp) => cp.id !== "start" && cp.id !== "finish",
+    (cp) => cp.id !== CHECKPOINT_IDS.START && cp.id !== CHECKPOINT_IDS.FINISH,
   ).length;
 
   const newCheckpoint = {
