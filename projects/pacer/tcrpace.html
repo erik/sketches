@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Transcontinental Race No11 - Pace Tracker</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: #f8f9fa;
+                color: #212529;
+                min-height: 100vh;
+                padding: 15px;
+                line-height: 1.5;
+            }
+
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .header {
+                text-align: center;
+                margin-bottom: 30px;
+            }
+
+            h1 {
+                font-size: 2.2em;
+                font-weight: 700;
+                color: #2c3e50;
+                margin-bottom: 10px;
+            }
+
+            button {
+                padding: 10px 16px;
+                border: 1px solid #dee2e6;
+                background: #fff;
+                color: #495057;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                border-radius: 6px;
+                transition: all 0.2s ease;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            }
+
+            button:hover {
+                background: #f8f9fa;
+                border-color: #adb5bd;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+            }
+
+            .results-section {
+                padding: 0;
+            }
+
+            .next-cutoff {
+                padding: 20px;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                text-align: center;
+                margin-bottom: 25px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+
+            .next-cutoff h3 {
+                font-size: 1.3em;
+                margin-bottom: 8px;
+                font-weight: 600;
+            }
+
+            .summary-cards {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+
+            .summary-card {
+                padding: 20px;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                text-align: center;
+                background: white;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .summary-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            }
+
+            .summary-card h3 {
+                color: #6c757d;
+                font-size: 0.9em;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 10px;
+            }
+
+            .summary-card .value {
+                font-size: 1.4em;
+                font-weight: 700;
+                color: #2c3e50;
+            }
+
+            .table-container {
+                overflow-x: auto;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                background: white;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+                background: white;
+            }
+
+            th,
+            td {
+                border: 1px solid #dee2e6;
+                padding: 12px 8px;
+                text-align: left;
+            }
+
+            th {
+                background: #f8f9fa;
+                font-weight: 600;
+                color: #495057;
+                text-transform: uppercase;
+                font-size: 0.85em;
+                letter-spacing: 0.5px;
+            }
+
+            tr:hover {
+                background: #f8f9fa;
+            }
+
+            .checkpoint-row {
+                cursor: pointer;
+                transition: background-color 0.2s ease;
+            }
+
+            .checkpoint-row:hover {
+                background: #e9ecef !important;
+            }
+
+            .modal {
+                display: none;
+                position: fixed;
+                z-index: 1000;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(3px);
+            }
+
+            .modal-content {
+                background: white;
+                margin: 10% auto;
+                padding: 30px;
+                width: 90%;
+                max-width: 450px;
+                border-radius: 12px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                animation: modalSlideIn 0.3s ease;
+            }
+
+            @keyframes modalSlideIn {
+                from {
+                    transform: translateY(-50px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+
+            .modal-header {
+                text-align: center;
+                margin-bottom: 20px;
+            }
+
+            .modal-header h2 {
+                color: #2c3e50;
+                margin-bottom: 5px;
+            }
+
+            .modal-buttons,
+            .modal-actions {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 12px;
+                margin-bottom: 15px;
+            }
+
+            .btn-success {
+                background: #28a745;
+                color: white;
+                border-color: #28a745;
+            }
+
+            .btn-success:hover {
+                background: #218838;
+                border-color: #1e7e34;
+            }
+
+            .btn-cancel {
+                background: #6c757d;
+                color: white;
+                border-color: #6c757d;
+            }
+
+            .btn-cancel:hover {
+                background: #5a6268;
+                border-color: #545b62;
+            }
+
+            .btn-clear {
+                background: #dc3545;
+                color: white;
+                border-color: #dc3545;
+            }
+
+            .btn-clear:hover {
+                background: #c82333;
+                border-color: #bd2130;
+            }
+
+            .btn-save {
+                background: #007bff;
+                color: white;
+                border-color: #007bff;
+            }
+
+            .btn-save:hover {
+                background: #0056b3;
+                border-color: #004085;
+            }
+
+            .datetime-input {
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
+                border: 2px solid #dee2e6;
+                border-radius: 6px;
+                margin-bottom: 15px;
+                transition: border-color 0.2s ease;
+            }
+
+            .datetime-input:focus {
+                outline: none;
+                border-color: #007bff;
+                box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+            }
+
+            .footer {
+                text-align: center;
+                font-size: 0.9em;
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #dee2e6;
+                color: #6c757d;
+            }
+
+            @media (max-width: 768px) {
+                .summary-cards {
+                    grid-template-columns: 1fr;
+                }
+
+                table {
+                    font-size: 12px;
+                }
+
+                th,
+                td {
+                    padding: 8px 6px;
+                }
+
+                .container {
+                    padding: 15px;
+                }
+
+                h1 {
+                    font-size: 1.8em;
+                }
+            }
+
+            .metric-positive {
+                color: #28a745;
+                font-weight: 600;
+            }
+
+            .metric-negative {
+                color: #dc3545;
+                font-weight: 600;
+            }
+
+            .metric-neutral {
+                color: #6c757d;
+            }
+
+            .status-reached {
+                background: #d4edda;
+                color: #155724;
+            }
+
+            .status-current {
+                background: #fff3cd;
+                color: #856404;
+            }
+
+            .status-upcoming {
+                background: #f8f9fa;
+                color: #6c757d;
+            }
+
+            .status-missed {
+                background: #f8d7da;
+                color: #721c24;
+            }
+
+            .checkpoint-name {
+                font-weight: 600;
+                color: #2c3e50;
+            }
+
+            .cutoff-time {
+                font-size: 0.9em;
+            }
+
+            .cutoff-time em {
+                color: #6c757d;
+                font-size: 0.85em;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Transcontinental Race No11</h1>
+            <div class="results-section">
+                <div class="next-cutoff" id="nextCutoff">
+                    <!-- Next cutoff info will be displayed here -->
+                </div>
+
+                <div class="summary-cards" id="summaryCards">
+                    <!-- Summary cards will be generated dynamically -->
+                </div>
+
+                <div class="table-container">
+                    <table id="resultsTable">
+                        <thead>
+                            <tr>
+                                <th>Checkpoint</th>
+                                <th>Cutoff</th>
+                                <th>Arrival / ETA</th>
+                                <th>Recorded Pace</th>
+                                <th>Minimum Pace</th>
+                                <th>Time Ahead/Behind</th>
+                                <th>Distance From Last</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody">
+                            <!-- Results will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for time input -->
+        <div id="timeModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalTitle">Set Arrival Time</h2>
+                    <p id="modalSubtitle"></p>
+                </div>
+
+                <div class="modal-buttons">
+                    <button class="btn-success" onclick="setCurrentTime()">
+                        Use Current Time
+                    </button>
+                </div>
+
+                <input
+                    type="datetime-local"
+                    id="datetimeInput"
+                    class="datetime-input"
+                />
+
+                <div class="modal-actions">
+                    <button class="btn-cancel" onclick="closeModal()">
+                        Cancel
+                    </button>
+                    <button class="btn-clear" onclick="clearCheckpointTime()">
+                        Clear
+                    </button>
+                    <button class="btn-save" onclick="saveTime()">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const courseData = [
+                {
+                    name: "Start",
+                    closeTime: "2025-07-27T20:00:00",
+                    elapsedFromStart: 0,
+                    elapsedFromPrev: 0,
+                    distanceFromStart: 0,
+                    distanceFromPrev: 0,
+                    minSpeedFromPrev: 0,
+                    minSpeedFromStart: 0,
+                },
+                {
+                    name: "CP1: Picos de Europa",
+                    closeTime: "2025-07-30T09:00:00",
+                    elapsedFromStart: 61,
+                    elapsedFromPrev: 61,
+                    distanceFromStart: 625,
+                    distanceFromPrev: 625,
+                    minSpeedFromPrev: 10.25,
+                    minSpeedFromStart: 10.25,
+                },
+                {
+                    name: "CP2: Col Du Tourmalet",
+                    closeTime: "2025-08-01T23:59:00",
+                    elapsedFromStart: 123.98,
+                    elapsedFromPrev: 62.98,
+                    distanceFromStart: 1285,
+                    distanceFromPrev: 660,
+                    minSpeedFromPrev: 10.48,
+                    minSpeedFromStart: 10.36,
+                },
+                {
+                    name: "CP3: Strada Dell'Assietta",
+                    closeTime: "2025-08-05T09:00:00",
+                    elapsedFromStart: 205,
+                    elapsedFromPrev: 81.02,
+                    distanceFromStart: 2153,
+                    distanceFromPrev: 868,
+                    minSpeedFromPrev: 10.71,
+                    minSpeedFromStart: 10.5,
+                },
+                {
+                    name: "CP4: Siena-Pacentro",
+                    closeTime: "2025-08-09T23:59:00",
+                    elapsedFromStart: 315.98,
+                    elapsedFromPrev: 110.98,
+                    distanceFromStart: 3032,
+                    distanceFromPrev: 879,
+                    minSpeedFromPrev: 7.92,
+                    minSpeedFromStart: 9.6,
+                },
+                {
+                    // 45.2 + 6 + 38 = 89.2
+                    name: "FERRY: Bari to Durrës",
+                    closeTime: "2025-08-10T20:58:00",
+                    elapsedFromStart: 336.98,
+                    elapsedFromPrev: 21,
+                    distanceFromStart: 3360,
+                    distanceFromPrev: 328,
+                    minSpeedFromPrev: 15.61,
+                    minSpeedFromStart: 9.97,
+                },
+                {
+                    name: "CP5: Burrel",
+                    closeTime: "2025-08-11T23:59:00",
+                    elapsedFromStart: 363.98,
+                    elapsedFromPrev: 27,
+                    distanceFromStart: 3449,
+                    distanceFromPrev: 89,
+                    minSpeedFromPrev: 3.3,
+                    minSpeedFromStart: 9.48,
+                },
+                {
+                    name: "Finish: Constanta",
+                    closeTime: "2025-08-14T22:59:00",
+                    elapsedFromStart: 434.98,
+                    elapsedFromPrev: 71,
+                    distanceFromStart: 4600,
+                    distanceFromPrev: 1151,
+                    minSpeedFromPrev: 16.21,
+                    minSpeedFromStart: 10.58,
+                },
+            ];
+
+            let arrivalTimes = {
+                0: new Date("2025-07-27T20:00:00"),
+            };
+            let currentCheckpointIndex = null;
+
+            function openTimeModal(index) {
+                currentCheckpointIndex = index;
+                const cp = courseData[index];
+
+                document.getElementById("modalTitle").textContent =
+                    `Set Arrival Time`;
+                document.getElementById("modalSubtitle").textContent = cp.name;
+
+                // Set current value if exists
+                const currentTime = arrivalTimes[index];
+                if (currentTime) {
+                    document.getElementById("datetimeInput").value =
+                        dateAsIsoString(currentTime);
+                } else {
+                    document.getElementById("datetimeInput").value = "";
+                }
+
+                document.getElementById("timeModal").style.display = "block";
+            }
+
+            function closeModal() {
+                document.getElementById("timeModal").style.display = "none";
+                currentCheckpointIndex = null;
+            }
+
+            function dateAsIsoString(date) {
+                const pad = (n) => String(n).padStart(2, "0");
+
+                const year = date.getFullYear();
+                const month = pad(date.getMonth() + 1);
+                const day = pad(date.getDate());
+                const hours = pad(date.getHours());
+                const minutes = pad(date.getMinutes());
+
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+
+            function setCurrentTime() {
+                document.getElementById("datetimeInput").value =
+                    dateAsIsoString(new Date());
+            }
+
+            function setCurrentTimeForStart() {
+                const date = new Date();
+                const pad = (n) => String(n).padStart(2, "0");
+
+                const year = date.getFullYear();
+                const month = pad(date.getMonth() + 1);
+                const day = pad(date.getDate());
+                const hours = pad(date.getHours());
+                const minutes = pad(date.getMinutes());
+
+                const isoString = `${year}-${month}-${day}T${hours}:${minutes}`;
+                arrivalTimes[0] = new Date(isoString);
+                saveToLocalStorage();
+                updateCalculations();
+            }
+
+            function clearCheckpointTime() {
+                if (currentCheckpointIndex !== null) {
+                    delete arrivalTimes[currentCheckpointIndex];
+                    saveToLocalStorage();
+                    updateCalculations();
+                    closeModal();
+                }
+            }
+
+            function saveTime() {
+                if (currentCheckpointIndex !== null) {
+                    const value =
+                        document.getElementById("datetimeInput").value;
+                    if (value) {
+                        arrivalTimes[currentCheckpointIndex] = new Date(value);
+                        saveToLocalStorage();
+                        updateCalculations();
+                    }
+                    closeModal();
+                }
+            }
+
+            function clearAllTimes() {
+                if (
+                    confirm(
+                        "Are you sure you want to clear all checkpoint times?",
+                    )
+                ) {
+                    arrivalTimes = { 0: new Date(courseData[0].closeTime) };
+                    saveToLocalStorage();
+                    updateCalculations();
+                }
+            }
+
+            function saveToLocalStorage() {
+                const serialized = {};
+                for (const [key, value] of Object.entries(arrivalTimes)) {
+                    serialized[key] = value.toISOString();
+                }
+                localStorage.setItem(
+                    "arrivalTimes",
+                    JSON.stringify(serialized),
+                );
+            }
+
+            function loadFromLocalStorage() {
+                const saved = localStorage.getItem("arrivalTimes");
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        for (const [key, value] of Object.entries(parsed)) {
+                            arrivalTimes[key] = new Date(value);
+                        }
+                    } catch (e) {
+                        console.error(
+                            "Failed to parse arrivalTimes from localStorage",
+                            e,
+                        );
+                    }
+                }
+            }
+
+            function formatTime(hours) {
+                const h = Math.floor(hours);
+                const m = Math.floor((hours - h) * 60);
+                return `${h}:${m.toString().padStart(2, "0")}`;
+            }
+
+            function formatDateTime(date) {
+                if (!date) return "";
+                return (
+                    date.toLocaleDateString() +
+                    " " +
+                    date.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    })
+                );
+            }
+
+            function getTimeDifference(date1, date2) {
+                return (date1 - date2) / (1000 * 60 * 60); // Hours
+            }
+
+            function formatTimeDifference(date1, date2) {
+                let diff = Math.abs(date1 - date2); // in milliseconds
+
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                diff -= days * (1000 * 60 * 60 * 24);
+
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                diff -= hours * (1000 * 60 * 60);
+
+                const minutes = Math.floor(diff / (1000 * 60));
+                diff -= minutes * (1000 * 60);
+
+                const parts = [];
+                if (days > 0) parts.push(`${days}d`);
+                if (hours > 0) parts.push(`${hours}h`);
+                if (minutes > 0) parts.push(`${minutes}m`);
+
+                return parts.length > 0 ? parts.join(" ") : "0 seconds";
+            }
+
+            function getStatus(index) {
+                const cp = courseData[index];
+                const closeTime = new Date(cp.closeTime);
+                const arrivalTime = arrivalTimes[index];
+
+                if (arrivalTime) {
+                    if (arrivalTime > closeTime) {
+                        return "missed";
+                    } else {
+                        return "reached";
+                    }
+                }
+
+                const currentIndex = getCurrentCheckpointIndex();
+                if (index === currentIndex) {
+                    return "current";
+                } else if (index < currentIndex) {
+                    return "reached";
+                } else {
+                    return "upcoming";
+                }
+            }
+
+            function getCurrentCheckpointIndex() {
+                for (let i = courseData.length - 1; i >= 0; i--) {
+                    if (arrivalTimes[i]) {
+                        return i;
+                    }
+                }
+                return 0;
+            }
+
+            function getNextCutoff() {
+                const currentIndex = getCurrentCheckpointIndex();
+                for (let i = currentIndex; i < courseData.length; i++) {
+                    if (!arrivalTimes[i]) {
+                        return i;
+                    }
+                }
+                return null;
+            }
+
+            function updateNextCutoffDisplay() {
+                const nextCutoffDiv = document.getElementById("nextCutoff");
+                const nextIndex = getNextCutoff();
+
+                if (nextIndex !== null) {
+                    const nextCp = courseData[nextIndex];
+                    const cutoffTime = new Date(nextCp.closeTime);
+                    const now = new Date();
+                    const hoursRemaining = formatTimeDifference(
+                        cutoffTime,
+                        now,
+                    );
+
+                    nextCutoffDiv.innerHTML = `
+                        <h3>Next Cutoff: ${nextCp.name}</h3>
+                        <div class="time"><b>Cutoff time:</b> ${formatDateTime(cutoffTime)}</div>
+                        <div><b>Time remaining:</b> ${hoursRemaining}</div>
+                    `;
+                } else {
+                    nextCutoffDiv.innerHTML = `
+                        <h3>All checkpoints completed!</h3>
+                    `;
+                }
+            }
+
+            function calculateCurrentPace(fromIndex, toIndex) {
+                const fromTime = arrivalTimes[fromIndex];
+                const toTime = arrivalTimes[toIndex];
+
+                if (!fromTime || !toTime) return null;
+
+                const timeDiff = getTimeDifference(toTime, fromTime);
+                const distance =
+                    courseData[toIndex].distanceFromStart -
+                    courseData[fromIndex].distanceFromStart;
+
+                return distance / timeDiff;
+            }
+
+            function calculateRequiredPace(fromIndex, toIndex) {
+                const fromTime =
+                    arrivalTimes[fromIndex] ||
+                    new Date(courseData[fromIndex].closeTime);
+                const toTime = new Date(courseData[toIndex].closeTime);
+
+                const timeDiff = getTimeDifference(toTime, fromTime);
+                const distance =
+                    courseData[toIndex].distanceFromStart -
+                    courseData[fromIndex].distanceFromStart;
+
+                return distance / timeDiff;
+            }
+
+            function calculateEstimatedArrival(targetIndex) {
+                const lastReachedIndex = getCurrentCheckpointIndex();
+                const lastReachedTime = arrivalTimes[lastReachedIndex];
+                const startTime = arrivalTimes[0];
+
+                if (!lastReachedTime || !startTime) return null;
+
+                // Calculate overall pace from start to last reached checkpoint
+                const totalTime = getTimeDifference(lastReachedTime, startTime);
+                const totalDistance =
+                    courseData[lastReachedIndex].distanceFromStart;
+
+                if (totalTime <= 0 || totalDistance <= 0) return null;
+
+                const overallPace = totalDistance / totalTime;
+
+                // Calculate distance to target checkpoint
+                const distanceToTarget =
+                    courseData[targetIndex].distanceFromStart -
+                    courseData[lastReachedIndex].distanceFromStart;
+
+                // Time needed in hours
+                const timeNeeded = distanceToTarget / overallPace;
+
+                // Calculate estimated arrival
+                return new Date(
+                    lastReachedTime.getTime() + timeNeeded * 60 * 60 * 1000,
+                );
+            }
+
+            function updateSummaryCards() {
+                const summaryCards = document.getElementById("summaryCards");
+                const currentIndex = getCurrentCheckpointIndex();
+
+                let totalDistance = 0;
+                let totalTime = 0;
+                let overallPace = 0;
+                let timeAheadBehind = 0;
+                let formatDiff = null;
+
+                if (arrivalTimes[0] && Object.keys(arrivalTimes).length > 1) {
+                    const lastIndex = Math.max(
+                        ...Object.keys(arrivalTimes).map(Number),
+                    );
+                    totalDistance = courseData[lastIndex].distanceFromStart;
+                    totalTime = getTimeDifference(
+                        arrivalTimes[lastIndex],
+                        arrivalTimes[0],
+                    );
+                    overallPace = totalDistance / totalTime;
+
+                    const startTime = new Date(courseData[0].closeTime);
+                    const expectedTime = new Date(
+                        startTime.getTime() +
+                            courseData[lastIndex].elapsedFromStart *
+                                60 *
+                                60 *
+                                1000,
+                    );
+                    timeAheadBehind = getTimeDifference(
+                        expectedTime,
+                        arrivalTimes[lastIndex],
+                    );
+                    formatDiff = formatTimeDifference(
+                        expectedTime,
+                        arrivalTimes[lastIndex],
+                    );
+                }
+
+                const estimatedArrival = calculateEstimatedArrival(
+                    courseData.length - 1,
+                );
+
+                summaryCards.innerHTML = `
+                <div class="summary-card">
+                    <h3>Overall Pace</h3>
+                    <div class="value">${overallPace > 0 ? overallPace.toFixed(1) : "0.0"} km/h</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Distance Covered</h3>
+                    <div class="value">${totalDistance}km</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Time vs Schedule</h3>
+                    <div class="value">${formatDiff ? formatDiff : "-"} <b>${timeAheadBehind > 0 ? "ahead" : timeAheadBehind < 0 ? "behind" : ""}</b></div>
+                </div>
+                <div class="summary-card">
+                    <h3>Finish ETA</h3>
+                    <div class="value">${formatDateTime(estimatedArrival)}</div>
+                </div>
+            `;
+            }
+
+            function updateCalculations() {
+                const tbody = document.getElementById("resultsBody");
+                tbody.innerHTML = "";
+
+                const currentIndex = getCurrentCheckpointIndex();
+
+                courseData.forEach((cp, index) => {
+                    const row = document.createElement("tr");
+                    const status = getStatus(index);
+                    row.className = `status-${status} checkpoint-row`;
+                    row.onclick = () => openTimeModal(index);
+
+                    let currentPace = null;
+                    let requiredPace = courseData[index].minSpeedFromStart;
+                    let timeAheadBehind = null;
+                    let estimatedArrival = null;
+                    let remainingTime = null;
+                    let remainingTimeStr = null;
+                    let distRemaining = null;
+
+                    const prevIndex = index === 0 ? 0 : index - 1;
+
+                    const finishTime = new Date(
+                        new Date(courseData[courseData.length - 1].closeTime),
+                    );
+                    const currentActualTime =
+                        arrivalTimes[index] || new Date(cp.closeTime);
+
+                    // Calculate required pace to finish from current checkpoint
+                    if (currentIndex < index) {
+                        requiredPace = calculateRequiredPace(
+                            currentIndex,
+                            index,
+                        );
+                    }
+
+                    if (arrivalTimes[index]) {
+                        const startTime = new Date(courseData[0].closeTime);
+                        const expectedTime = new Date(
+                            startTime.getTime() +
+                                cp.elapsedFromStart * 60 * 60 * 1000,
+                        );
+                        timeAheadBehind = getTimeDifference(
+                            expectedTime,
+                            arrivalTimes[index],
+                        );
+                        if (index > 0) {
+                            currentPace = calculateCurrentPace(
+                                prevIndex,
+                                index,
+                            );
+                        }
+                    }
+
+                    if (!arrivalTimes[index] && index > currentIndex) {
+                        estimatedArrival = calculateEstimatedArrival(index);
+                        remainingTimeStr = formatTimeDifference(
+                            new Date(),
+                            new Date(courseData[index].closeTime),
+                        );
+                    }
+
+                    const nextIndex = Math.min(
+                        index + 1,
+                        courseData.length - 1,
+                    );
+                    distRemaining =
+                        cp.distanceFromStart -
+                        courseData[prevIndex].distanceFromStart;
+
+                    row.innerHTML = `
+                    <td class="checkpoint-name">${cp.name}</td>
+                    <td class="cutoff-time">${formatDateTime(new Date(cp.closeTime))} ${
+                        remainingTimeStr
+                            ? "<br/><br/><em>" + remainingTimeStr + "</em>"
+                            : ""
+                    }</td>
+                    <td>${estimatedArrival ? "<b>ETA</b> " : ""}${formatDateTime(arrivalTimes[index] || estimatedArrival)}</td>
+                    <td class="${currentPace ? (currentPace >= cp.minSpeedFromStart ? "metric-positive" : "metric-negative") : "metric-neutral"}">
+                        ${currentPace ? currentPace.toFixed(2) + " km/h" : "-"}
+                    </td>
+                    <td class="${requiredPace ? (requiredPace <= 20 && requiredPace > 0 ? "metric-positive" : "metric-negative") : "metric-neutral"}">
+                        ${requiredPace ? requiredPace.toFixed(2) + " km/h" : "-"}
+                    </td>
+                    <td class="${timeAheadBehind ? (timeAheadBehind > 0 ? "metric-positive" : "metric-negative") : "metric-neutral"}">
+                        ${timeAheadBehind ? (timeAheadBehind > 0 ? "+" : "") + timeAheadBehind.toFixed(1) + "h" : "-"}
+                    </td>
+                    <td>${distRemaining ? distRemaining + " km" : "-"}</td>
+                `;
+
+                    tbody.appendChild(row);
+                });
+
+                updateSummaryCards();
+                updateNextCutoffDisplay();
+            }
+
+            // Close modal when clicking outside of it
+            window.onclick = function (event) {
+                const modal = document.getElementById("timeModal");
+                if (event.target === modal) {
+                    closeModal();
+                }
+            };
+
+            // Close modal on Escape key
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    closeModal();
+                }
+            });
+
+            document.addEventListener("DOMContentLoaded", function () {
+                loadFromLocalStorage();
+                updateCalculations();
+            });
+        </script>
+    </body>
+</html>

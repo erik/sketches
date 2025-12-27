@@ -1,0 +1,28 @@
+{
+  "name": "pacer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@turf/along": "^7.3.1",
+    "@turf/bbox": "^7.3.1",
+    "@turf/distance": "^7.3.1",
+    "@turf/helpers": "^7.3.1",
+    "@turf/length": "^7.3.1",
+    "@turf/line-slice": "^7.3.1",
+    "@turf/nearest-point-on-line": "^7.3.1",
+    "@turf/simplify": "^7.3.1",
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "vite": "npm:rolldown-vite@7.2.5"
+  },
+  "overrides": {
+    "vite": "npm:rolldown-vite@7.2.5"
+  }
+}
