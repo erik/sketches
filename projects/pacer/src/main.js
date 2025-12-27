@@ -411,6 +411,7 @@ function setupMapClickHandler(state) {
  * Handle map click when track is available
  */
 function handleMapClickWithTrack(coord, hasStart, hasFinish) {
+  const state = store.get();
   const snapped = findCheckpointOnTrack(state.route.track, coord);
 
   // Show tooltip/popup to confirm
