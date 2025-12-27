@@ -169,7 +169,8 @@ async function init() {
     // In setup mode, update only what changed
     if (state.mode === "setup") {
       // Segments or track changed - need full re-render to show/hide checkpoint list
-      // fixme: this is stupid and bad. need real rendering solution
+      // NOTE: This is a simple approach for the current architecture. In a more complex
+      // app, we'd use a virtual DOM or component-based framework for granular updates.
       if (
         state.route.segments !== lastState.route.segments ||
         state.route.track !== lastState.route.track
@@ -223,25 +224,20 @@ async function init() {
         // Update validation message
         const saveSection = saveBtn?.parentElement;
         if (saveSection) {
-          // fixme: what the fuck is this
-          const existingHint = saveSection.querySelector(
-            '.hint[style*="dc2626"]',
-          );
+          // Remove any existing validation messages
+          const existingHints = saveSection.querySelectorAll('.hint.error-hint');
+          existingHints.forEach(hint => hint.remove());
+
+          // Show validation message if route cannot be saved
           if (!canSaveRoute(state)) {
-            if (!existingHint) {
-              // fixme: we have a helper for this
-              const hint = document.createElement("p");
-              hint.className = "hint";
-              hint.style.color = "#dc2626";
-              hint.textContent =
-                "Need: route name, start/finish checkpoints, and cutoff times";
-              saveSection.appendChild(hint);
-            }
-          } else if (existingHint) {
-            existingHint.remove();
+            showInlineMessage(
+              saveSection,
+              "Need: route name, start/finish checkpoints, and cutoff times",
+              "error",
+              false
+            );
           }
         }
-      }
     }
 
     // In tracking mode, update tracking display
@@ -590,9 +586,8 @@ async function handleGPXUpload(e) {
   // Clear the file input
   e.target.value = "";
 
-  // Re-setup listeners after render
-  // fixme: this is absurd.
-  setTimeout(() => setupSegmentDragAndDrop(), 0);
+  // Setup drag and drop for segments after rendering
+  setupSegmentDragAndDrop();
 }
 
 // fixme: don't want this
@@ -627,9 +622,57 @@ function deleteSegment(segmentId) {
 // fixme this is broken
 function setupSegmentDragAndDrop() {
   const items = document.querySelectorAll(".segment-item");
+  let draggedItem = null;
+  let draggedId = null;
 
+  // Add drag and drop event listeners
   items.forEach((item) => {
-    // fixme: implement this for desktop + mobile. we want to be able to reorder the segments
+    item.setAttribute("draggable", "true");
+
+    item.addEventListener("dragstart", (e) => {
+      draggedItem = e.target;
+      draggedId = e.target.dataset.id;
+      e.target.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", draggedId);
+    });
+
+    item.addEventListener("dragend", (e) => {
+      e.target.classList.remove("dragging");
+    });
+
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const target = e.target.closest(".segment-item");
+      if (target && target !== draggedItem) {
+        const container = target.parentElement;
+        const rect = target.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+
+        if (e.clientY < midY) {
+          container.insertBefore(draggedItem, target);
+        } else {
+          container.insertBefore(draggedItem, target.nextSibling);
+        }
+      }
+    });
+
+    item.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (e.target !== draggedItem) {
+        e.target.classList.add("drag-over");
+      }
+    });
+
+    item.addEventListener("dragleave", (e) => {
+      e.target.classList.remove("drag-over");
+    });
+
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.target.classList.remove("drag-over");
+    });
   });
 
   // Delete buttons
@@ -638,6 +681,29 @@ function setupSegmentDragAndDrop() {
       e.stopPropagation();
       deleteSegment(e.target.dataset.id);
     });
+  });
+
+  // Update segment order in state when drag ends
+  document.addEventListener("dragend", (e) => {
+    if (draggedId) {
+      const newOrder = Array.from(
+        document.querySelectorAll(".segment-item"),
+      ).map((item) => item.dataset.id);
+      const state = store.get();
+      const segments = [...state.route.segments];
+      const newSegments = newOrder
+        .map((id) => segments.find((s) => s.id === id))
+        .filter(Boolean);
+
+      store.update({
+        route: {
+          ...state.route,
+          segments: newSegments,
+        },
+      });
+
+      draggedId = null;
+    }
   });
 }
 

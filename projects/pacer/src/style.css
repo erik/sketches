@@ -306,7 +306,14 @@ label {
     &.dragging {
         opacity: 0.5;
     }
+
+    &.drag-over {
+        border-color: #2563eb;
+        background-color: #eff6ff;
+    }
 }
+
+.drag-handle {
 
 .drag-handle {
     color: #9ca3af;
