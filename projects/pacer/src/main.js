@@ -314,11 +314,13 @@ function renderSetupMode() {
     .getElementById("gpxFiles")
     .addEventListener("change", handleGPXUpload);
 
-  // The save button might be null if the DOM hasn't been fully rendered yet
-  // This can happen if the event listener is set up before renderSetupMode() completes
+  // Setup save button event listener
   const saveBtn = document.getElementById("saveRoute");
   if (saveBtn) {
     saveBtn.addEventListener("click", saveRoute);
+  } else {
+    // fixme: horrible.
+    console.warn("Save button not found - will retry on next render");
   }
 
   // Setup drag and drop for segments
@@ -326,6 +328,9 @@ function renderSetupMode() {
 
   // Initialize map
   initSetupMap();
+
+  // Setup checkpoint event listeners
+  setupCheckpointListeners();
 }
 
 function initSetupMap() {
