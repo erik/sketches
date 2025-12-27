@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Check-ins Map</title>
+        <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+        <link
+            href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+            rel="stylesheet"
+        />
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                background: #f5f5f5;
+            }
+
+            .header {
+                background: white;
+                padding: 1rem;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                position: relative;
+                z-index: 1000;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+                color: #333;
+                margin: 0;
+            }
+
+            .filters {
+                margin-top: 0.5rem;
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            .filter-group {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .filter-group label {
+                font-size: 0.9rem;
+                color: #666;
+            }
+
+            .filter-group select {
+                padding: 0.25rem 0.5rem;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
+            }
+
+            .filter-group input[type="checkbox"] {
+                margin-right: 0.25rem;
+            }
+
+            .legend {
+                background: white;
+                padding: 0.5rem;
+                border-radius: 4px;
+                border: 1px solid #ddd;
+                font-size: 0.8rem;
+                max-width: 200px;
+            }
+
+            .legend-item {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.25rem;
+            }
+
+            .legend-color {
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                border: 1px solid #fff;
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+            }
+
+            #map {
+                width: 100%;
+                height: calc(100vh - 120px);
+            }
+
+            .popup-content {
+                max-width: 300px;
+            }
+
+            .popup-header {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .popup-avatar {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                object-fit: cover;
+            }
+
+            .popup-username {
+                font-weight: bold;
+                color: #333;
+            }
+
+            .popup-date {
+                font-size: 0.8rem;
+                color: #666;
+                margin-left: auto;
+            }
+
+            .popup-message {
+                margin-bottom: 0.5rem;
+                line-height: 1.4;
+                color: #333;
+            }
+
+            .popup-media {
+                display: flex;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+            }
+
+            .popup-media img {
+                width: 60px;
+                height: 60px;
+                object-fit: cover;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+
+            .popup-media-count {
+                font-size: 0.8rem;
+                color: #666;
+                margin-top: 0.25rem;
+            }
+
+            .loading {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 1rem 2rem;
+                border-radius: 8px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                z-index: 10000;
+            }
+
+            .error {
+                background: #fee;
+                color: #c33;
+                padding: 1rem;
+                margin: 1rem;
+                border-radius: 4px;
+                border: 1px solid #fcc;
+            }
+
+            /* Mobile responsive */
+            @media (max-width: 768px) {
+                .filters {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 0.5rem;
+                }
+
+                .filter-group {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 0.25rem;
+                }
+
+                .legend {
+                    font-size: 0.7rem;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Check-ins Map</h1>
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="user-filter">User:</label>
+                    <select id="user-filter">
+                        <option value="">All Users</option>
+                    </select>
+                </div>
+                <div class="legend" id="legend" style="display: none"></div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="loading" id="loading">Loading check-ins...</div>
+
+        <script>
+            const CHECKIN_DATA = {{ geojson | safe }};
+
+            class CheckinsMap {
+                constructor() {
+                    this.map = null;
+                    this.allData = CHECKIN_DATA;
+                    this.users = new Set(
+                        this.allData.features.map(
+                            (item) => item.properties.username,
+                        ),
+                    );
+                    this.userColors = new Map();
+                    this.userPaths = new Map();
+                    this.popup = null;
+
+                    // Color palette for users
+                    this.colors = [
+                        "#e74c3c",
+                        "#3498db",
+                        "#2ecc71",
+                        "#f39c12",
+                        "#9b59b6",
+                        "#1abc9c",
+                        "#34495e",
+                        "#e67e22",
+                        "#e91e63",
+                        "#8e44ad",
+                        "#27ae60",
+                        "#f1c40f",
+                        "#16a085",
+                        "#2980b9",
+                        "#c0392b",
+                        "#d35400",
+                        "#7f8c8d",
+                        "#95a5a6",
+                        "#ecf0f1",
+                        "#bdc3c7",
+                    ];
+
+                    this.init();
+                    this.assignUserColors();
+                    this.populateUserFilter();
+                    this.updateLegend();
+                }
+
+                async init() {
+                    try {
+                        await this.initMap();
+                        await this.loadData();
+                        this.setupEventListeners();
+                        this.hideLoading();
+                    } catch (error) {
+                        this.showError("Failed to load map: " + error.message);
+                    }
+                }
+
+                initMap() {
+                    return new Promise((resolve, reject) => {
+                        try {
+                            this.map = new maplibregl.Map({
+                                container: "map",
+                                style: "https://tiles.stadiamaps.com/styles/stamen_terrain.json",
+                                center: [0, 0],
+                                zoom: 2,
+                            });
+
+                            this.map.on("load", () => {
+                                resolve();
+                            });
+
+                            this.map.on("error", (e) => {
+                                reject(e);
+                            });
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+                }
+
+                async loadData(username = null) {
+                    let data = JSON.parse(JSON.stringify(this.allData));
+                    if (username) {
+                        data["features"] = data.features.filter(
+                            (feature) =>
+                                feature.properties.username === username,
+                        );
+                    }
+                    this.generateUserPaths(data);
+                    this.updateMap(data);
+                }
+
+                assignUserColors() {
+                    this.userColors.clear();
+                    const userArray = Array.from(this.users).sort();
+                    userArray.forEach((username, index) => {
+                        this.userColors.set(
+                            username,
+                            this.colors[index % this.colors.length],
+                        );
+                    });
+                }
+
+                generateUserPaths(data) {
+                    this.userPaths.clear();
+
+                    // Group features by user
+                    const userFeatures = new Map();
+                    data.features.forEach((feature) => {
+                        const username = feature.properties.username;
+                        if (!userFeatures.has(username)) {
+                            userFeatures.set(username, []);
+                        }
+                        userFeatures.get(username).push(feature);
+                    });
+
+                    // Sort by timestamp and create paths with time-based splitting
+                    userFeatures.forEach((features, username) => {
+                        // Sort by created timestamp
+                        features.sort(
+                            (a, b) =>
+                                new Date(a.properties.created) -
+                                new Date(b.properties.created),
+                        );
+
+                        // Split into segments based on time gaps
+                        const pathSegments = this.splitPathsByTime(features);
+
+                        if (pathSegments.length > 0) {
+                            this.userPaths.set(username, pathSegments.map(segment => ({
+                                type: "Feature",
+                                geometry: {
+                                    type: "LineString",
+                                    coordinates: segment.map(feature => feature.geometry.coordinates),
+                                },
+                                properties: {
+                                    username: username,
+                                    color: this.userColors.get(username),
+                                },
+                            })));
+                        }
+                    });
+                }
+
+                splitPathsByTime(features) {
+                    if (features.length <= 1) return [];
+
+                    const segments = [];
+                    let currentSegment = [features[0]];
+
+                    // Approximate month threshold (30 days in milliseconds)
+                    const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+                    for (let i = 1; i < features.length; i++) {
+                        const currentTime = new Date(features[i].properties.created);
+                        const previousTime = new Date(features[i - 1].properties.created);
+                        const timeDiff = currentTime - previousTime;
+
+                        if (timeDiff > MONTH_MS) {
+                            // Time gap is more than a month, start new segment
+                            if (currentSegment.length > 1) {
+                                segments.push(currentSegment);
+                            }
+                            currentSegment = [features[i]];
+                        } else {
+                            // Continue current segment
+                            currentSegment.push(features[i]);
+                        }
+                    }
+
+                    // Add the last segment if it has more than one point
+                    if (currentSegment.length > 1) {
+                        segments.push(currentSegment);
+                    }
+
+                    return segments;
+                }
+
+                populateUserFilter() {
+                    const select = document.getElementById("user-filter");
+
+                    // Clear existing options (except "All Users")
+                    while (select.children.length > 1) {
+                        select.removeChild(select.lastChild);
+                    }
+
+                    // Add user options
+                    Array.from(this.users)
+                        .sort()
+                        .forEach((username) => {
+                            const option = document.createElement("option");
+                            option.value = username;
+                            option.textContent = username;
+                            select.appendChild(option);
+                        });
+                }
+
+                updateLegend() {
+                    const legend = document.getElementById("legend");
+
+                    if (this.users.size <= 1) {
+                        legend.style.display = "none";
+                        return;
+                    }
+
+                    legend.style.display = "block";
+                    legend.innerHTML = "<strong>Users:</strong>";
+
+                    Array.from(this.users)
+                        .sort()
+                        .forEach((username) => {
+                            const color = this.userColors.get(username);
+                            const item = document.createElement("div");
+                            item.className = "legend-item";
+                            item.innerHTML = `
+                            <div class="legend-color" style="background-color: ${color}"></div>
+                            <span>${username}</span>
+                        `;
+                            legend.appendChild(item);
+                        });
+                }
+
+                updateMap(data) {
+                    // Remove existing sources and layers
+                    this.removeMapLayers();
+
+                    if (data.features.length === 0) {
+                        return;
+                    }
+
+                    this.addPathLayers();
+
+                    // Add user color property to features
+                    const enhancedData = {
+                        ...data,
+                        features: data.features.map((feature) => ({
+                            ...feature,
+                            properties: {
+                                ...feature.properties,
+                                user_color:
+                                    this.userColors.get(
+                                        feature.properties.username,
+                                    ) || "#95a5a6",
+                            },
+                        })),
+                    };
+
+                    // Add source
+                    this.map.addSource("checkins", {
+                        type: "geojson",
+                        data: enhancedData,
+                    });
+
+                    // Add layer with user-based coloring
+                    this.map.addLayer({
+                        id: "checkins",
+                        type: "circle",
+                        source: "checkins",
+                        paint: {
+                            "circle-radius": 8,
+                            "circle-color": ["get", "user_color"],
+                            "circle-stroke-color": "#ffffff",
+                            "circle-stroke-width": 2,
+                            "circle-opacity": 0.8,
+                        },
+                    });
+
+                    // Add click handler
+                    this.map.on("click", "checkins", (e) => {
+                        this.showPopup(e.features[0], e.lngLat);
+                    });
+
+                    // Change cursor on hover
+                    this.map.on("mouseenter", "checkins", () => {
+                        this.map.getCanvas().style.cursor = "pointer";
+                    });
+
+                    this.map.on("mouseleave", "checkins", () => {
+                        this.map.getCanvas().style.cursor = "";
+                    });
+
+                    // Fit map to points
+                    this.fitMapToPoints(data);
+                }
+
+                addPathLayers() {
+                    // Add path segments for each user
+                    this.userPaths.forEach((pathSegments, username) => {
+                        pathSegments.forEach((pathData, segmentIndex) => {
+                            const sourceId = `path-${username}-${segmentIndex}`;
+                            const layerId = `path-layer-${username}-${segmentIndex}`;
+
+                            this.map.addSource(sourceId, {
+                                type: "geojson",
+                                data: pathData,
+                            });
+
+                            this.map.addLayer({
+                                id: layerId,
+                                type: "line",
+                                source: sourceId,
+                                paint: {
+                                    "line-color": pathData.properties.color,
+                                    "line-width": 3,
+                                    "line-opacity": 0.6,
+                                },
+                            });
+                        });
+                    });
+                }
+
+                removeMapLayers() {
+                    // Remove checkins layer
+                    if (this.map.getSource("checkins")) {
+                        this.map.removeLayer("checkins");
+                        this.map.removeSource("checkins");
+                    }
+
+                    // Remove path layers
+                    this.userPaths.forEach((pathSegments, username) => {
+                        pathSegments.forEach((_, segmentIndex) => {
+                            const sourceId = `path-${username}-${segmentIndex}`;
+                            const layerId = `path-layer-${username}-${segmentIndex}`;
+
+                            if (this.map.getSource(sourceId)) {
+                                this.map.removeLayer(layerId);
+                                this.map.removeSource(sourceId);
+                            }
+                        });
+                    });
+                }
+
+                fitMapToPoints(data) {
+                    if (data.features.length === 0) return;
+
+                    const bounds = new maplibregl.LngLatBounds();
+                    data.features.forEach((feature) => {
+                        bounds.extend(feature.geometry.coordinates);
+                    });
+
+                    this.map.fitBounds(bounds, {
+                        padding: 50,
+                        maxZoom: 15,
+                    });
+                }
+
+                showPopup(feature, lngLat) {
+                    const props = feature.properties;
+
+                    // Close existing popup
+                    if (this.popup) {
+                        this.popup.remove();
+                    }
+
+                    // Format date
+                    const date = new Date(props.created).toLocaleDateString();
+
+                    // Build media HTML
+                    let mediaHtml = "";
+                    let parsedMedia = JSON.parse(props.media || "[]");
+                    if (parsedMedia.length > 0) {
+                        const mediaItems = parsedMedia.slice(0, 4); // Show max 4 items
+                        mediaHtml = `
+                        <div class="popup-media">
+                            ${mediaItems
+                                .map(
+                                    (media) => `
+                                <img src="/media/${media.media_id}"
+                                     alt="Media"
+                                     onclick="window.open('/media/${media.media_id}', '_blank')">
+                            `,
+                                )
+                                .join("")}
+                        </div>
+                    `;
+                    }
+
+                    const popupContent = `
+                    <div class="popup-content">
+                        <div class="popup-header">
+                            <img src="${props.avatar_url}" alt="${props.display_name}" class="popup-avatar">
+                            <span class="popup-username" style="color: ${props.user_color}">${props.display_name}</span>
+                            <span class="popup-date">${date}</span>
+                        </div>
+                        ${props.message ? `<div class="popup-message">${this.escapeHtml(props.message)}</div>` : ""}
+                        ${mediaHtml}
+                    </div>
+                `;
+
+                    this.popup = new maplibregl.Popup()
+                        .setLngLat(lngLat)
+                        .setHTML(popupContent)
+                        .addTo(this.map);
+                }
+
+                setupEventListeners() {
+                    const userFilter = document.getElementById("user-filter");
+                    userFilter.addEventListener("change", (e) => {
+                        const username = e.target.value;
+                        if (username) {
+                            this.loadData(username);
+                        } else {
+                            this.generateUserPaths(this.allData);
+                            this.updateMap(this.allData);
+                        }
+                    });
+                }
+
+                escapeHtml(text) {
+                    const div = document.createElement("div");
+                    div.textContent = text;
+                    return div.innerHTML;
+                }
+
+                hideLoading() {
+                    const loading = document.getElementById("loading");
+                    loading.style.display = "none";
+                }
+
+                showError(message) {
+                    this.hideLoading();
+                    const error = document.createElement("div");
+                    error.className = "error";
+                    error.textContent = message;
+                    document.body.appendChild(error);
+                }
+            }
+
+            // Initialize the map when the page loads
+            window.addEventListener("load", () => {
+                new CheckinsMap();
+            });
+        </script>
+    </body>
+</html>
