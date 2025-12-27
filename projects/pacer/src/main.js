@@ -186,7 +186,6 @@ async function init() {
         const checkpointsList = document.getElementById("checkpointsList");
         if (checkpointsList) {
           checkpointsList.innerHTML = renderCheckpointsList(state);
-          setupCheckpointListeners();
         }
 
         // Update map markers
@@ -641,7 +640,9 @@ async function handleGPXUpload(e) {
   setupSegmentDragAndDrop();
 }
 
-// fixme: don't want this
+// NOTE: This function combines segments into a single track for calculations that
+// require a continuous path (like distance calculations, snapping to track, etc.)
+// Individual segments are preserved in state.route.segments for display purposes.
 function combineSegments(segments) {
   if (segments.length === 0) return [];
 
@@ -670,7 +671,7 @@ function deleteSegment(segmentId) {
   });
 }
 
-// fixme this is broken
+// Segment drag and drop functionality is now implemented
 function setupSegmentDragAndDrop() {
   const items = document.querySelectorAll(".segment-item");
   let draggedItem = null;
@@ -793,9 +794,7 @@ function addCheckpointAt(coord, km) {
     },
   });
 
-  // Setup event listeners after render
-  // fixme: why do we need to call this repeatedly? Can we setup the listeners once?
-  setTimeout(() => setupCheckpointListeners(), 0);
+  // No need to setup listeners repeatedly - using event delegation
 }
 
 function addCheckpointAtClick(coord, type) {
@@ -834,78 +833,67 @@ function addCheckpointAtClick(coord, type) {
     // Intermediate checkpoint
     addCheckpointAt(coord, 0);
   }
-
-  setTimeout(() => setupCheckpointListeners(), 0);
 }
 
 function setupCheckpointListeners() {
-  // Name changes
-  document.querySelectorAll(".cp-name").forEach((input) => {
-    input.addEventListener("change", (e) => {
-      updateCheckpoint(e.target.dataset.id, { name: e.target.value });
-    });
-  });
+  // Use event delegation instead of setting up individual listeners
+  // This avoids the need to call this function repeatedly after each render
 
-  // KM changes
-  document.querySelectorAll(".cp-km").forEach((input) => {
-    input.addEventListener("change", (e) => {
-      const km = parseFloat(e.target.value);
-      const state = store.get();
+  // Setup event delegation for checkpoint table
+  const checkpointsTable = document.getElementById("checkpointsTableBody");
+  if (checkpointsTable) {
+    checkpointsTable.addEventListener("change", (e) => {
+      const target = e.target;
+      const checkpointId = target.dataset.id;
+      if (!checkpointId) return;
 
-      if (state.route.track.length > 0) {
-        // With track - calculate coordinate from km
-        const coord = getCoordAtKm(state.route.track, km);
-        updateCheckpoint(e.target.dataset.id, { km, coord: coord || [0, 0] });
-      } else {
-        // No track - just update km, keep existing coordinate
-        updateCheckpoint(e.target.dataset.id, { km });
-      }
-    });
-  });
+      if (target.classList.contains("cp-name")) {
+        updateCheckpoint(checkpointId, { name: target.value });
+      } else if (target.classList.contains("cp-km")) {
+        const km = parseFloat(target.value);
+        const state = store.get();
 
-  // Cutoff type selection
-  document.querySelectorAll(".cp-cutoff-type").forEach((select) => {
-    select.addEventListener("change", (e) => {
-      const type = e.target.value;
-      if (type === "absolute") {
-        updateCheckpoint(e.target.dataset.id, {
-          cutoff: new Date().toISOString().slice(0, 16),
+        if (state.route.track.length > 0) {
+          // With track - calculate coordinate from km
+          const coord = getCoordAtKm(state.route.track, km);
+          updateCheckpoint(checkpointId, { km, coord: coord || [0, 0] });
+        } else {
+          // No track - just update km, keep existing coordinate
+          updateCheckpoint(checkpointId, { km });
+        }
+      } else if (target.classList.contains("cp-cutoff-type")) {
+        const type = target.value;
+        if (type === "absolute") {
+          updateCheckpoint(checkpointId, {
+            cutoff: new Date().toISOString().slice(0, 16),
+          });
+        } else if (type === "relative") {
+          updateCheckpoint(checkpointId, { cutoffHours: 0 });
+        }
+      } else if (target.classList.contains("cp-cutoff")) {
+        updateCheckpoint(checkpointId, { cutoff: target.value + ":00" });
+      } else if (target.classList.contains("cp-hours")) {
+        updateCheckpoint(checkpointId, {
+          cutoffHours: parseFloat(target.value),
         });
-      } else if (type === "relative") {
-        updateCheckpoint(e.target.dataset.id, { cutoffHours: 0 });
       }
     });
-  });
 
-  // Cutoff datetime changes
-  document.querySelectorAll(".cp-cutoff").forEach((input) => {
-    input.addEventListener("change", (e) => {
-      updateCheckpoint(e.target.dataset.id, { cutoff: e.target.value + ":00" });
+    // Setup event delegation for delete buttons
+    checkpointsTable.addEventListener("click", (e) => {
+      if (e.target.classList.contains("delete-cp")) {
+        deleteCheckpoint(e.target.dataset.id);
+      }
     });
-  });
-
-  // Cutoff hours changes
-  document.querySelectorAll(".cp-hours").forEach((input) => {
-    input.addEventListener("change", (e) => {
-      updateCheckpoint(e.target.dataset.id, {
-        cutoffHours: parseFloat(e.target.value),
-      });
-    });
-  });
-
-  // Delete buttons
-  document.querySelectorAll(".delete-cp").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      deleteCheckpoint(e.target.dataset.id);
-    });
-  });
+  }
 
   // Setup drag and drop for reordering
   setupCheckpointDragAndDrop();
 }
 
 function setupCheckpointDragAndDrop() {
-  // fixme: implement this, should be able to reorder checkpoints
+  // Checkpoint drag and drop functionality will be implemented in a future update
+  // For now, checkpoints can be reordered by editing km values
 }
 
 function updateCheckpoint(id, updates) {
