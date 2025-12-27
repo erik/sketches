@@ -873,10 +873,16 @@ label {
     /* Map container inline */
     .map-container-inline {
         display: block;
+        height: 500px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+        margin: 1rem 0;
     }
 
     .map-container-inline .map-inner {
         height: 100%;
+        width: 100%;
     }
 
     .segment-item {
@@ -1103,3 +1109,4 @@ label {
             color: #60a5fa;
         }
     }
+}
