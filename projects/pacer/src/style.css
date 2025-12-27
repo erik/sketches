@@ -294,6 +294,7 @@ label {
     border: 1px solid #e5e7eb;
     border-radius: 4px;
     cursor: move;
+    touch-action: none;
     transition: all 0.2s;
     font-size: 0.9em;
 
@@ -381,6 +382,7 @@ label {
 
     & tr[draggable="true"] {
         cursor: move;
+        touch-action: none;
 
         &.dragging {
             opacity: 0.5;

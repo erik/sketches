@@ -28,6 +28,27 @@ import {
   formatTimeDifference,
   getTimeDifferenceHours,
 } from "./pace.js";
+import {
+  showInlineMessage,
+  formatDateTime,
+  formatCutoffTime,
+  getStartInfo,
+  formatDateTimeLocal,
+  scrollToElement,
+  canSaveRoute,
+  findMissingCutoffs,
+  createModal,
+  calculateTimeRemaining,
+  formatTimeRemaining,
+} from "./helpers.js";
+import {
+  calculateCheckpointMetrics,
+  canCheckIn,
+  findNextCheckpoint,
+  getCutoffTimeForCheckpoint,
+  validateClearCheckpoint,
+  validateSequentialCheckIn,
+} from "./checkpoint-ops.js";
 
 // Create the app store
 const store = createStore(createInitialState());
@@ -35,114 +56,60 @@ const store = createStore(createInitialState());
 // Map instance (created on demand)
 let mapInstance = null;
 
-// Helper function to show inline messages
-function showInlineMessage(
-  container,
-  message,
-  type = "error",
-  autoDismiss = true,
-) {
-  if (!container) return;
-
-  // Remove existing message
-  const existing = container.querySelector(".inline-message");
-  if (existing) existing.remove();
-
-  const msgEl = document.createElement("p");
-  msgEl.className = `inline-message ${type}`;
-  msgEl.style.fontWeight = "500";
-  msgEl.style.marginTop = "0.5rem";
-  msgEl.style.marginBottom = "0.5rem";
-  msgEl.style.padding = "0.5rem";
-  msgEl.style.borderRadius = "4px";
-  msgEl.textContent = message;
-
-  if (type === "error") {
-    msgEl.style.color = "#dc2626";
-    msgEl.style.backgroundColor = "#fef2f2";
-  } else if (type === "success") {
-    msgEl.style.color = "#059669";
-    msgEl.style.backgroundColor = "#f0fdf4";
-  } else if (type === "info") {
-    msgEl.style.color = "#6b7280";
-    msgEl.style.backgroundColor = "#f9fafb";
-  }
-
-  container.appendChild(msgEl);
-
-  if (autoDismiss) {
-    setTimeout(() => msgEl.remove(), 5000);
-  }
-
-  return msgEl;
-}
-
-// Helper function to ensure start/finish checkpoints exist
+// Helper function to ensure start/finish checkpoints exist when track is present
 function updateStartFinishCheckpoints(existingCheckpoints, track) {
   const checkpoints = [...existingCheckpoints];
+
+  // Only create/update start/finish if we have a track
+  if (track.length === 0) {
+    return checkpoints;
+  }
 
   // Find existing start/finish
   let startCp = checkpoints.find((cp) => cp.id === "start");
   let finishCp = checkpoints.find((cp) => cp.id === "finish");
 
-  if (track.length > 0) {
-    const totalLength = trackLength(track);
+  const totalLength = trackLength(track);
 
-    // Update or create start checkpoint
-    if (startCp) {
-      startCp.km = 0;
-      startCp.coord = track[0];
-    } else {
-      startCp = {
-        id: "start",
-        name: "Start",
-        km: 0,
-        coord: track[0],
-        // Default to current time as placeholder for event start
-        cutoff: new Date().toISOString().slice(0, 16) + ":00",
-      };
-      checkpoints.unshift(startCp);
-    }
-
-    // Update or create finish checkpoint
-    if (finishCp) {
-      finishCp.km = totalLength;
-      finishCp.coord = track[track.length - 1];
-    } else {
-      finishCp = {
-        id: "finish",
-        name: "Finish",
-        km: totalLength,
-        coord: track[track.length - 1],
-        // Default cutoff time (can be edited)
-      };
-      checkpoints.push(finishCp);
-    }
+  // Update or create start checkpoint
+  if (startCp) {
+    startCp.km = 0;
+    startCp.coord = track[0];
   } else {
-    // No track - create start/finish with manual entry if they don't exist
-    // Initialize near Berlin so they're visible on the default map view
-    if (!startCp) {
-      startCp = {
-        id: "start",
-        name: "Start",
-        km: 0,
-        coord: [13.38, 52.52], // Berlin area - west
-        // Default to current time as placeholder for event start
-        cutoff: new Date().toISOString().slice(0, 16) + ":00",
-      };
-      checkpoints.unshift(startCp);
-    }
+    startCp = {
+      id: "start",
+      name: "Start",
+      km: 0,
+      coord: track[0],
+      // Default to current time as placeholder for event start
+      cutoff: new Date().toISOString().slice(0, 16) + ":00",
+    };
+    checkpoints.unshift(startCp);
+  }
 
-    if (!finishCp) {
-      finishCp = {
-        id: "finish",
-        name: "Finish",
-        km: 0,
-        coord: [13.43, 52.52], // Berlin area - east
-        // Default cutoff time (can be edited)
-      };
-      checkpoints.push(finishCp);
-    }
+  // Update or create finish checkpoint
+  if (finishCp) {
+    finishCp.km = totalLength;
+    finishCp.coord = track[track.length - 1];
+  } else {
+    // Calculate default finish cutoff: start time + 7 days
+    const startCutoff = checkpoints.find((cp) => cp.id === "start")?.cutoff;
+    const defaultFinishTime = startCutoff
+      ? new Date(new Date(startCutoff).getTime() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 16) + ":00"
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 16) + ":00";
+
+    finishCp = {
+      id: "finish",
+      name: "Finish",
+      km: totalLength,
+      coord: track[track.length - 1],
+      cutoff: defaultFinishTime,
+    };
+    checkpoints.push(finishCp);
   }
 
   return checkpoints;
@@ -175,17 +142,7 @@ async function init() {
     renderTrackingMode();
   } else {
     // Setup mode - no route in URL
-    // Initialize with start/finish checkpoints
-    const initialState = store.get();
-    const checkpoints = updateStartFinishCheckpoints([], []);
-
-    store.update({
-      mode: "setup",
-      route: {
-        ...initialState.route,
-        checkpoints,
-      },
-    });
+    store.update({ mode: "setup" });
     renderSetupMode();
   }
 
@@ -205,56 +162,16 @@ async function init() {
 
     // In setup mode, update only what changed
     if (state.mode === "setup") {
-      // Segments changed - update segments list
-      if (state.route.segments !== lastState.route.segments) {
-        const segmentsList = document.getElementById("segmentsList");
-        if (segmentsList) {
-          segmentsList.innerHTML = renderSegmentsList(state);
-          setupSegmentDragAndDrop();
-        }
-
-        // Update track length display
-        const successMsg =
-          state.route.track.length > 0
-            ? `<p class="success">✓ Combined track: ${trackLength(state.route.track).toFixed(1)} km (${state.route.track.length} points)</p>`
-            : "";
-        const trackSection = segmentsList?.parentElement;
-        if (trackSection) {
-          const existing = trackSection.querySelector(".success");
-          if (existing && !successMsg) {
-            existing.remove();
-          } else if (!existing && successMsg) {
-            const temp = document.createElement("div");
-            temp.innerHTML = successMsg;
-            trackSection.appendChild(temp.firstChild);
-          }
-        }
-
-        // Update map
-        if (mapInstance) {
-          mapInstance.clearTrack();
-          if (state.route.track.length > 0) {
-            mapInstance.showTrack(state.route.track);
-          }
-          mapInstance.showCheckpoints(state.route.checkpoints, {
-            draggable: true,
-            draggableStartFinish: state.route.track.length === 0,
-            onDragEnd: (checkpoint, newCoord) => {
-              if (state.route.track.length > 0) {
-                const snapped = snapToTrack(state.route.track, newCoord);
-                if (snapped) {
-                  updateCheckpoint(checkpoint.id, {
-                    coord: snapped.coord,
-                    km: snapped.km,
-                  });
-                }
-              } else {
-                updateCheckpoint(checkpoint.id, { coord: newCoord });
-              }
-            },
-          });
-          mapInstance.fitToContent();
-        }
+      // Segments or track changed - need full re-render to show/hide checkpoint list
+      // fixme: this is stupid and bad. need real rendering solution
+      if (
+        state.route.segments !== lastState.route.segments ||
+        state.route.track !== lastState.route.track
+      ) {
+        console.log("Re-rendering setup mode due to segments/track change");
+        renderSetupMode();
+        lastState = state;
+        return;
       }
 
       // Checkpoints changed - update checkpoints list
@@ -300,15 +217,18 @@ async function init() {
         // Update validation message
         const saveSection = saveBtn?.parentElement;
         if (saveSection) {
+          // fixme: what the fuck is this
           const existingHint = saveSection.querySelector(
             '.hint[style*="dc2626"]',
           );
           if (!canSaveRoute(state)) {
             if (!existingHint) {
+              // fixme: we have a helper for this
               const hint = document.createElement("p");
               hint.className = "hint";
               hint.style.color = "#dc2626";
-              hint.textContent = "All checkpoints must have cutoff times";
+              hint.textContent =
+                "Need: route name, start/finish checkpoints, and cutoff times";
               saveSection.appendChild(hint);
             }
           } else if (existingHint) {
@@ -337,6 +257,8 @@ function renderSetupMode() {
   const state = store.get();
   const app = document.querySelector("#app");
 
+  // FIXME: insane to hard code all of this. we want to support a metric/imperial setting
+  // FIXME: inline style or separate CSS. pick one and stick to it!
   app.innerHTML = `
     <div class="setup-container">
       <h1>Pacer - Setup Route</h1>
@@ -344,32 +266,32 @@ function renderSetupMode() {
       <div class="setup-layout">
         <div class="setup-form">
           <div class="setup-section">
-            <input type="text" id="routeName" value="${state.route.name}" placeholder="Route name (e.g. TCR 2025)" style="font-size: 1.1em; font-weight: 500;">
-
             <h3>Track & Checkpoints</h3>
 
             <input type="file" id="gpxFiles" accept=".gpx" multiple />
             ${
               state.route.track.length > 0
                 ? `<p class="success">✓ ${trackLength(state.route.track).toFixed(0)} km track (${state.route.segments.length} segment${state.route.segments.length !== 1 ? "s" : ""})</p>`
-                : '<p class="hint">Upload GPX file(s) or position start/finish manually</p>'
+                : '<p class="hint">Upload GPX file(s) or click map to place start/finish</p>'
             }
 
             <div id="segmentsList">
               ${renderSegmentsList(state)}
             </div>
 
-            <p class="hint" style="color: #dc2626; font-weight: 500; margin-top: 0.5rem;">
-              ⚠ All checkpoints require cutoff times. Start = event start time.
-            </p>
-            <div id="checkpointsList">
-              ${renderCheckpointsList(state)}
-            </div>
+            ${
+              state.route.checkpoints.length > 0
+                ? `<div id="checkpointsList">${renderCheckpointsList(state)}</div>`
+                : '<p class="hint">No checkpoints yet. Upload GPX or click map to place start.</p>'
+            }
+
+            <input type="text" id="routeName" value="${state.route.name}" placeholder="Route name">
 
             <button id="saveRoute" class="primary" ${canSaveRoute(state) ? "" : "disabled"} style="width: 100%; margin-top: 1rem;">
               Save & Generate URL
             </button>
-            ${!canSaveRoute(state) ? '<p class="hint" style="color: #dc2626;">All checkpoints must have cutoff times</p>' : ""}
+
+            ${!canSaveRoute(state) ? '<p class="hint" style="color: #dc2626;">Need: route name, start/finish checkpoints, and cutoff times</p>' : ""}
           </div>
         </div>
 
@@ -388,6 +310,8 @@ function renderSetupMode() {
   document
     .getElementById("gpxFiles")
     .addEventListener("change", handleGPXUpload);
+
+  // fixme: why would this be null???
   document.getElementById("saveRoute")?.addEventListener("click", saveRoute);
 
   // Setup drag and drop for segments
@@ -417,6 +341,7 @@ function initSetupMap() {
   mapInstance.showCheckpoints(state.route.checkpoints, {
     draggable: true,
     draggableStartFinish: state.route.track.length === 0, // Allow dragging start/finish if no track
+    // fixme: why is this logic in the init function? it's doing too much
     onDragEnd: (checkpoint, newCoord) => {
       // Snap to track if available
       if (state.route.track.length > 0) {
@@ -439,7 +364,13 @@ function initSetupMap() {
   });
 
   // Add click handler to add checkpoints (with tooltip confirmation)
+  // fixme: too much shit in the init function. too much shit in this click handler too!!!
   mapInstance.onMapClick((coord) => {
+    const sorted = sortCheckpointsByDistance(state.route.checkpoints);
+    // fixme: extract constants, no string-typing for the IDs
+    const hasStart = sorted.some((cp) => cp.id === "start");
+    const hasFinish = sorted.some((cp) => cp.id === "finish");
+
     if (state.route.track.length > 0) {
       const snapped = findCheckpointOnTrack(state.route.track, coord);
 
@@ -458,6 +389,7 @@ function initSetupMap() {
         .openOn(mapInstance.getMap());
 
       // Wait for button to be added to DOM
+      // fixme: this doesn't work.
       setTimeout(() => {
         document
           .getElementById("confirmAddCheckpoint")
@@ -467,14 +399,26 @@ function initSetupMap() {
           });
       }, 0);
     } else {
-      // No track - show popup to add checkpoint at clicked location
+      // No track - add start first, then finish, then intermediate
+      let checkpointType = !hasStart
+        ? "start"
+        : !hasFinish
+          ? "finish"
+          : "intermediate";
+
+      let label = {
+        start: "Start",
+        finish: "Finish",
+        intermediate: "Checkpoint",
+      }[checkpointType];
+
       const popup = L.popup()
         .setLatLng([coord[1], coord[0]])
         .setContent(
           `
           <div style="text-align: center;">
-            <p style="margin: 0 0 8px 0;"><strong>Add checkpoint here?</strong></p>
-            <button id="confirmAddCheckpoint" style="padding: 4px 12px; cursor: pointer;">Add Checkpoint</button>
+            <p style="margin: 0 0 8px 0;"><strong>Add ${label} here?</strong></p>
+            <button id="confirmAddCheckpoint" style="padding: 4px 12px; cursor: pointer;">Add ${label}</button>
           </div>
         `,
         )
@@ -484,7 +428,7 @@ function initSetupMap() {
         document
           .getElementById("confirmAddCheckpoint")
           ?.addEventListener("click", () => {
-            addCheckpointAt(coord, 0);
+            addCheckpointAtClick(coord, checkpointType);
             mapInstance.getMap().closePopup();
           });
       }, 0);
@@ -539,6 +483,7 @@ function renderCheckpointsList(state) {
       <tbody id="checkpointsTableBody">
         ${sorted
           .map((cp) => {
+            // FIXME: ditto stringly typed
             const isStartOrFinish = cp.id === "start" || cp.id === "finish";
             // Start/finish are readonly when GPX track exists, editable otherwise
             const kmReadonly = state.route.track.length > 0 && isStartOrFinish;
@@ -582,19 +527,6 @@ function renderCheckpointsList(state) {
   `;
 }
 
-function canSaveRoute(state) {
-  // Check if route has name
-  if (!state.route.name) return false;
-
-  // Check if we have at least 2 checkpoints (start + finish)
-  if (state.route.checkpoints.length < 2) return false;
-
-  // Check that all checkpoints have cutoff times
-  return state.route.checkpoints.every((cp) => {
-    return cp.cutoff || cp.cutoffHours != null;
-  });
-}
-
 async function handleGPXUpload(e) {
   const files = Array.from(e.target.files);
   if (files.length === 0) return;
@@ -631,6 +563,10 @@ async function handleGPXUpload(e) {
   }
 
   const allSegments = [...state.route.segments, ...newSegments];
+
+  // FIXME: IMPORTANT! we don't want to smoosh all the segments together! we
+  // want a list of polylines. There can be discontinuities in the tracks.
+  // Update the data model to accomodate this!!
   const combinedTrack = combineSegments(allSegments);
 
   // Update or create start/finish checkpoints
@@ -652,9 +588,11 @@ async function handleGPXUpload(e) {
   e.target.value = "";
 
   // Re-setup listeners after render
+  // fixme: this is absurd.
   setTimeout(() => setupSegmentDragAndDrop(), 0);
 }
 
+// fixme: don't want this
 function combineSegments(segments) {
   if (segments.length === 0) return [];
 
@@ -683,41 +621,12 @@ function deleteSegment(segmentId) {
   });
 }
 
+// fixme this is broken
 function setupSegmentDragAndDrop() {
-  let draggedElement = null;
-  let draggedId = null;
-
   const items = document.querySelectorAll(".segment-item");
 
   items.forEach((item) => {
-    item.addEventListener("dragstart", (e) => {
-      draggedElement = item;
-      draggedId = item.dataset.id;
-      item.classList.add("dragging");
-    });
-
-    item.addEventListener("dragend", (e) => {
-      item.classList.remove("dragging");
-      draggedElement = null;
-      draggedId = null;
-    });
-
-    item.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      const afterElement = getDragAfterElement(item.parentElement, e.clientY);
-      const dragging = document.querySelector(".dragging");
-
-      if (afterElement == null) {
-        item.parentElement.appendChild(dragging);
-      } else {
-        item.parentElement.insertBefore(dragging, afterElement);
-      }
-    });
-
-    item.addEventListener("drop", (e) => {
-      e.preventDefault();
-      reorderSegments();
-    });
+    // fixme: implement this for desktop + mobile. we want to be able to reorder the segments
   });
 
   // Delete buttons
@@ -729,59 +638,13 @@ function setupSegmentDragAndDrop() {
   });
 }
 
-function getDragAfterElement(container, y) {
-  const draggableElements = [
-    ...container.querySelectorAll(".segment-item:not(.dragging)"),
-  ];
-
-  return draggableElements.reduce(
-    (closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    },
-    { offset: Number.NEGATIVE_INFINITY },
-  ).element;
-}
-
-function reorderSegments() {
-  const items = document.querySelectorAll(".segment-item");
-  const newOrder = Array.from(items).map((item) => item.dataset.id);
-
-  const state = store.get();
-  const reorderedSegments = newOrder.map((id) =>
-    state.route.segments.find((seg) => seg.id === id),
-  );
-
-  const combinedTrack = combineSegments(reorderedSegments);
-
-  // Update start/finish checkpoints for new track order
-  const checkpoints = updateStartFinishCheckpoints(
-    state.route.checkpoints,
-    combinedTrack,
-  );
-
-  store.update({
-    route: {
-      ...state.route,
-      segments: reorderedSegments,
-      track: combinedTrack,
-      checkpoints,
-    },
-  });
-}
-
 function addCheckpointAt(coord, km) {
   const state = store.get();
   const id = generateId();
 
   // Count intermediate checkpoints (excluding start/finish)
   const intermediateCount = state.route.checkpoints.filter(
+    // fixme: ditto stringly typed
     (cp) => cp.id !== "start" && cp.id !== "finish",
   ).length;
 
@@ -812,6 +675,47 @@ function addCheckpointAt(coord, km) {
   });
 
   // Setup event listeners after render
+  // fixme: why do we need to call this repeatedly? Can we setup the listeners once?
+  setTimeout(() => setupCheckpointListeners(), 0);
+}
+
+function addCheckpointAtClick(coord, type) {
+  const state = store.get();
+
+  if (type === "start") {
+    const newCheckpoint = {
+      id: "start",
+      name: "Start",
+      km: 0,
+      coord,
+      cutoff: new Date().toISOString().slice(0, 16) + ":00",
+    };
+
+    store.update({
+      route: {
+        ...state.route,
+        checkpoints: [newCheckpoint, ...state.route.checkpoints],
+      },
+    });
+  } else if (type === "finish") {
+    const newCheckpoint = {
+      id: "finish",
+      name: "Finish",
+      km: 0,
+      coord,
+    };
+
+    store.update({
+      route: {
+        ...state.route,
+        checkpoints: [...state.route.checkpoints, newCheckpoint],
+      },
+    });
+  } else {
+    // Intermediate checkpoint
+    addCheckpointAt(coord, 0);
+  }
+
   setTimeout(() => setupCheckpointListeners(), 0);
 }
 
@@ -882,88 +786,7 @@ function setupCheckpointListeners() {
 }
 
 function setupCheckpointDragAndDrop() {
-  const tbody = document.getElementById("checkpointsTableBody");
-  if (!tbody) return;
-
-  let draggedRow = null;
-
-  tbody.querySelectorAll("tr[draggable='true']").forEach((row) => {
-    row.addEventListener("dragstart", (e) => {
-      draggedRow = row;
-      row.classList.add("dragging");
-    });
-
-    row.addEventListener("dragend", (e) => {
-      row.classList.remove("dragging");
-      draggedRow = null;
-    });
-
-    row.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      const afterElement = getDragAfterElementRow(tbody, e.clientY);
-      const dragging = tbody.querySelector(".dragging");
-
-      if (afterElement == null) {
-        tbody.appendChild(dragging);
-      } else {
-        tbody.insertBefore(dragging, afterElement);
-      }
-    });
-
-    row.addEventListener("drop", (e) => {
-      e.preventDefault();
-      reorderCheckpoints();
-    });
-  });
-}
-
-function getDragAfterElementRow(container, y) {
-  const draggableElements = [
-    ...container.querySelectorAll("tr[draggable='true']:not(.dragging)"),
-  ];
-
-  return draggableElements.reduce(
-    (closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    },
-    { offset: Number.NEGATIVE_INFINITY },
-  ).element;
-}
-
-function reorderCheckpoints() {
-  const tbody = document.getElementById("checkpointsTableBody");
-  const rows = Array.from(tbody.querySelectorAll("tr"));
-  const newOrder = rows.map((row) => row.dataset.id);
-
-  const state = store.get();
-
-  // Preserve start/finish at beginning and end
-  const startCp = state.route.checkpoints.find((cp) => cp.id === "start");
-  const finishCp = state.route.checkpoints.find((cp) => cp.id === "finish");
-
-  // Get intermediate checkpoints in new order
-  const intermediate = newOrder
-    .filter((id) => id !== "start" && id !== "finish")
-    .map((id) => state.route.checkpoints.find((cp) => cp.id === id))
-    .filter(Boolean);
-
-  const reorderedCheckpoints = [startCp, ...intermediate, finishCp].filter(
-    Boolean,
-  );
-
-  store.update({
-    route: {
-      ...state.route,
-      checkpoints: reorderedCheckpoints,
-    },
-  });
+  // fixme: implement this, should be able to reorder checkpoints
 }
 
 function updateCheckpoint(id, updates) {
@@ -1002,9 +825,7 @@ async function saveRoute() {
   const state = store.get();
 
   // Validate all checkpoints have cutoff times
-  const missingCutoffs = state.route.checkpoints.filter(
-    (cp) => !cp.cutoff && cp.cutoffHours == null,
-  );
+  const missingCutoffs = findMissingCutoffs(state.route.checkpoints);
   if (missingCutoffs.length > 0) {
     const saveBtn = document.getElementById("saveRoute");
     const saveSection = saveBtn?.parentElement;
@@ -1016,10 +837,7 @@ async function saveRoute() {
     );
 
     // Scroll to first missing checkpoint
-    const firstMissing = document.querySelector(".missing-cutoff");
-    if (firstMissing) {
-      firstMissing.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    scrollToElement(".missing-cutoff");
     return;
   }
 
@@ -1055,6 +873,8 @@ function renderTrackingMode() {
   const state = store.get();
   const app = document.querySelector("#app");
 
+  // fixme: we should prioritize information about the next checkpoint, eta, distance to, etc.
+  // fixme: the table view is inconveniently small and requires horizontal scroll to action. should we make it a card? experiment with wider version
   app.innerHTML = `
     <div class="tracking-container">
       <h1>${state.route.name}</h1>
@@ -1105,6 +925,9 @@ function autoPopulateStartTime() {
   if (!startCp) return;
 
   // If start checkpoint doesn't have an arrival time, set it from cutoff
+  //
+  // fixme: this is dump and over engineered. just set the time to the cutoff
+  // time. startcp will never be using the cutoffhours
   if (!state.tracking.arrivals[startCp.id]) {
     const startTime = startCp.cutoff
       ? new Date(startCp.cutoff)
@@ -1222,7 +1045,7 @@ function getUserLocation() {
 
           // Show alert with distance info
           if (distToTrack < 50) {
-            const nextCp = findNextCheckpoint(state, snapped.km);
+            const nextCp = findNextCheckpointByKm(state, snapped.km);
             if (nextCp) {
               const distToNext = nextCp.km - snapped.km;
               const mapSection = document.querySelector(".map-section");
@@ -1254,72 +1077,45 @@ function getUserLocation() {
   );
 }
 
-function findNextCheckpoint(state, currentKm) {
+function findNextCheckpointByKm(state, currentKm) {
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
   return sorted.find((cp) => cp.km > currentKm);
 }
 
 function renderNextCutoff(state) {
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0];
-  const startTime = state.tracking.arrivals[startCp?.id]
-    ? new Date(state.tracking.arrivals[startCp.id])
-    : startCp?.cutoff
-      ? new Date(startCp.cutoff)
-      : null;
+  const { startTime } = getStartInfo(state);
 
   // Find next uncompleted checkpoint
-  let nextCp = null;
-  for (const cp of sorted) {
-    if (!state.tracking.arrivals[cp.id]) {
-      nextCp = cp;
-      break;
-    }
-  }
+  const nextCp =
+    findNextCheckpoint(sorted, state.tracking) || sorted[sorted.length - 1];
 
-  // If all checkpoints complete, show finish
-  if (!nextCp) {
-    nextCp = sorted[sorted.length - 1];
-  }
-
-  const now = new Date();
-  const cutoffTime = getCutoffTime(nextCp, startTime);
+  const cutoffTime = getCutoffTimeForCheckpoint(nextCp, startTime);
 
   if (!cutoffTime) {
     return '<div class="next-cutoff-card"><p class="hint">No cutoff time set for next checkpoint</p></div>';
   }
 
-  const timeRemaining = cutoffTime.getTime() - now.getTime();
-  const isPast = timeRemaining < 0;
+  const now = new Date();
   const isFuture = startTime && now.getTime() < startTime.getTime();
+  const { days, hours, minutes, isPast } = calculateTimeRemaining(cutoffTime);
 
   let statusMessage = "";
   let statusClass = "";
 
   if (isFuture) {
-    const timeToStart = startTime.getTime() - now.getTime();
-    const daysToStart = Math.floor(timeToStart / (1000 * 60 * 60 * 24));
-    const hoursToStart = Math.floor(
-      (timeToStart % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60),
-    );
+    const { days: daysToStart, hours: hoursToStart } =
+      calculateTimeRemaining(startTime);
     statusMessage = `Event starts in ${daysToStart}d ${hoursToStart}h`;
     statusClass = "future";
   } else if (isPast) {
-    const timePast = Math.abs(timeRemaining);
-    const daysPast = Math.floor(timePast / (1000 * 60 * 60 * 24));
-    statusMessage =
-      daysPast > 30 ? "Event ended" : `Cutoff passed ${daysPast}d ago`;
+    statusMessage = days > 30 ? "Event ended" : `Cutoff passed ${days}d ago`;
     statusClass = "past";
   } else {
-    const days = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
-    const hours = Math.floor(
-      (timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60),
-    );
-    const minutes = Math.floor(
-      (timeRemaining % (1000 * 60 * 60)) / (1000 * 60),
-    );
-    statusMessage = `${days}d ${hours}h ${minutes}m remaining`;
-    statusClass = timeRemaining < 3 * 60 * 60 * 1000 ? "urgent" : "active"; // < 3 hours = urgent
+    statusMessage = `${formatTimeRemaining({ days, hours, minutes })} remaining`;
+    const threeHours = 3 * 60 * 60 * 1000;
+    statusClass =
+      cutoffTime.getTime() - now.getTime() < threeHours ? "urgent" : "active";
   }
 
   return `
@@ -1331,25 +1127,13 @@ function renderNextCutoff(state) {
   `;
 }
 
-function getCutoffTime(checkpoint, startTime) {
-  if (checkpoint.cutoff) {
-    return new Date(checkpoint.cutoff);
-  }
-  if (checkpoint.cutoffHours != null && startTime) {
-    return new Date(startTime.getTime() + checkpoint.cutoffHours * 3600000);
-  }
-  return null;
-}
-
 function renderSummary(state) {
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0];
-  const startTime = state.tracking.arrivals[startCp?.id]
-    ? new Date(state.tracking.arrivals[startCp.id])
-    : null;
+  const { startTime } = getStartInfo(state);
 
   const stats = calculateSummaryStats(state.tracking, sorted, startTime);
 
+  // fixme: these aren't used?
   const totalKm =
     state.route.track.length > 0
       ? trackLength(state.route.track)
@@ -1381,11 +1165,7 @@ function renderSummary(state) {
 
 function renderTrackingCheckpoints(state) {
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0];
-  const startTime = state.tracking.arrivals[startCp?.id]
-    ? new Date(state.tracking.arrivals[startCp.id])
-    : null;
-
+  const { startTime } = getStartInfo(state);
   const currentIndex = getCurrentCheckpointIndex(sorted, state.tracking);
 
   return `
@@ -1406,70 +1186,27 @@ function renderTrackingCheckpoints(state) {
       <tbody>
         ${sorted
           .map((cp, index) => {
-            const arrival = state.tracking.arrivals[cp.id];
-            const hasArrived = !!arrival;
-            const prevCp = index > 0 ? sorted[index - 1] : null;
-
-            // Calculate distance from last checkpoint
-            const distFromLast = prevCp
-              ? (cp.km - prevCp.km).toFixed(1)
-              : "0.0";
-
-            // Calculate paces
-            let currentPace = null;
-            let requiredPace = null;
-            let timeAheadBehind = null;
-            let estimatedArrival = null;
-            let remainingTimeStr = null;
-
-            // Don't show pace calculations for start checkpoint
-            if (index > 0) {
-              if (hasArrived && prevCp) {
-                currentPace = calculateCurrentPace(state.tracking, prevCp, cp);
-              }
-
-              if (currentIndex < index && startTime) {
-                const fromCp = sorted[currentIndex];
-                requiredPace = calculateRequiredPace(
-                  state.tracking,
-                  fromCp,
-                  cp,
-                  startTime,
-                );
-              }
-
-              if (hasArrived && startTime) {
-                timeAheadBehind = calculateTimeAheadBehind(
-                  state.tracking,
-                  cp,
-                  startTime,
-                );
-              }
-            }
-
-            if (!hasArrived && index > currentIndex && startTime) {
-              estimatedArrival = calculateEstimatedArrival(
-                state.tracking,
-                sorted,
-                cp,
-              );
-              const cutoffTime = cp.cutoff
-                ? new Date(cp.cutoff)
-                : cp.cutoffHours != null && startTime
-                  ? new Date(startTime.getTime() + cp.cutoffHours * 3600000)
-                  : null;
-              if (cutoffTime) {
-                remainingTimeStr = formatTimeDifference(cutoffTime, new Date());
-              }
-            }
+            // Calculate all metrics using helper
+            const metrics = calculateCheckpointMetrics(
+              cp,
+              index,
+              sorted,
+              state,
+            );
+            const {
+              hasArrived,
+              arrival,
+              distFromLast,
+              currentPace,
+              requiredPace,
+              timeAheadBehind,
+              estimatedArrival,
+              remainingTimeStr,
+            } = metrics;
 
             // Can only check in if previous checkpoint is complete
-            // For start checkpoint, don't allow checking in (use cutoff time as start time)
             const isStart = cp.id === "start";
-            const canCheckIn =
-              !hasArrived &&
-              !isStart &&
-              (index === 0 || state.tracking.arrivals[sorted[index - 1].id]);
+            const canCheckInNow = canCheckIn(cp, index, sorted, state);
 
             return `
             <tr class="${hasArrived ? "reached" : "upcoming"}">
@@ -1493,7 +1230,7 @@ function renderTrackingCheckpoints(state) {
                     ? isStart
                       ? `<span class="auto-label">Auto</span>`
                       : `<button class="clear-arrival" data-id="${cp.id}">Clear</button>`
-                    : canCheckIn
+                    : canCheckInNow
                       ? `<button class="check-in" data-id="${cp.id}">Check In</button>`
                       : `<button class="check-in" disabled>Check In</button>`
                 }
@@ -1508,35 +1245,7 @@ function renderTrackingCheckpoints(state) {
 }
 
 function formatCutoff(checkpoint, state) {
-  if (checkpoint.cutoff) {
-    return formatDateTime(new Date(checkpoint.cutoff));
-  }
-  if (checkpoint.cutoffHours != null) {
-    const startCp = state.route.checkpoints[0];
-    const startTime = state.tracking.arrivals[startCp?.id];
-    if (startTime) {
-      const cutoffTime = new Date(
-        new Date(startTime).getTime() + checkpoint.cutoffHours * 3600000,
-      );
-      return (
-        formatDateTime(cutoffTime) + ` (${checkpoint.cutoffHours}h from start)`
-      );
-    }
-    return `${checkpoint.cutoffHours}h from start`;
-  }
-  return "-";
-}
-
-function formatDateTime(date) {
-  if (!date || isNaN(date.getTime())) return "-";
-
-  const options = {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  };
-  return date.toLocaleString("en-US", options);
+  return formatCutoffTime(checkpoint, state);
 }
 
 function setupTrackingListeners() {
@@ -1562,32 +1271,28 @@ function setupTrackingListeners() {
 function checkInAt(checkpointId) {
   const state = store.get();
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const cpIndex = sorted.findIndex((cp) => cp.id === checkpointId);
 
   // Verify all previous checkpoints are checked in
-  if (cpIndex > 0) {
-    for (let i = 0; i < cpIndex; i++) {
-      if (!state.tracking.arrivals[sorted[i].id]) {
-        const checkpointsSection = document.querySelector(
-          ".checkpoints-section",
-        );
-        const msg = showInlineMessage(
-          checkpointsSection,
-          `Please check in at ${sorted[i].name} first.`,
-          "error",
-        );
-        if (msg) {
-          checkpointsSection.insertBefore(msg, checkpointsSection.firstChild);
-        }
-
-        // Scroll to the checkpoint that needs to be checked in
-        const targetRow = document.querySelector(`tr[class*="upcoming"]`);
-        if (targetRow) {
-          targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-        return;
-      }
+  const validation = validateSequentialCheckIn(
+    checkpointId,
+    sorted,
+    state.tracking,
+  );
+  // fixme: this is dumb. just disable the buttons if it's not valid and don't let user click
+  if (!validation.isValid) {
+    const checkpointsSection = document.querySelector(".checkpoints-section");
+    const msg = showInlineMessage(
+      checkpointsSection,
+      `Please check in at ${validation.missingCheckpoint.name} first.`,
+      "error",
+    );
+    if (msg) {
+      checkpointsSection.insertBefore(msg, checkpointsSection.firstChild);
     }
+
+    // Scroll to the checkpoint that needs to be checked in
+    scrollToElement(`tr[class*="upcoming"]`);
+    return;
   }
 
   const now = new Date().toISOString();
@@ -1607,14 +1312,15 @@ function checkInAt(checkpointId) {
 function clearArrival(checkpointId) {
   const state = store.get();
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0];
 
-  // Don't allow clearing start checkpoint
-  if (checkpointId === startCp.id) {
+  // Validate that checkpoint can be cleared
+  // fixme: wtf is this
+  const validation = validateClearCheckpoint(checkpointId, sorted);
+  if (!validation.canClear) {
     const checkpointsSection = document.querySelector(".checkpoints-section");
     const msg = showInlineMessage(
       checkpointsSection,
-      "Cannot clear start time. This is set from the event start time.",
+      validation.reason,
       "error",
     );
     if (msg) {
@@ -1641,24 +1347,13 @@ function editArrival(checkpointId) {
 
   if (!checkpoint) return;
 
-  // Allow editing start checkpoint (it's the event start time, user may need to correct it)
-
   const currentTime = state.tracking.arrivals[checkpointId];
   const currentDate = currentTime ? new Date(currentTime) : new Date();
-
-  // Format for datetime-local input
-  const year = currentDate.getFullYear();
-  const month = String(currentDate.getMonth() + 1).padStart(2, "0");
-  const day = String(currentDate.getDate()).padStart(2, "0");
-  const hours = String(currentDate.getHours()).padStart(2, "0");
-  const minutes = String(currentDate.getMinutes()).padStart(2, "0");
-  const formatted = `${year}-${month}-${day}T${hours}:${minutes}`;
+  const formatted = formatDateTimeLocal(currentDate);
 
   // Create modal dialog
-  const modal = document.createElement("div");
-  modal.className = "edit-time-modal";
-  modal.innerHTML = `
-    <div class="edit-time-modal-content">
+  const modal = createModal(
+    `
       <h3>Edit Arrival Time</h3>
       <p>${checkpoint.name}</p>
       <input type="datetime-local" id="editTimeInput" value="${formatted}" />
@@ -1666,8 +1361,9 @@ function editArrival(checkpointId) {
         <button id="saveEditTime" class="primary">Save</button>
         <button id="cancelEditTime">Cancel</button>
       </div>
-    </div>
-  `;
+    `,
+    null,
+  );
 
   document.body.appendChild(modal);
 
@@ -1708,23 +1404,10 @@ function editArrival(checkpointId) {
   document.getElementById("cancelEditTime")?.addEventListener("click", () => {
     modal.remove();
   });
-
-  // Handle click outside
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) {
-      modal.remove();
-    }
-  });
-
-  // Handle escape key
-  const escapeHandler = (e) => {
-    if (e.key === "Escape") {
-      modal.remove();
-      document.removeEventListener("keydown", escapeHandler);
-    }
-  };
-  document.addEventListener("keydown", escapeHandler);
 }
 
 // Start the app
+//
+// fixme: let's split out files for the "setup" stage and the "tracking" stage.
+// any shared UI components can be split
 init();
