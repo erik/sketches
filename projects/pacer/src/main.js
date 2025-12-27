@@ -313,8 +313,12 @@ function renderSetupMode() {
     .getElementById("gpxFiles")
     .addEventListener("change", handleGPXUpload);
 
-  // fixme: why would this be null???
-  document.getElementById("saveRoute")?.addEventListener("click", saveRoute);
+  // The save button might be null if the DOM hasn't been fully rendered yet
+  // This can happen if the event listener is set up before renderSetupMode() completes
+  const saveBtn = document.getElementById("saveRoute");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", saveRoute);
+  }
 
   // Setup drag and drop for segments
   setupSegmentDragAndDrop();
@@ -339,105 +343,152 @@ function initSetupMap() {
     mapInstance.showTrack(state.route.track);
   }
 
-  // Show checkpoints
+  // Setup checkpoint interactions
+  setupCheckpointInteractions(state);
+
+  // Setup map click handler for adding checkpoints
+  setupMapClickHandler(state);
+
+  // Fit map to content
+  mapInstance.fitToContent();
+}
+
+/**
+ * Setup checkpoint drag and click interactions
+ */
+function setupCheckpointInteractions(state) {
   mapInstance.showCheckpoints(state.route.checkpoints, {
     draggable: true,
     draggableStartFinish: state.route.track.length === 0, // Allow dragging start/finish if no track
-    // fixme: why is this logic in the init function? it's doing too much
     onDragEnd: (checkpoint, newCoord) => {
-      // Snap to track if available
-      if (state.route.track.length > 0) {
-        const snapped = snapToTrack(state.route.track, newCoord);
-        if (snapped) {
-          updateCheckpoint(checkpoint.id, {
-            coord: snapped.coord,
-            km: snapped.km,
-          });
-        }
-      } else {
-        // No track - allow manual positioning
-        updateCheckpoint(checkpoint.id, { coord: newCoord });
-      }
+      handleCheckpointDragEnd(checkpoint, newCoord, state.route.track);
     },
     onClick: (checkpoint) => {
       // Select checkpoint for editing
       store.updateNestedSilent("ui.selectedCheckpointId", checkpoint.id);
     },
   });
+}
 
-  // Add click handler to add checkpoints (with tooltip confirmation)
-  // fixme: too much shit in the init function. too much shit in this click handler too!!!
+/**
+ * Handle checkpoint drag end event
+ */
+function handleCheckpointDragEnd(checkpoint, newCoord, track) {
+  // Snap to track if available
+  if (track.length > 0) {
+    const snapped = snapToTrack(track, newCoord);
+    if (snapped) {
+      updateCheckpoint(checkpoint.id, {
+        coord: snapped.coord,
+        km: snapped.km,
+      });
+    }
+  } else {
+    // No track - allow manual positioning
+    updateCheckpoint(checkpoint.id, { coord: newCoord });
+  }
+}
+
+/**
+ * Setup map click handler for adding checkpoints
+ */
+function setupMapClickHandler(state) {
   mapInstance.onMapClick((coord) => {
     const sorted = sortCheckpointsByDistance(state.route.checkpoints);
     const hasStart = sorted.some((cp) => cp.id === CHECKPOINT_IDS.START);
     const hasFinish = sorted.some((cp) => cp.id === CHECKPOINT_IDS.FINISH);
 
     if (state.route.track.length > 0) {
-      const snapped = findCheckpointOnTrack(state.route.track, coord);
-
-      // Show tooltip/popup to confirm
-      const popup = L.popup()
-        .setLatLng([snapped.coord[1], snapped.coord[0]])
-        .setContent(
-          `
-          <div class="popup-content">
-            <p><strong>Add checkpoint here?</strong></p>
-            <p class="popup-subtext">Distance: ${snapped.km.toFixed(1)} km</p>
-            <button id="confirmAddCheckpoint" class="popup-btn">Add Checkpoint</button>
-          </div>
-        `,
-        )
-        .openOn(mapInstance.getMap());
-
-      // Wait for button to be added to DOM
-      // fixme: this doesn't work.
-      setTimeout(() => {
-        document
-          .getElementById("confirmAddCheckpoint")
-          ?.addEventListener("click", () => {
-            addCheckpointAt(snapped.coord, snapped.km);
-            mapInstance.getMap().closePopup();
-          });
-      }, 0);
+      handleMapClickWithTrack(coord, hasStart, hasFinish);
     } else {
-      // No track - add start first, then finish, then intermediate
-      let checkpointType = !hasStart
-        ? "start"
-        : !hasFinish
-          ? "finish"
-          : "intermediate";
+      handleMapClickWithoutTrack(coord, hasStart, hasFinish);
+    }
+  });
+}
 
-      let label = {
-        start: "Start",
-        finish: "Finish",
-        intermediate: "Checkpoint",
-      }[checkpointType];
+/**
+ * Handle map click when track is available
+ */
+function handleMapClickWithTrack(coord, hasStart, hasFinish) {
+  const snapped = findCheckpointOnTrack(state.route.track, coord);
 
-      const popup = L.popup()
-        .setLatLng([coord[1], coord[0]])
-        .setContent(
-          `
-          <div class="popup-content">
-            <p><strong>Add ${label} here?</strong></p>
-            <button id="confirmAddCheckpoint" class="popup-btn">${label}</button>
-          </div>
-        `,
-        )
-        .openOn(mapInstance.getMap());
+  // Show tooltip/popup to confirm
+  const popup = L.popup()
+    .setLatLng([snapped.coord[1], snapped.coord[0]])
+    .setContent(
+      `
+      <div class="popup-content">
+        <p><strong>Add checkpoint here?</strong></p>
+        <p class="popup-subtext">Distance: ${snapped.km.toFixed(1)} km</p>
+        <button id="confirmAddCheckpoint" class="popup-btn">Add Checkpoint</button>
+      </div>
+    `,
+    )
+    .openOn(mapInstance.getMap());
 
-      setTimeout(() => {
-        document
-          .getElementById("confirmAddCheckpoint")
-          ?.addEventListener("click", () => {
-            addCheckpointAtClick(coord, checkpointType);
-            mapInstance.getMap().closePopup();
-          });
-      }, 0);
+  // Setup button event listener
+  setupPopupButtonListener("confirmAddCheckpoint", () => {
+    addCheckpointAt(snapped.coord, snapped.km);
+    mapInstance.getMap().closePopup();
+  });
+}
+
+/**
+ * Handle map click when no track is available
+ */
+function handleMapClickWithoutTrack(coord, hasStart, hasFinish) {
+  // No track - add start first, then finish, then intermediate
+  let checkpointType = !hasStart
+    ? "start"
+    : !hasFinish
+      ? "finish"
+      : "intermediate";
+
+  let label = {
+    start: "Start",
+    finish: "Finish",
+    intermediate: "Checkpoint",
+  }[checkpointType];
+
+  const popup = L.popup()
+    .setLatLng([coord[1], coord[0]])
+    .setContent(
+      `
+      <div class="popup-content">
+        <p><strong>Add ${label} here?</strong></p>
+        <button id="confirmAddCheckpoint" class="popup-btn">${label}</button>
+      </div>
+    `,
+    )
+    .openOn(mapInstance.getMap());
+
+  // Setup button event listener
+  setupPopupButtonListener("confirmAddCheckpoint", () => {
+    addCheckpointAtClick(coord, checkpointType);
+    mapInstance.getMap().closePopup();
+  });
+}
+
+/**
+ * Setup event listener for popup button with proper timing
+ */
+function setupPopupButtonListener(buttonId, callback) {
+  // Use MutationObserver to wait for button to be added to DOM
+  const observer = new MutationObserver((mutations, obs) => {
+    const button = document.getElementById(buttonId);
+    if (button) {
+      button.addEventListener("click", () => {
+        callback();
+        obs.disconnect();
+      });
+      obs.disconnect();
     }
   });
 
-  // Fit map to content
-  mapInstance.fitToContent();
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
 }
 
 function renderSegmentsList(state) {
