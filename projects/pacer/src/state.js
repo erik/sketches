@@ -138,6 +138,7 @@ export function createInitialState() {
       editingCheckpointId: null,
       userLocation: null,
       snappedLocation: null,
+      unitSystem: "metric", // "metric" or "imperial"
     },
   };
 }

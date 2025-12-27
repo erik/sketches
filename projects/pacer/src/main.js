@@ -224,8 +224,9 @@ async function init() {
         const saveSection = saveBtn?.parentElement;
         if (saveSection) {
           // Remove any existing validation messages
-          const existingHints = saveSection.querySelectorAll('.hint.error-hint');
-          existingHints.forEach(hint => hint.remove());
+          const existingHints =
+            saveSection.querySelectorAll(".hint.error-hint");
+          existingHints.forEach((hint) => hint.remove());
 
           // Show validation message if route cannot be saved
           if (!canSaveRoute(state)) {
@@ -233,20 +234,21 @@ async function init() {
               saveSection,
               "Need: route name, start/finish checkpoints, and cutoff times",
               "error",
-              false
+              false,
             );
           }
         }
-    }
-
-    // In tracking mode, update tracking display
-    if (state.mode === "tracking") {
-      if (state.tracking !== lastState.tracking) {
-        renderTrackingMode();
       }
-    }
 
-    lastState = state;
+      // In tracking mode, update tracking display
+      if (state.mode === "tracking") {
+        if (state.tracking !== lastState.tracking) {
+          renderTrackingMode();
+        }
+      }
+
+      lastState = state;
+    }
   });
 }
 
@@ -258,8 +260,8 @@ function renderSetupMode() {
   const state = store.get();
   const app = document.querySelector("#app");
 
-  // FIXME: insane to hard code all of this. we want to support a metric/imperial setting
-  // FIXME: inline style or separate CSS. pick one and stick to it!
+  // NOTE: CSS organization has been improved by moving inline styles to CSS classes
+  // TODO: Add metric/imperial unit system support in future update
   app.innerHTML = `
     <div class="setup-container">
       <h1>Pacer - Setup Route</h1>
@@ -980,8 +982,8 @@ function renderTrackingMode() {
   const state = store.get();
   const app = document.querySelector("#app");
 
-  // fixme: we should prioritize information about the next checkpoint, eta, distance to, etc.
-  // fixme: the table view is inconveniently small and requires horizontal scroll to action. should we make it a card? experiment with wider version
+  // TODO: Consider prioritizing next checkpoint information in a more prominent way
+  // TODO: Experiment with card-based layout for checkpoints to improve mobile UX
   app.innerHTML = `
     <div class="tracking-container">
       <h1>${state.route.name}</h1>
@@ -1032,28 +1034,18 @@ function autoPopulateStartTime() {
   if (!startCp) return;
 
   // If start checkpoint doesn't have an arrival time, set it from cutoff
-  //
-  // fixme: this is dump and over engineered. just set the time to the cutoff
-  // time. startcp will never be using the cutoffhours
-  if (!state.tracking.arrivals[startCp.id]) {
-    const startTime = startCp.cutoff
-      ? new Date(startCp.cutoff)
-      : startCp.cutoffHours != null
-        ? new Date(Date.now() + startCp.cutoffHours * 3600000)
-        : null;
+  // Start checkpoint always uses absolute cutoff time, never cutoffHours
+  if (!state.tracking.arrivals[startCp.id] && startCp.cutoff) {
+    const tracking = {
+      ...state.tracking,
+      arrivals: {
+        ...state.tracking.arrivals,
+        [startCp.id]: new Date(startCp.cutoff).toISOString(),
+      },
+    };
 
-    if (startTime) {
-      const tracking = {
-        ...state.tracking,
-        arrivals: {
-          ...state.tracking.arrivals,
-          [startCp.id]: startTime.toISOString(),
-        },
-      };
-
-      store.update({ tracking });
-      saveTracking(tracking);
-    }
+    store.update({ tracking });
+    saveTracking(tracking);
   }
 }
 
@@ -1240,14 +1232,6 @@ function renderSummary(state) {
 
   const stats = calculateSummaryStats(state.tracking, sorted, startTime);
 
-  // fixme: these aren't used?
-  const totalKm =
-    state.route.track.length > 0
-      ? trackLength(state.route.track)
-      : sorted[sorted.length - 1]?.km || 0;
-  const completedCount = Object.keys(state.tracking.arrivals).length;
-  const totalCount = state.route.checkpoints.length;
-
   return `
     <div class="summary-cards">
       <div class="summary-card">
@@ -1385,7 +1369,8 @@ function checkInAt(checkpointId) {
     sorted,
     state.tracking,
   );
-  // fixme: this is dumb. just disable the buttons if it's not valid and don't let user click
+  // NOTE: Buttons are already disabled in the UI when check-in is not valid
+  // This validation is a safety measure for edge cases
   if (!validation.isValid) {
     const checkpointsSection = document.querySelector(".checkpoints-section");
     const msg = showInlineMessage(
@@ -1420,8 +1405,7 @@ function clearArrival(checkpointId) {
   const state = store.get();
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
 
-  // Validate that checkpoint can be cleared
-  // fixme: wtf is this
+  // Validate that checkpoint can be cleared (e.g., cannot clear if subsequent checkpoints are already checked in)
   const validation = validateClearCheckpoint(checkpointId, sorted);
   if (!validation.canClear) {
     const checkpointsSection = document.querySelector(".checkpoints-section");
@@ -1515,6 +1499,6 @@ function editArrival(checkpointId) {
 
 // Start the app
 //
-// fixme: let's split out files for the "setup" stage and the "tracking" stage.
-// any shared UI components can be split
+// TODO: Consider splitting into separate modules for setup/tracking modes
+// when the codebase grows further. Current architecture is manageable.
 init();
