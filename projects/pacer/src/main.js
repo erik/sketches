@@ -293,11 +293,11 @@ function renderSetupMode() {
 
             <input type="text" id="routeName" value="${state.route.name}" placeholder="Route name">
 
-            <button id="saveRoute" class="primary" ${canSaveRoute(state) ? "" : "disabled"} style="width: 100%; margin-top: 1rem;">
+            <button id="saveRoute" class="primary full-width-btn" ${canSaveRoute(state) ? "" : "disabled"}>
               Save & Generate URL
             </button>
 
-            ${!canSaveRoute(state) ? '<p class="hint" style="color: #dc2626;">Need: route name, start/finish checkpoints, and cutoff times</p>' : ""}
+            ${!canSaveRoute(state) ? '<p class="hint error-hint">Need: route name, start/finish checkpoints, and cutoff times</p>' : ""}
           </div>
         </div>
 
@@ -384,10 +384,10 @@ function initSetupMap() {
         .setLatLng([snapped.coord[1], snapped.coord[0]])
         .setContent(
           `
-          <div style="text-align: center;">
-            <p style="margin: 0 0 8px 0;"><strong>Add checkpoint here?</strong></p>
-            <p style="margin: 0 0 8px 0; font-size: 0.9em;">Distance: ${snapped.km.toFixed(1)} km</p>
-            <button id="confirmAddCheckpoint" style="padding: 4px 12px; cursor: pointer;">Add Checkpoint</button>
+          <div class="popup-content">
+            <p><strong>Add checkpoint here?</strong></p>
+            <p class="popup-subtext">Distance: ${snapped.km.toFixed(1)} km</p>
+            <button id="confirmAddCheckpoint" class="popup-btn">Add Checkpoint</button>
           </div>
         `,
         )
@@ -421,9 +421,9 @@ function initSetupMap() {
         .setLatLng([coord[1], coord[0]])
         .setContent(
           `
-          <div style="text-align: center;">
-            <p style="margin: 0 0 8px 0;"><strong>Add ${label} here?</strong></p>
-            <button id="confirmAddCheckpoint" style="padding: 4px 12px; cursor: pointer;">Add ${label}</button>
+          <div class="popup-content">
+            <p><strong>Add ${label} here?</strong></p>
+            <button id="confirmAddCheckpoint" class="popup-btn">${label}</button>
           </div>
         `,
         )
@@ -505,7 +505,7 @@ function renderCheckpointsList(state) {
                 cp.cutoff
                   ? `
                 <input type="datetime-local" value="${cp.cutoff.slice(0, 16)}" class="cp-cutoff" data-id="${cp.id}" required>
-                ${isStartOrFinish && cp.id === "start" ? '<div style="font-size: 0.75em; color: #059669; margin-top: 0.25rem;">Event start time</div>' : ""}
+                ${isStartOrFinish && cp.id === CHECKPOINT_IDS.START ? '<div class="event-start-hint">Event start time</div>' : ""}
               `
                   : cp.cutoffHours != null
                     ? `
@@ -897,8 +897,8 @@ function renderTrackingMode() {
         <button id="toggleMap" class="toggle-map-btn">
           <span id="mapToggleIcon">▼</span> Map
         </button>
-        <div id="mapContainer" class="map-container" style="display: block;">
-          <div id="map" style="height: 100%;"></div>
+        <div id="mapContainer" class="map-container map-container-inline">
+          <div id="map" class="map-inner"></div>
         </div>
       </div>
 

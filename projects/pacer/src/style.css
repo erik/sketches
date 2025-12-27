@@ -827,6 +827,51 @@ label {
         font-size: 0.9em;
     }
 
+    /* Full width button */
+    .full-width-btn {
+        width: 100%;
+        margin-top: 1rem;
+    }
+
+    /* Error hint */
+    .error-hint {
+        color: #dc2626;
+    }
+
+    /* Popup content */
+    .popup-content {
+        text-align: center;
+    }
+
+    .popup-content p {
+        margin: 0 0 8px 0;
+    }
+
+    .popup-content .popup-subtext {
+        font-size: 0.9em;
+    }
+
+    .popup-content .popup-btn {
+        padding: 4px 12px;
+        cursor: pointer;
+    }
+
+    /* Event start time hint */
+    .event-start-hint {
+        font-size: 0.75em;
+        color: #059669;
+        margin-top: 0.25rem;
+    }
+
+    /* Map container inline */
+    .map-container-inline {
+        display: block;
+    }
+
+    .map-container-inline .map-inner {
+        height: 100%;
+    }
+
     .segment-item {
         font-size: 0.85em;
         padding: 0.4rem;
