@@ -2,7 +2,6 @@
  * Checkpoint-specific operations and calculations
  */
 
-import { sortCheckpointsByDistance } from "./geo.js";
 import {
   calculateCurrentPace,
   calculateRequiredPace,
@@ -10,7 +9,7 @@ import {
   calculateTimeAheadBehind,
   getCurrentCheckpointIndex,
 } from "./pace.js";
-import { getStartInfo } from "./helpers.js";
+import { getStartInfo } from "./ui/index.js";
 
 /**
  * Calculate all metrics for a checkpoint row in tracking table.

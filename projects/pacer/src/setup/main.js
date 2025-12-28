@@ -4,14 +4,64 @@
  */
 
 // Import shared dependencies
-import { createStore, generateId, getCutoffTime, findCheckpoint, getStartCheckpoint, getStartTime } from "../../shared/state.js";
-import { parseGPX, simplifyTrack, calculateTrackLength, getCoordAtKm, sortCheckpointsByDistance, snapToTrack, findCheckpointOnTrack, calculateDistance, distanceBetweenCheckpoints } from "../../shared/geo.js";
-import { showInlineMessage, formatDateTime, formatCutoffTime, getStartInfo, formatDateTimeLocal, scrollToElement, canSaveRoute, findMissingCutoffs, createModal, calculateTimeRemaining, formatTimeRemaining } from "../../shared/ui.js";
-import { calculateCheckpointMetrics, canCheckIn, findNextCheckpoint, getCutoffTimeForCheckpoint, validateClearCheckpoint, validateSequentialCheckIn } from "../../shared/checkpoint-ops.js";
-import { saveRouteToURL, loadRouteFromURL, saveTracking, loadTracking } from "../../shared/storage.js";
-import { createMap } from "../../shared/map.js";
+import {
+  createStore,
+  generateId,
+  getCutoffTime,
+  findCheckpoint,
+  getStartCheckpoint,
+  getStartTime,
+} from "../shared/state.js";
+import {
+  parseGPX,
+  simplifyTrack,
+  calculateTrackLength,
+  getCoordAtKm,
+  sortCheckpointsByDistance,
+  snapToTrack,
+  findCheckpointOnTrack,
+  calculateDistance,
+  distanceBetweenCheckpoints,
+} from "../shared/geo/index.js";
+import {
+  showInlineMessage,
+  formatDateTime,
+  formatCutoffTime,
+  getStartInfo,
+  formatDateTimeLocal,
+  scrollToElement,
+  canSaveRoute,
+  findMissingCutoffs,
+  createModal,
+  calculateTimeRemaining,
+  formatTimeRemaining,
+} from "../shared/ui";
+import {
+  calculateCheckpointMetrics,
+  canCheckIn,
+  findNextCheckpoint,
+  getCutoffTimeForCheckpoint,
+  validateClearCheckpoint,
+  validateSequentialCheckIn,
+} from "../shared/checkpoint-ops.js";
+import {
+  saveRouteToURL,
+  loadRouteFromURL,
+  saveTracking,
+  loadTracking,
+} from "../shared/storage.js";
+import { createMap } from "../shared/map.js";
 import L from "leaflet";
-import { calculateCurrentPace, calculateRequiredPace, calculateEstimatedArrival, calculateTimeAheadBehind, calculateSummaryStats, getCurrentCheckpointIndex, formatTimeDifference, getTimeDifferenceHours } from "../../shared/pace.js";
+import {
+  calculateCurrentPace,
+  calculateRequiredPace,
+  calculateEstimatedArrival,
+  calculateTimeAheadBehind,
+  calculateSummaryStats,
+  getCurrentCheckpointIndex,
+  formatTimeDifference,
+  getTimeDifferenceHours,
+} from "../shared/pace.js";
 
 // Constants
 const CHECKPOINT_IDS = {
@@ -59,7 +109,9 @@ function updateStartFinishCheckpoints(existingCheckpoints, track) {
     finishCp.coord = track[track.length - 1];
   } else {
     // Calculate default finish cutoff: start time + 7 days
-    const startCutoff = checkpoints.find((cp) => cp.id === CHECKPOINT_IDS.START)?.cutoff;
+    const startCutoff = checkpoints.find(
+      (cp) => cp.id === CHECKPOINT_IDS.START,
+    )?.cutoff;
     const defaultFinishTime = startCutoff
       ? new Date(new Date(startCutoff).getTime() + 7 * 24 * 60 * 60 * 1000)
           .toISOString()
@@ -141,7 +193,7 @@ export function renderSetupMode(store) {
 
             <input type="file" id="gpxFiles" accept=".gpx" multiple />
             ${
-              state.route.track.length > 0
+              state.route.track && state.route.track.length > 0
                 ? `<p class="success">✓ ${calculateTrackLength(state.route.track).toFixed(0)} km track (${state.route.segments.length} segment${state.route.segments.length !== 1 ? "s" : ""})</p>`
                 : '<p class="hint">Upload GPX file(s) or click map to place start/finish</p>'
             }
@@ -178,7 +230,9 @@ export function renderSetupMode(store) {
     store.updateNestedSilent("route.name", e.target.value);
   });
 
-  document.getElementById("gpxFiles").addEventListener("change", (e) => handleGPXUpload(e, store));
+  document
+    .getElementById("gpxFiles")
+    .addEventListener("change", (e) => handleGPXUpload(e, store));
 
   const saveBtn = document.getElementById("saveRoute");
   if (saveBtn) {
@@ -204,17 +258,17 @@ export function initSetupMap(store) {
   mapInstance = createMap("map");
 
   // Show track if available
-  if (state.route.track.length > 0) {
+  if (state.route.track && state.route.track.length > 0) {
     mapInstance.showTrack(state.route.track);
   }
 
   // Show checkpoints
   mapInstance.showCheckpoints(state.route.checkpoints, {
     draggable: true,
-    draggableStartFinish: state.route.track.length === 0, // Allow dragging start/finish if no track
+    draggableStartFinish: !state.route.track || state.route.track.length === 0, // Allow dragging start/finish if no track
     onDragEnd: (checkpoint, newCoord) => {
       // Snap to track if available
-      if (state.route.track.length > 0) {
+      if (state.route.track && state.route.track.length > 0) {
         const snapped = snapToTrack(state.route.track, newCoord);
         if (snapped) {
           updateCheckpoint(checkpoint.id, {
@@ -223,7 +277,6 @@ export function initSetupMap(store) {
           });
         }
       } else {
-        // No track - allow manual positioning
         updateCheckpoint(checkpoint.id, { coord: newCoord });
       }
     },
@@ -239,19 +292,21 @@ export function initSetupMap(store) {
     const hasStart = sorted.some((cp) => cp.id === CHECKPOINT_IDS.START);
     const hasFinish = sorted.some((cp) => cp.id === CHECKPOINT_IDS.FINISH);
 
-    if (state.route.track.length > 0) {
+    if (state.route.track && state.route.track.length > 0) {
       const snapped = findCheckpointOnTrack(state.route.track, coord);
 
       // Show tooltip/popup to confirm
       const popup = L.popup()
         .setLatLng([snapped.coord[1], snapped.coord[0]])
-        .setContent(`
+        .setContent(
+          `
           <div class="popup-content">
             <p><strong>Add checkpoint here?</strong></p>
             <p class="popup-subtext">Distance: ${snapped.km.toFixed(1)} km</p>
             <button id="confirmAddCheckpoint" class="popup-btn">Add Checkpoint</button>
           </div>
-        `)
+        `,
+        )
         .openOn(mapInstance.getMap());
 
       // Setup button event listener
@@ -275,12 +330,14 @@ export function initSetupMap(store) {
 
       const popup = L.popup()
         .setLatLng([coord[1], coord[0]])
-        .setContent(`
+        .setContent(
+          `
           <div class="popup-content">
             <p><strong>Add ${label} here?</strong></p>
             <button id="confirmAddCheckpoint" class="popup-btn">${label}</button>
           </div>
-        `)
+        `,
+        )
         .openOn(mapInstance.getMap());
 
       // Setup button event listener
@@ -309,7 +366,7 @@ export async function handleGPXUpload(e, store) {
         showInlineMessage(
           document.querySelector(".setup-section"),
           `No valid track data found in ${file.name}`,
-          "error"
+          "error",
         );
         continue;
       }
@@ -326,7 +383,7 @@ export async function handleGPXUpload(e, store) {
       showInlineMessage(
         document.querySelector(".setup-section"),
         `Error parsing ${file.name}: ${error.message}`,
-        "error"
+        "error",
       );
     }
   }
@@ -492,7 +549,9 @@ export function addCheckpointAt(coord, km) {
 
   // Insert before finish checkpoint
   const checkpoints = [...state.route.checkpoints];
-  const finishIndex = checkpoints.findIndex((cp) => cp.id === CHECKPOINT_IDS.FINISH);
+  const finishIndex = checkpoints.findIndex(
+    (cp) => cp.id === CHECKPOINT_IDS.FINISH,
+  );
 
   if (finishIndex >= 0) {
     checkpoints.splice(finishIndex, 0, newCheckpoint);
@@ -531,9 +590,10 @@ export function addCheckpointAtClick(coord, type) {
       },
     });
   } else if (type === "finish") {
-    const totalLength = state.route.track.length > 0
-      ? calculateTrackLength(state.route.track)
-      : 0;
+    const totalLength =
+      state.route.track && state.route.track.length > 0
+        ? calculateTrackLength(state.route.track)
+        : 0;
 
     const newCheckpoint = {
       id: CHECKPOINT_IDS.FINISH,
@@ -541,9 +601,10 @@ export function addCheckpointAtClick(coord, type) {
       km: totalLength,
       coord,
       // Default to start time + 7 days
-      cutoff: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .slice(0, 16) + ":00",
+      cutoff:
+        new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 16) + ":00",
     };
 
     store.update({
@@ -573,7 +634,7 @@ export function setupCheckpointListeners() {
         const km = parseFloat(target.value);
         const state = store.get();
 
-        if (state.route.track.length > 0) {
+        if (state.route.track && state.route.track.length > 0) {
           // With track - calculate coordinate from km
           const coord = getCoordAtKm(state.route.track, km);
           updateCheckpoint(checkpointId, { km, coord: coord || [0, 0] });
@@ -669,14 +730,14 @@ export async function saveRoute(store) {
     const saveSection = saveBtn?.parentElement;
 
     if (saveSection) {
-      const existingHints = saveSection.querySelectorAll('.hint.error-hint');
-      existingHints.forEach(hint => hint.remove());
+      const existingHints = saveSection.querySelectorAll(".hint.error-hint");
+      existingHints.forEach((hint) => hint.remove());
 
       showInlineMessage(
         saveSection,
         "Need: route name, start/finish checkpoints, and cutoff times",
         "error",
-        false
+        false,
       );
     }
     return;
@@ -718,7 +779,7 @@ export async function saveRoute(store) {
     showInlineMessage(
       saveSection,
       "Route saved! Switching to tracking mode...",
-      "success"
+      "success",
     );
   }
 }
@@ -768,9 +829,13 @@ function renderCheckpointsList(state) {
       <tbody id="checkpointsTableBody">
         ${sorted
           .map((cp) => {
-            const isStartOrFinish = cp.id === CHECKPOINT_IDS.START || cp.id === CHECKPOINT_IDS.FINISH;
+            const isStartOrFinish =
+              cp.id === CHECKPOINT_IDS.START || cp.id === CHECKPOINT_IDS.FINISH;
             // Start/finish are readonly when GPX track exists, editable otherwise
-            const kmReadonly = state.route.track.length > 0 && isStartOrFinish;
+            const kmReadonly =
+              state.route.track &&
+              state.route.track.length > 0 &&
+              isStartOrFinish;
             const nameReadonly = isStartOrFinish; // Name always readonly for start/finish
 
             const missingCutoff = !cp.cutoff && cp.cutoffHours == null;

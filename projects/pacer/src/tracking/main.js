@@ -4,13 +4,40 @@
  */
 
 // Import shared dependencies
-import { createStore, getCutoffTime, findCheckpoint, getStartCheckpoint, getStartTime } from "../../shared/state.js";
-import { calculateTrackLength } from "../../shared/geo.js";
-import { showInlineMessage, formatDateTime, formatCutoffTime, getStartInfo, createModal } from "../../shared/ui.js";
-import { calculateCheckpointMetrics, canCheckIn, findNextCheckpoint, getCutoffTimeForCheckpoint, validateClearCheckpoint, validateSequentialCheckIn } from "../../shared/checkpoint-ops.js";
-import { saveTracking } from "../../shared/storage.js";
-import { createMap } from "../../shared/map.js";
-import { calculateCurrentPace, calculateRequiredPace, calculateEstimatedArrival, calculateTimeAheadBehind, calculateSummaryStats, getCurrentCheckpointIndex, formatTimeDifference, getTimeDifferenceHours } from "../../shared/pace.js";
+import {
+  createStore,
+  getCutoffTime,
+  findCheckpoint,
+  getStartCheckpoint,
+  getStartTime,
+} from "../shared/state.js";
+import { calculateTrackLength } from "../shared/geo/index.js";
+import {
+  showInlineMessage,
+  formatDateTime,
+  formatCutoffTime,
+  createModal,
+} from "../shared/ui/index.js";
+import {
+  calculateCheckpointMetrics,
+  canCheckIn,
+  findNextCheckpoint,
+  getCutoffTimeForCheckpoint,
+  validateClearCheckpoint,
+  validateSequentialCheckIn,
+} from "../shared/checkpoint-ops.js";
+import { saveTracking } from "../shared/storage.js";
+import { createMap } from "../shared/map.js";
+import {
+  calculateCurrentPace,
+  calculateRequiredPace,
+  calculateEstimatedArrival,
+  calculateTimeAheadBehind,
+  calculateSummaryStats,
+  getCurrentCheckpointIndex,
+  formatTimeDifference,
+  getTimeDifferenceHours,
+} from "../shared/pace.js";
 
 // Map instance
 let mapInstance = null;
@@ -103,7 +130,7 @@ export function initTrackingMap(store) {
   mapInstance = createMap("map");
 
   // Show track if available
-  if (state.route.track.length > 0) {
+  if (state.route.track && state.route.track.length > 0) {
     mapInstance.showTrack(state.route.track, { color: "#10b981" });
   }
 
@@ -174,7 +201,7 @@ export function getUserLocation(store) {
     showInlineMessage(
       document.querySelector(".tracking-container"),
       "Geolocation is not supported by your browser",
-      "error"
+      "error",
     );
     return;
   }
@@ -189,7 +216,7 @@ export function getUserLocation(store) {
       mapInstance.showUserLocation(userCoord);
 
       // If we have a track, snap to it
-      if (state.route.track.length > 0) {
+      if (state.route.track && state.route.track.length > 0) {
         const snapped = snapToTrack(state.route.track, userCoord);
         if (snapped) {
           // Calculate distance to track
@@ -210,7 +237,7 @@ export function getUserLocation(store) {
                 mapSection,
                 `You're ${distToTrack.toFixed(1)}km from the route, ${distToNext.toFixed(1)}km to ${nextCp.name}`,
                 "info",
-                false
+                false,
               );
             }
           } else {
@@ -220,7 +247,7 @@ export function getUserLocation(store) {
               mapSection,
               "You're more than 50km from the route. Likely not yet racing.",
               "info",
-              false
+              false,
             );
           }
         }
@@ -232,7 +259,7 @@ export function getUserLocation(store) {
           mapSection,
           "No route track available to snap to.",
           "info",
-          false
+          false,
         );
       }
     },
@@ -254,9 +281,9 @@ export function getUserLocation(store) {
       showInlineMessage(
         document.querySelector(".tracking-container"),
         errorMessage,
-        "error"
+        "error",
       );
-    }
+    },
   );
 }
 
@@ -371,7 +398,7 @@ export function renderTrackingCheckpoints(store) {
               cp,
               index,
               sorted,
-              state
+              state,
             );
             const {
               hasArrived,
@@ -392,9 +419,12 @@ export function renderTrackingCheckpoints(store) {
             <td>${cp.name}</td>
             <td>${cp.km.toFixed(1)}</td>
             <td>
-              ${hasArrived
-                ? `<span class="arrival-time" data-id="${cp.id}">${formatDateTime(new Date(arrival))}</span> <button class="edit-arrival" data-id="${cp.id}">✏️</button>`
-                : estimatedArrival ? `<b>ETA:</b> ${formatDateTime(estimatedArrival)}` : "-"
+              ${
+                hasArrived
+                  ? `<span class="arrival-time" data-id="${cp.id}">${formatDateTime(new Date(arrival))}</span> <button class="edit-arrival" data-id="${cp.id}">✏️</button>`
+                  : estimatedArrival
+                    ? `<b>ETA:</b> ${formatDateTime(estimatedArrival)}`
+                    : "-"
               }
             </td>
             <td class="${currentPace ? (currentPace >= 10 ? "metric-positive" : "metric-negative") : "metric-neutral"}">
@@ -408,11 +438,12 @@ export function renderTrackingCheckpoints(store) {
             </td>
             <td>${remainingTimeStr || "-"}</td>
             <td>
-              ${hasArrived
-                ? `<button class="clear-arrival" data-id="${cp.id}">Clear</button>`
-                : canCheckInNow
-                  ? `<button class="check-in" data-id="${cp.id}">Check In</button>`
-                  : `<button class="check-in" disabled>Check In</button>`
+              ${
+                hasArrived
+                  ? `<button class="clear-arrival" data-id="${cp.id}">Clear</button>`
+                  : canCheckInNow
+                    ? `<button class="check-in" data-id="${cp.id}">Check In</button>`
+                    : `<button class="check-in" disabled>Check In</button>`
               }
             </td>
           </tr>
@@ -494,8 +525,8 @@ export function checkInAt(checkpointId, store) {
   if (checkpointsSection) {
     showInlineMessage(
       checkpointsSection,
-      `Checked in at ${sorted.find(cp => cp.id === checkpointId)?.name}!`,
-      "success"
+      `Checked in at ${sorted.find((cp) => cp.id === checkpointId)?.name}!`,
+      "success",
     );
   }
 }
@@ -534,8 +565,8 @@ export function clearArrival(checkpointId, store) {
   if (checkpointsSection) {
     showInlineMessage(
       checkpointsSection,
-      `Cleared arrival at ${sorted.find(cp => cp.id === checkpointId)?.name}`,
-      "success"
+      `Cleared arrival at ${sorted.find((cp) => cp.id === checkpointId)?.name}`,
+      "success",
     );
   }
 }
@@ -543,7 +574,7 @@ export function clearArrival(checkpointId, store) {
 export function editArrival(checkpointId, store) {
   const state = store.get();
   const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const checkpoint = sorted.find(cp => cp.id === checkpointId);
+  const checkpoint = sorted.find((cp) => cp.id === checkpointId);
 
   if (!checkpoint) return;
 
@@ -591,7 +622,7 @@ export function editArrival(checkpointId, store) {
       showInlineMessage(
         checkpointsSection,
         `Updated arrival time for ${checkpoint.name}`,
-        "success"
+        "success",
       );
     }
   });

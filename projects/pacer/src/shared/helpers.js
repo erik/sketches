@@ -101,25 +101,6 @@ export function formatCutoffTime(checkpoint, state) {
 
   return "-";
 }
-
-/**
- * Get the start checkpoint and start time from state.
- * @param {Object} state
- * @returns {{startCp: Object|null, startTime: Date|null}}
- */
-export function getStartInfo(state) {
-  const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0] || null;
-  const startTime =
-    startCp && state.tracking.arrivals[startCp.id]
-      ? new Date(state.tracking.arrivals[startCp.id])
-      : startCp?.cutoff
-        ? new Date(startCp.cutoff)
-        : null;
-
-  return { startCp, startTime };
-}
-
 /**
  * Format a datetime for use in datetime-local input.
  * @param {Date} date

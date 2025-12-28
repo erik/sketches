@@ -314,8 +314,6 @@ label {
 }
 
 .drag-handle {
-
-.drag-handle {
     color: #9ca3af;
     font-size: 1.2rem;
     cursor: grab;
