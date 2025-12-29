@@ -138,6 +138,82 @@ export function findCheckpointOnTrack(track, clickLocation) {
 }
 
 /**
+ * Calculate track length in kilometers
+ * @param {[number, number][]} coords - Track coordinates
+ * @returns {number} Length in km
+ */
+export function calculateTrackLength(coords) {
+  if (coords.length < 2) return 0;
+  const line = lineString(coords);
+  return length(line, { units: "kilometers" });
+}
+
+/**
+ * Find the nearest track segment from multiple tracks and snap to it.
+ * @param {[number, number][][]} tracks - Array of track segments
+ * @param {[number, number]} clickLocation - [lng, lat]
+ * @param {L.Map} map - Leaflet map instance for pixel distance calculation
+ * @param {number} maxPixelDistance - Maximum pixel distance for snapping
+ * @returns {{coord: [number, number], km: number, segmentId: string|null}}
+ */
+export function snapToNearestTrackSegment(
+  tracks,
+  clickLocation,
+  map,
+  maxPixelDistance = 200,
+) {
+  let nearestResult = null;
+  let minPixelDistance = Infinity;
+
+  tracks.forEach((track, segmentIndex) => {
+    if (track.length < 2) return;
+
+    const line = lineString(track);
+    const pt = point(clickLocation);
+    const snapped = nearestPointOnLine(line, pt, { units: "kilometers" });
+
+    // Calculate pixel distance between click and snapped point
+    const clickLatLng = L.latLng(clickLocation[1], clickLocation[0]);
+    const snappedLatLng = L.latLng(
+      snapped.geometry.coordinates[1],
+      snapped.geometry.coordinates[0],
+    );
+    const pixelDistance = map
+      .latLngToLayerPoint(clickLatLng)
+      .distanceTo(map.latLngToLayerPoint(snappedLatLng));
+
+    if (pixelDistance <= maxPixelDistance && pixelDistance < minPixelDistance) {
+      minPixelDistance = pixelDistance;
+
+      // Calculate distance along track
+      const km = calculateDistanceAlongTrack(
+        track,
+        snapped.geometry.coordinates,
+      );
+
+      nearestResult = {
+        coord: snapped.geometry.coordinates,
+        km: km,
+        segmentId: segmentIndex.toString(),
+        pixelDistance: pixelDistance,
+      };
+    }
+  });
+
+  // If no suitable segment found within distance, return original location
+  if (!nearestResult) {
+    return {
+      coord: clickLocation,
+      km: 0,
+      segmentId: null,
+      pixelDistance: Infinity,
+    };
+  }
+
+  return nearestResult;
+}
+
+/**
  * Validate that a checkpoint km value is reasonable for the track.
  * @param {[number, number][]} track
  * @param {number} km

@@ -3,56 +3,13 @@
  */
 
 import { sortCheckpointsByDistance } from "./geo.js";
-import { getCutoffTime } from "./state.js";
 
 /**
- * Show an inline message in a container.
- * @param {HTMLElement} container
- * @param {string} message
- * @param {string} type - "error", "success", or "info"
- * @param {boolean} autoDismiss
- * @returns {HTMLElement|null}
+ * Generate a unique ID for checkpoints.
+ * @returns {string}
  */
-export function showInlineMessage(
-  container,
-  message,
-  type = "error",
-  autoDismiss = true,
-) {
-  if (!container) return null;
-
-  // Remove existing message
-  const existing = container.querySelector(".inline-message");
-  if (existing) existing.remove();
-
-  const msgEl = document.createElement("p");
-  msgEl.className = `inline-message ${type}`;
-  msgEl.style.fontWeight = "500";
-  msgEl.style.marginTop = "0.5rem";
-  msgEl.style.marginBottom = "0.5rem";
-  msgEl.style.padding = "0.5rem";
-  msgEl.style.borderRadius = "4px";
-  msgEl.textContent = message;
-
-  const styles = {
-    error: { color: "#dc2626", backgroundColor: "#fef2f2" },
-    success: { color: "#059669", backgroundColor: "#f0fdf4" },
-    info: { color: "#6b7280", backgroundColor: "#f9fafb" },
-  };
-
-  const style = styles[type];
-  if (style) {
-    msgEl.style.color = style.color;
-    msgEl.style.backgroundColor = style.backgroundColor;
-  }
-
-  container.appendChild(msgEl);
-
-  if (autoDismiss) {
-    setTimeout(() => msgEl.remove(), 5000);
-  }
-
-  return msgEl;
+export function generateId() {
+  return "cp_" + Math.random().toString(36).substring(2, 10);
 }
 
 /**
@@ -73,35 +30,6 @@ export function formatDateTime(date) {
 }
 
 /**
- * Format a cutoff time for display, handling both absolute and relative times.
- * @param {Object} checkpoint
- * @param {Object} state
- * @returns {string}
- */
-export function formatCutoffTime(checkpoint, state) {
-  const sorted = sortCheckpointsByDistance(state.route.checkpoints);
-  const startCp = sorted[0];
-  const startTime = state.tracking.arrivals[startCp?.id]
-    ? new Date(state.tracking.arrivals[startCp.id])
-    : null;
-
-  if (checkpoint.cutoff) {
-    return formatDateTime(new Date(checkpoint.cutoff));
-  }
-
-  if (checkpoint.cutoffHours != null) {
-    if (startTime) {
-      const cutoffTime = new Date(
-        startTime.getTime() + checkpoint.cutoffHours * 3600000,
-      );
-      return `${formatDateTime(cutoffTime)} (${checkpoint.cutoffHours}h from start)`;
-    }
-    return `${checkpoint.cutoffHours}h from start`;
-  }
-
-  return "-";
-}
-/**
  * Format a datetime for use in datetime-local input.
  * @param {Date} date
  * @returns {string}
@@ -113,40 +41,6 @@ export function formatDateTimeLocal(date) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-/**
- * Scroll an element into view smoothly.
- * @param {string} selector - CSS selector
- */
-export function scrollToElement(selector) {
-  const element = document.querySelector(selector);
-  if (element) {
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
-/**
- * Check if a route can be saved (has name and all CPs have cutoffs).
- * @param {Object} state
- * @returns {boolean}
- */
-export function canSaveRoute(state) {
-  if (!state.route.name) return false;
-  if (state.route.checkpoints.length < 2) return false;
-
-  return state.route.checkpoints.every((cp) => {
-    return cp.cutoff || cp.cutoffHours != null;
-  });
-}
-
-/**
- * Find checkpoints missing cutoff times.
- * @param {Array} checkpoints
- * @returns {Array}
- */
-export function findMissingCutoffs(checkpoints) {
-  return checkpoints.filter((cp) => !cp.cutoff && cp.cutoffHours == null);
 }
 
 /**

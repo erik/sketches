@@ -22,7 +22,7 @@ export class Livewire {
   #computed = new Map();
   #observers = new Set();
 
-  constructor(props, parent = null) {
+  constructor(props, parent) {
     this.#parent = parent;
     this.#state = new Map();
 
@@ -204,6 +204,10 @@ export function createFragment(_tag, children) {
   return _createElement("fragment", {}, ...children);
 }
 
+export function htmlTemplate(s) {
+  return _createElement("template", { innerHTML: s }).content;
+}
+
 function _createElement(tag, attrs, ...children) {
   attrs = attrs || {};
 
@@ -227,6 +231,8 @@ function _createElement(tag, attrs, ...children) {
       }
     } else if (k === "className") {
       el.setAttribute("class", v);
+    } else if (k === "innerHTML") {
+      el.innerHTML = v;
     } else if (v === false || v === "") {
       el.removeAttribute(k);
     } else {

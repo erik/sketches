@@ -8,10 +8,11 @@ import {
   parseGPX,
   simplifyTrack,
   calculateTrackLength,
-} from "../shared/geo/index.js";
+  snapToNearestTrackSegment,
+} from "../shared/geo.js";
 import { Livewire } from "../livewire.js";
 
-const createStore = (global) =>
+const createStore = (global: Livewire) =>
   new Livewire(
     {
       global,
@@ -40,34 +41,104 @@ const Fieldset = (props, children) => {
   );
 };
 
-const ControlPointRow = ({ store, kind, name, opensAt, closesAt, coord }) => {
+const EditableText = ({ onChange, value, placeholder }) => {
+  const store = new Livewire({
+    editing: false,
+    textValue: value,
+  });
+
+  return store.render("editing", ({ editing, textValue }) =>
+    editing ? (
+      <input
+        type="text"
+        value={textValue || ""}
+        placeholder={placeholder}
+        autoFocus
+        onBlur={(e) => {
+          store.editing = false;
+          store.textValue = e.target.value;
+          store.textValue !== placeholder && onChange(store.textValue);
+        }}
+        class="input input-sm"
+      />
+    ) : (
+      <span
+        onClick={() => (store.editing = true)}
+        class="cursor-pointer text-sm hover:bg-base-100 p-2"
+      >
+        {textValue || placeholder}
+      </span>
+    ),
+  );
+};
+
+const ControlPointRow = ({ store, index, cp }) => {
   return (
-    <tr>
-      <td>{name || kind}</td>
-      <td></td>
-      <td>
-        <button class="btn btn-soft btn-sm hover:btn-error">×</button>
-      </td>
-    </tr>
+    <li
+      class="list-row flex items-baseline border border-base-300 bg-base-100 hover:bg-base-200 "
+      draggable={true}
+    >
+      <span class="cursor-move">⠿</span>
+      <EditableText
+        value={cp.name}
+        placeholder={`CP ${index + 1}`}
+        onChange={(s) => {
+          store.checkpoints[index].name = s;
+          store.checkpoints = [...store.checkpoints];
+        }}
+      />
+      <span class="flex-1" />
+      <button
+        onClick={() => {
+          store.checkpoints.splice(index, 1);
+          store.checkpoints = [...store.checkpoints];
+        }}
+        class="btn btn-soft btn-sm hover:btn-error"
+      >
+        ...
+      </button>
+    </li>
   );
 };
 
 const ControlPointTable = ({ store }) => {
   return (
-    <table class="table table-sm">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th></th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <store.reactiveEach key="checkpoints">
-          {(cp) => <ControlPointRow store={store} {...cp} />}
-        </store.reactiveEach>
-      </tbody>
-    </table>
+    <ul class="list">
+      <store.reactive keys="checkpoints">
+        {({ checkpoints }) =>
+          checkpoints.length === 0 ? (
+            <p class="label">No checkpoints added yet</p>
+          ) : (
+            <></>
+          )
+        }
+      </store.reactive>
+
+      <store.reactiveEach key="checkpoints">
+        {(cp, idx) => <ControlPointRow store={store} index={idx} cp={cp} />}
+      </store.reactiveEach>
+    </ul>
+  );
+};
+
+const DateTimePicker = ({ title, onChange }) => {
+  return (
+    <label className="input validator">
+      <span className="label">{title} </span>
+      <input
+        type="datetime-local"
+        onBlur={(e) => {
+          const val = e.target.value;
+          if (val === "") {
+            e.target.setAttribute("aria-invalid", "true");
+            return;
+          }
+
+          e.target.removeAttribute("aria-invalid");
+          onChange(new Date(val));
+        }}
+      />
+    </label>
   );
 };
 
@@ -87,33 +158,22 @@ export function createApp(globalStore) {
                 type="text"
                 id="routeName"
                 value={store.trackName}
-                placeholder="Route Name"
+                placeholder="Transcontinental no11"
                 onInput={(e) => {
                   store.trackName = e.target.value;
                 }}
               />
             </label>
 
-            <label className="input validator">
-              <span className="label">Start</span>
-              <input
-                type="datetime-local"
-                onBlur={(e) => {
-                  const val = e.target.value;
-                  if (val === "") {
-                    e.target.setAttribute("aria-invalid", "true");
-                    return;
-                  }
-                  e.target.removeAttribute("aria-invalid");
-                  store.startTime = new Date(val);
-                }}
-              />
-            </label>
+            <DateTimePicker
+              title={"Start"}
+              onChange={(date) => (store.startTime = date)}
+            />
 
-            <label className="input validator">
-              <span className="label">Finish</span>
-              <input type="datetime-local" required />
-            </label>
+            <DateTimePicker
+              title={"End"}
+              onChange={(date) => (store.endTime = date)}
+            />
           </Fieldset>
 
           <Fieldset title="GPX Files">
@@ -130,14 +190,14 @@ export function createApp(globalStore) {
               Add and arrange any GPX files related to this route.
             </p>
 
-            <ul class="list max-h-72 overflow-y-scroll space-y-1">
+            <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="trackSegments">
                 {(seg) => (
                   <li
                     class="list-row flex items-baseline cursor-move border border-base-300 bg-base-100 hover:bg-base-200 "
                     draggable={true}
                   >
-                    <span>⋮⋮</span>
+                    <span class="text-xs">⋮⋮</span>
                     {seg.name}
                     <span class="flex-1" />
                     <span class="tabular-nums">{seg.length.toFixed(0)} km</span>
@@ -181,7 +241,7 @@ export function createApp(globalStore) {
 }
 
 async function handleGPXFile(event, store) {
-  const files = Array.from(event.target.files);
+  const files: Array<File> = Array.from(event.target.files);
   const newSegments = [];
 
   for (const file of files) {
@@ -203,7 +263,6 @@ async function handleGPXFile(event, store) {
 
   // Reset form input
   event.target.value = "";
-
   store.trackSegments = [...store.trackSegments, ...newSegments];
 }
 
@@ -221,7 +280,12 @@ function initMap(node, store) {
 
       const line = trackSegments.map((seg) => seg.coords);
       map.showTrack(line);
-      map.showCheckpoints(checkpoints);
+      map.showCheckpoints(checkpoints, {
+        onDragEnd: (index, coord) => {
+          store.checkpoints[index].coord = coord;
+          store.checkpoints = [...store.checkpoints];
+        },
+      });
     },
   );
 
@@ -229,13 +293,25 @@ function initMap(node, store) {
     const popup = L.popup().setLatLng([coord[1], coord[0]]);
 
     function addCheckpointAt(coord) {
+      // Get all track segments for snapping
+      const trackSegments = store.trackSegments.map((seg) => seg.coords);
+
+      // Snap to nearest track segment if within reasonable distance
+      const snapResult = snapToNearestTrackSegment(
+        trackSegments,
+        coord,
+        map.getMap(),
+        200, // 20 pixel threshold
+      );
+
       const control = {
         kind: ControlPointKind.Control,
         name: null,
-        km: 0,
+        km: snapResult.km,
         opensAt: null,
         closesAt: null,
-        coord: { lng: coord[0], lat: coord[1] },
+        coord: { lng: snapResult.coord[0], lat: snapResult.coord[1] },
+        anchorSegmentId: snapResult.segmentId, // null if not snapped to any segment
       };
 
       store.checkpoints = [...store.checkpoints, control];

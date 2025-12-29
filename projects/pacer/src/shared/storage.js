@@ -1,9 +1,4 @@
 /**
- * URL compression and localStorage persistence.
- * Uses native CompressionStream API (no external libs).
- */
-
-/**
  * Compress an object to a URL-safe string.
  * @param {Object} obj
  * @returns {Promise<string>}
@@ -53,19 +48,11 @@ export async function decompressFromURL(base64) {
   return JSON.parse(json);
 }
 
-/**
- * Save route to URL hash.
- * @param {import('./state.js').Route} route
- */
 export async function saveRouteToURL(route) {
   const compressed = await compressToURL(route);
   window.history.replaceState(null, "", `#r=${compressed}`);
 }
 
-/**
- * Load route from URL hash.
- * @returns {Promise<import('./state.js').Route|null>}
- */
 export async function loadRouteFromURL() {
   const hash = window.location.hash;
   if (!hash.startsWith("#r=")) {
@@ -81,32 +68,18 @@ export async function loadRouteFromURL() {
   }
 }
 
-/**
- * Get localStorage key for tracking data.
- * @param {string} routeId
- * @returns {string}
- */
-function getTrackingKey(routeId) {
-  return `pacer_tracking_${routeId}`;
+function getStorageKey(id) {
+  return `route.${id}`;
 }
 
-/**
- * Save tracking data to localStorage.
- * @param {import('./state.js').Tracking} tracking
- */
-export function saveTracking(tracking) {
-  if (!tracking.routeId) return;
-  const key = getTrackingKey(tracking.routeId);
-  localStorage.setItem(key, JSON.stringify(tracking));
+export function saveState(id, state) {
+  if (!id) return;
+  const key = getStorageKey(id);
+  localStorage.setItem(key, JSON.stringify(state));
 }
 
-/**
- * Load tracking data from localStorage.
- * @param {string} routeId
- * @returns {import('./state.js').Tracking|null}
- */
-export function loadTracking(routeId) {
-  const key = getTrackingKey(routeId);
+export function restoreState(id) {
+  const key = getStorageKey(id);
   const json = localStorage.getItem(key);
   if (!json) return null;
 
@@ -116,13 +89,4 @@ export function loadTracking(routeId) {
     console.error("Failed to parse tracking data:", e);
     return null;
   }
-}
-
-/**
- * Clear tracking data from localStorage.
- * @param {string} routeId
- */
-export function clearTracking(routeId) {
-  const key = getTrackingKey(routeId);
-  localStorage.removeItem(key);
 }

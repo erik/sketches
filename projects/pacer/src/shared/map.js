@@ -23,6 +23,7 @@ export function createMap(container, options = {}) {
   // Track state
   let trackLayer = null;
   let checkpointMarkers = [];
+  let checkpointLines = [];
   let userMarker = null;
   let snappedMarker = null;
   let lineToTrackLayer = null;
@@ -114,21 +115,23 @@ export function createMap(container, options = {}) {
       // Clear existing markers
       this.clearCheckpoints();
 
-      checkpoints.forEach((cp, i) => {
+      checkpoints.forEach((cp, index) => {
         const { lng, lat } = cp.coord;
+
+        const name = cp.name || `CP ${index + 1}`;
 
         // Create custom icon for start/finish
         let icon = L.divIcon({
-          className: "checkpoint-icon",
-          html: `<div class="p-2 mask mask-circle text-primary-content shadow font-bold bg-primary">${cp.name || i}</div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 15],
+          className: "",
+          html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary tooltip hover:w-6 hover:h-6 transition-all" data-tip="${name}"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [0, 0],
         });
 
         const marker = L.marker([lat, lng], { icon })
           .addTo(map)
           .bindPopup(
-            `<b>${cp.name || `CP${i}`}</b><br>${cp.km.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
+            `<b>${name}</b><br>${cp.km.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
           );
 
         // Click handler for setup mode
@@ -139,14 +142,37 @@ export function createMap(container, options = {}) {
         // Draggable in setup mode
         marker.dragging.enable();
         marker.on("dragend", (e) => {
-          const newLatLng = e.target.getLatLng();
+          const { lng, lat } = e.target.getLatLng();
           if (options.onDragEnd) {
-            options.onDragEnd(cp, [newLatLng.lng, newLatLng.lat]);
+            options.onDragEnd(index, { lng, lat });
           }
         });
 
         checkpointMarkers.push(marker);
       });
+
+      // Draw dashed lines between checkpoints where anchorSegmentId is null
+      for (let i = 0; i < checkpoints.length - 1; i++) {
+        const cp1 = checkpoints[i];
+        const cp2 = checkpoints[i + 1];
+
+        if (cp1.anchorSegmentId == null) {
+          const latlngs = [
+            [cp1.coord.lat, cp1.coord.lng],
+            [cp2.coord.lat, cp2.coord.lng],
+          ];
+
+          const line = L.polyline(latlngs, {
+            color: "#666",
+            weight: 2,
+            opacity: 0.7,
+            dashArray: "5, 10",
+            interactive: false,
+          }).addTo(map);
+
+          checkpointLines.push(line);
+        }
+      }
     },
 
     /**
@@ -155,6 +181,8 @@ export function createMap(container, options = {}) {
     clearCheckpoints() {
       checkpointMarkers.forEach((marker) => map.removeLayer(marker));
       checkpointMarkers = [];
+      checkpointLines.forEach((line) => map.removeLayer(line));
+      checkpointLines = [];
     },
 
     /**
