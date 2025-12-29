@@ -5,29 +5,9 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Fix Leaflet default marker icon paths (Vite issue)
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
-
-/**
- * Create a map instance.
- * @param {string} containerId - DOM element ID
- * @param {Object} options - Map options
- * @returns {Object} Map controller
- */
-export function createMap(containerId, options = {}) {
-  const container = document.getElementById(containerId);
-  if (!container) {
-    throw new Error(`Container ${containerId} not found`);
-  }
-
+export function createMap(container, options = {}) {
   // Initialize map
-  const map = L.map(containerId, {
+  const map = L.map(container, {
     center: options.center || [52.52, 13.405], // Default to Berlin
     zoom: options.zoom || 6,
     zoomControl: true,
@@ -58,7 +38,7 @@ export function createMap(containerId, options = {}) {
         "div",
         "leaflet-bar leaflet-control leaflet-control-custom",
       );
-      container.innerHTML = "⌖";
+      container.innerHTML = `<span class="p text-xs self-baseline">x</span>`;
       container.style.backgroundColor = "white";
       container.style.width = "30px";
       container.style.height = "30px";
@@ -89,7 +69,7 @@ export function createMap(containerId, options = {}) {
 
     /**
      * Display a track on the map.
-     * @param {[number, number][]} coords - Array of [lng, lat] pairs
+     * @param {[number, number][][]} coords - Array of [lng, lat] pairs
      * @param {Object} options - Styling options
      */
     showTrack(coords, options = {}) {
@@ -101,7 +81,7 @@ export function createMap(containerId, options = {}) {
       if (coords.length === 0) return;
 
       // Convert [lng, lat] to [lat, lng] for Leaflet
-      const latLngs = coords.map(([lng, lat]) => [lat, lng]);
+      const latLngs = coords.map((l) => l.map(([lng, lat]) => [lat, lng]));
 
       trackLayer = L.polyline(latLngs, {
         color: options.color || "#2563eb",
@@ -134,32 +114,21 @@ export function createMap(containerId, options = {}) {
       // Clear existing markers
       this.clearCheckpoints();
 
-      checkpoints.forEach((cp) => {
-        const [lng, lat] = cp.coord;
-        const isStartOrFinish = cp.id === "start" || cp.id === "finish";
+      checkpoints.forEach((cp, i) => {
+        const { lng, lat } = cp.coord;
 
         // Create custom icon for start/finish
-        let icon;
-        if (isStartOrFinish) {
-          icon = L.divIcon({
-            className: "checkpoint-icon checkpoint-icon-special",
-            html: `<div class="checkpoint-marker ${cp.id === "start" ? "start" : "finish"}">${cp.id === "start" ? "🚴" : "🏁"}</div>`,
-            iconSize: [30, 30],
-            iconAnchor: [15, 15],
-          });
-        } else {
-          icon = L.divIcon({
-            className: "checkpoint-icon",
-            html: `<div class="checkpoint-marker intermediate">${cp.name.replace(/^CP/, "")}</div>`,
-            iconSize: [30, 30],
-            iconAnchor: [15, 15],
-          });
-        }
+        let icon = L.divIcon({
+          className: "checkpoint-icon",
+          html: `<div class="p-2 mask mask-circle text-primary-content shadow font-bold bg-primary">${cp.name || i}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        });
 
         const marker = L.marker([lat, lng], { icon })
           .addTo(map)
           .bindPopup(
-            `<b>${cp.name}</b><br>${cp.km.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
+            `<b>${cp.name || `CP${i}`}</b><br>${cp.km.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
           );
 
         // Click handler for setup mode
@@ -168,19 +137,13 @@ export function createMap(containerId, options = {}) {
         }
 
         // Draggable in setup mode
-        const isDraggable =
-          options.draggable &&
-          (!isStartOrFinish || options.draggableStartFinish);
-
-        if (isDraggable) {
-          marker.dragging.enable();
-          marker.on("dragend", (e) => {
-            const newLatLng = e.target.getLatLng();
-            if (options.onDragEnd) {
-              options.onDragEnd(cp, [newLatLng.lng, newLatLng.lat]);
-            }
-          });
-        }
+        marker.dragging.enable();
+        marker.on("dragend", (e) => {
+          const newLatLng = e.target.getLatLng();
+          if (options.onDragEnd) {
+            options.onDragEnd(cp, [newLatLng.lng, newLatLng.lat]);
+          }
+        });
 
         checkpointMarkers.push(marker);
       });

@@ -1,62 +1,29 @@
 import "./style.css";
-import { createStore, createInitialState } from "./shared/state.js";
-import { loadRouteFromURL, loadTracking } from "./shared/storage.js";
-import { init as initSetup } from "./setup/main.js";
-import { init as initTracking } from "./tracking/main.js";
+import { loadRouteFromURL } from "./shared/storage.js";
 
-// Create the app store
-const store = createStore(createInitialState());
+import { Livewire, createElement as h } from "./livewire.js";
+import { createApp as createSetupApp } from "./setup/app.jsx";
 
-// Load from URL if available
-const route = loadRouteFromURL();
-const tracking = loadTracking();
+async function init() {
+  const storedRoute = await loadRouteFromURL();
+  const initialMode = storedRoute ? "PACE_TRACKER" : "CONFIGURE";
 
-if (route) {
-  // Ensure the loaded route has all required properties
-  const defaultRoute = createInitialState().route;
-  const mergedRoute = {
-    ...defaultRoute,
-    ...route,
-    // Ensure track is always an array
-    track: route.track || defaultRoute.track,
-    // Ensure segments is always an array
-    segments: route.segments || defaultRoute.segments,
-    // Ensure checkpoints is always an array
-    checkpoints: route.checkpoints || defaultRoute.checkpoints,
-  };
+  const store = new Livewire({ mode: initialMode });
+  store.watch((s) => console.log("state change", JSON.stringify(s)));
 
-  store.update({
-    route: mergedRoute,
-    mode: "setup",
-  });
+  document
+    .querySelector("#app")
+    .appendChild(
+      store.render(["mode"], ({ mode }) =>
+        mode === "CONFIGURE"
+          ? createSetupApp(store)
+          : createPaceTrackerApp(store),
+      ),
+    );
 }
 
-if (tracking) {
-  store.update({
-    tracking,
-    mode: "tracking",
-  });
+function createPaceTrackerApp(globalStore) {
+  return h.h1({}, "todo, tracking ui");
 }
 
-// Initialize based on mode
-function init() {
-  const state = store.get();
-
-  if (state.mode === "setup") {
-    initSetup(store);
-  } else {
-    initTracking(store);
-  }
-
-  // Subscribe to state changes
-  store.subscribe((newState) => {
-    if (newState.mode === "setup") {
-      initSetup(store);
-    } else {
-      initTracking(store);
-    }
-  });
-}
-
-// Start the app
 init();

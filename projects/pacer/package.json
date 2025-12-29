@@ -20,6 +20,10 @@
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/vite": "^4.1.18",
+    "daisyui": "^5.5.14",
+    "tailwindcss": "^4.1.18",
     "vite": "npm:rolldown-vite@7.2.5"
   },
   "overrides": {

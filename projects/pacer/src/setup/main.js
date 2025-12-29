@@ -334,7 +334,7 @@ export function initSetupMap(store) {
           `
           <div class="popup-content">
             <p><strong>Add ${label} here?</strong></p>
-            <button id="confirmAddCheckpoint" class="popup-btn">${label}</button>
+            <button id="confirmAddCheckpoint" class="btn">Add</button>
           </div>
         `,
         )
