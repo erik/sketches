@@ -81,13 +81,82 @@ const EditableText = ({ onChange, value, placeholder }) => {
   );
 };
 
-const ControlPointRow = ({ store, index, cp }) => {
+const SortableRow = ({ store, index, onUpdate }, children) => {
+  const reorderItems = (fromIndex, toIndex) => {
+    if (fromIndex !== toIndex && fromIndex >= 0 && toIndex >= 0) {
+      const newArray = [...store.$[onUpdate]];
+      const [movedItem] = newArray.splice(fromIndex, 1);
+      newArray.splice(toIndex, 0, movedItem);
+      store.$[onUpdate] = newArray;
+    }
+  };
+
+  const dropStyle = ["ring-2", "ring-inset", "ring-primary", "bg-primary/20"];
+
+  const cleanupDrag = () => {
+    document.querySelectorAll(".sortable-row").forEach((row) => {
+      dropStyle.forEach((s) => row.classList.remove(s));
+    });
+  };
+
+  // Mouse/drag event handlers
+  const handleDragStart = (e) => {
+    e.dataTransfer.setData("text/plain", index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const onDragEnter = (e) => {
+    const node = e.target.classList.contains("sortable-row")
+      ? e.target
+      : e.target.closest(".sortable-row");
+
+    dropStyle.forEach((s) => node.classList.add(s));
+  };
+
+  const onDragLeave = (e) => {
+    if (e.target.classList.contains("sortable-row")) {
+      dropStyle.forEach((s) => e.target.classList.remove(s));
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "drop";
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
+    const toIndex = index;
+
+    reorderItems(fromIndex, toIndex);
+    cleanupDrag();
+  };
+
+  const handleDragEnd = (e) => {
+    cleanupDrag();
+  };
+
   return (
     <li
-      class="list-row flex items-baseline border border-base-300 bg-base-100 hover:bg-base-200 "
+      class="sortable-row list-row flex items-baseline border border-base-300 bg-base-100 hover:bg-base-200 active:opacity-50"
       draggable={true}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
     >
-      <span class="cursor-move">⠿</span>
+      <div class="cursor-grab active:cursor-grabbing">⠿</div>
+      {...children}
+    </li>
+  );
+};
+
+const ControlPointRow = ({ store, index, cp }) => {
+  return (
+    <SortableRow store={store} index={index} onUpdate="controls">
       <EditableText
         value={cp.name}
         placeholder={`CP ${index + 1}`}
@@ -106,7 +175,7 @@ const ControlPointRow = ({ store, index, cp }) => {
       >
         ...
       </button>
-    </li>
+    </SortableRow>
   );
 };
 
@@ -198,19 +267,21 @@ export function createApp(globalStore: Livewire<any>) {
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
-                {(seg) => (
-                  <li
-                    class="list-row flex items-baseline cursor-move border border-base-300 bg-base-100 hover:bg-base-200 "
-                    draggable={true}
-                  >
-                    <span class="text-xs">⋮⋮</span>
+                {(seg, idx) => (
+                  <SortableRow store={store} index={idx} onUpdate="segments">
                     {seg.name}
                     <span class="flex-1" />
                     <span class="tabular-nums">{seg.length.toFixed(0)} km</span>
-                    <button class="btn btn-soft btn-sm hover:btn-error">
+                    <button
+                      onClick={() => {
+                        store.$.segments.splice(idx, 1);
+                        store.$.segments = [...store.$.segments];
+                      }}
+                      class="btn btn-soft btn-sm hover:btn-error"
+                    >
                       ×
                     </button>
-                  </li>
+                  </SortableRow>
                 )}
               </store.reactiveEach>
             </ul>
@@ -228,7 +299,7 @@ export function createApp(globalStore: Livewire<any>) {
           </store.reactive>
         </div>
 
-        <div class="w-full h-full p-4">
+        <div class="w-full h-150 p-4">
           <div
             $mount={(el) => initMap(el, store)}
             class="h-full rounded-box shadow-md"
