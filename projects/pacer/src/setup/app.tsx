@@ -182,7 +182,6 @@ export function createApp(globalStore: Livewire<any>) {
               onChange={(date) => (store.$.endTime = date)}
             />
           </Fieldset>
-
           <Fieldset title="GPX Files">
             <input
               type="file"
@@ -216,16 +215,17 @@ export function createApp(globalStore: Livewire<any>) {
               </store.reactiveEach>
             </ul>
           </Fieldset>
-
           <Fieldset title="Checkpoints">
             <ControlPointTable store={store} />
           </Fieldset>
 
-          {store.render(["$valid"], ({ $valid }) => (
-            <button class="btn" onClick="" disabled={!$valid}>
-              Done
-            </button>
-          ))}
+          <store.reactive keys="$valid">
+            {({ $valid }) => (
+              <button class="btn" onClick="" disabled={!$valid}>
+                Done
+              </button>
+            )}
+          </store.reactive>
         </div>
 
         <div class="w-full h-full p-4">

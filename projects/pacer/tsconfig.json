@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "system",
+    "module": "NodeNext",
     "noImplicitAny": false,
     "removeComments": true,
     "preserveConstEnums": true,
@@ -8,6 +8,7 @@
     "jsx": "preserve",
     "target": "ES2024",
     "lib": ["ES2024", "DOM"],
+    "moduleResolution": "nodenext",
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.spec.ts"],

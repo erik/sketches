@@ -91,8 +91,6 @@ export class Livewire<P extends Record<string, any>> {
   };
 
   render(keys: string | string[], fn: (state: P) => any) {
-    console.log("render called with keys:", keys);
-    console.log("initial state:", this.#state);
     let node = fn(this.#state);
     let anchor = null;
     let fragmentNodes = [];
@@ -104,7 +102,6 @@ export class Livewire<P extends Record<string, any>> {
     }
 
     const unwatch = this.watch(keys, (state: P) => {
-      console.log("watch triggered with state:", state);
       const newNode = fn(state);
 
       // for fragments, replace all children
