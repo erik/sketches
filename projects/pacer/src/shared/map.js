@@ -4,6 +4,7 @@
 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { snapToNearestTrackSegment } from "./geo.js";
 
 export function createMap(container, options = {}) {
   // Initialize map
@@ -24,9 +25,6 @@ export function createMap(container, options = {}) {
   let trackLayer = null;
   let checkpointMarkers = [];
   let checkpointLines = [];
-  let userMarker = null;
-  let snappedMarker = null;
-  let lineToTrackLayer = null;
 
   // Add custom recenter control
   const recenterControl = L.Control.extend({
@@ -91,18 +89,8 @@ export function createMap(container, options = {}) {
       }).addTo(map);
 
       // Fit bounds to track
-      if (options.fitBounds !== false) {
-        map.fitBounds(trackLayer.getBounds(), { padding: [50, 50] });
-      }
-    },
-
-    /**
-     * Clear the track from the map.
-     */
-    clearTrack() {
-      if (trackLayer) {
-        map.removeLayer(trackLayer);
-        trackLayer = null;
+      if (options.fitBounds === true) {
+        map.fitBounds(trackLayer.getBounds(), { padding: [100, 100] });
       }
     },
 
@@ -110,6 +98,7 @@ export function createMap(container, options = {}) {
      * Display checkpoints on the map.
      * @param {Array} controls - Checkpoint objects with {id, name, coord, km}
      * @param {Object} options - Display options
+     * @param {[number, number][][]} [options.trackCoords] - Track coordinates for snapping markers to track
      */
     showCheckpoints(controls, options = {}) {
       // Clear existing markers
@@ -123,16 +112,14 @@ export function createMap(container, options = {}) {
         // Create custom icon for start/finish
         let icon = L.divIcon({
           className: "",
-          html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary tooltip hover:w-6 hover:h-6 transition-all" data-tip="${name}"></div>`,
+          html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${name}"></div>`,
           iconSize: [12, 12],
           iconAnchor: [0, 0],
         });
 
         const marker = L.marker([lat, lng], { icon })
           .addTo(map)
-          .bindPopup(
-            `<b>${name}</b><br>${cp.km?.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
-          );
+          .bindPopup(`<b>${name}</b><br>${cp.km?.toFixed(1)} km$`);
 
         // Click handler for setup mode
         if (options.onClick) {
@@ -163,20 +150,55 @@ export function createMap(container, options = {}) {
             prevPositionMarker = null;
           }
 
-          if (options.onDragEnd) {
-            options.onDragEnd(index, e.target.getLatLng());
+          // Snap to nearest track point if track coordinates are provided
+          if (options.trackCoords && options.trackCoords.length > 0) {
+            const draggedCoord = [
+              e.target.getLatLng().lng,
+              e.target.getLatLng().lat,
+            ];
+            const snapped = snapToNearestTrackSegment(
+              options.trackCoords,
+              draggedCoord,
+              map,
+              50, // max pixel distance for snapping
+            );
+
+            // Update marker position to snapped location
+            const snappedLatLng = L.latLng(snapped.coord[1], snapped.coord[0]);
+            marker.setLatLng(snappedLatLng);
+
+            // Update the callback with snapped coordinate and snapping info
+            if (options.onDragEnd) {
+              options.onDragEnd(index, snappedLatLng, {
+                anchorSegmentId: snapped.segmentId,
+                km: snapped.km,
+              });
+            }
+
+            // Update the checkpoint's anchorSegmentId if controls array is mutable
+            // This will trigger reactive updates to refresh the dashed lines
+            if (controls[index]) {
+              controls[index].anchorSegmentId = snapped.segmentId;
+              controls[index].km = snapped.km;
+            }
+          } else {
+            // No track snapping, just use the dragged position
+            if (options.onDragEnd) {
+              options.onDragEnd(index, e.target.getLatLng());
+            }
           }
         });
 
         checkpointMarkers.push(marker);
       });
 
-      // Draw dashed lines between checkpoints where anchorSegmentId is null
+      // Draw dashed lines between checkpoints if either is not snapped to track
       for (let i = 0; i < controls.length - 1; i++) {
         const cp1 = controls[i];
         const cp2 = controls[i + 1];
 
-        if (cp1.anchorSegmentId == null) {
+        // Show dashed line if either checkpoint is not snapped to a track segment
+        if (cp1.anchorSegmentId == null || cp2.anchorSegmentId == null) {
           const latlngs = [
             [cp1.coord.lat, cp1.coord.lng],
             [cp2.coord.lat, cp2.coord.lng],
@@ -203,104 +225,6 @@ export function createMap(container, options = {}) {
       checkpointMarkers = [];
       checkpointLines.forEach((line) => map.removeLayer(line));
       checkpointLines = [];
-    },
-
-    /**
-     * Show user's current location.
-     * @param {[number, number]} coord - [lng, lat]
-     */
-    showUserLocation(coord) {
-      const [lng, lat] = coord;
-
-      if (userMarker) {
-        userMarker.setLatLng([lat, lng]);
-      } else {
-        userMarker = L.circleMarker([lat, lng], {
-          radius: 8,
-          fillColor: "#3b82f6",
-          color: "#ffffff",
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 1,
-        })
-          .addTo(map)
-          .bindPopup("Your Location");
-      }
-
-      map.setView([lat, lng], Math.max(map.getZoom(), 12));
-    },
-
-    /**
-     * Show snapped location on track.
-     * @param {[number, number]} coord - [lng, lat]
-     * @param {number} km - Distance along track
-     */
-    showSnappedLocation(coord, km) {
-      const [lng, lat] = coord;
-
-      if (snappedMarker) {
-        snappedMarker.setLatLng([lat, lng]);
-        snappedMarker
-          .getPopup()
-          .setContent(`<b>On Track</b><br>${km.toFixed(1)} km`);
-      } else {
-        snappedMarker = L.circleMarker([lat, lng], {
-          radius: 6,
-          fillColor: "#10b981",
-          color: "#ffffff",
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 1,
-        })
-          .addTo(map)
-          .bindPopup(`<b>On Track</b><br>${km.toFixed(1)} km`);
-      }
-    },
-
-    /**
-     * Clear user and snapped location markers.
-     */
-    clearLocationMarkers() {
-      if (userMarker) {
-        map.removeLayer(userMarker);
-        userMarker = null;
-      }
-      if (snappedMarker) {
-        map.removeLayer(snappedMarker);
-        snappedMarker = null;
-      }
-      this.clearLineToTrack();
-    },
-
-    /**
-     * Draw a dashed line from user location to track.
-     * @param {[number, number]} userCoord - User's [lng, lat]
-     * @param {[number, number]} trackCoord - Nearest point on track [lng, lat]
-     */
-    drawLineToTrack(userCoord, trackCoord) {
-      this.clearLineToTrack();
-
-      const latLngs = [
-        [userCoord[1], userCoord[0]],
-        [trackCoord[1], trackCoord[0]],
-      ];
-
-      lineToTrackLayer = L.polyline(latLngs, {
-        color: "#6b7280",
-        weight: 2,
-        opacity: 0.6,
-        dashArray: "5, 10",
-      }).addTo(map);
-    },
-
-    /**
-     * Clear the line to track.
-     */
-    clearLineToTrack() {
-      if (lineToTrackLayer) {
-        map.removeLayer(lineToTrackLayer);
-        lineToTrackLayer = null;
-      }
     },
 
     /**

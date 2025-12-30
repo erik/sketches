@@ -275,6 +275,7 @@ async function handleGPXFile(event, store: Livewire<StoreProps>) {
 
 function initMap(node, store: Livewire<StoreProps>) {
   const map = createMap(node);
+  let prevSegmentLength = 0;
 
   const unwatch = store.watch(
     ["segments", "controls"],
@@ -284,13 +285,17 @@ function initMap(node, store: Livewire<StoreProps>) {
       }
 
       const line = segments.map((seg) => seg.coords);
-      map.showTrack(line);
+      map.showTrack(line, {
+        fitBounds: segments.length !== prevSegmentLength,
+      });
       map.showCheckpoints(controls, {
+        trackCoords: line,
         onDragEnd: (index, coord) => {
           store.$.controls[index].coord = coord;
           store.$.controls = [...store.$.controls];
         },
       });
+      prevSegmentLength = segments.length;
     },
   );
 
@@ -298,7 +303,6 @@ function initMap(node, store: Livewire<StoreProps>) {
     const popup = L.popup().setLatLng([coord[1], coord[0]]);
 
     function addCheckpointAt(coord) {
-      // Get all track segments for snapping
       const trackSegments = store.$.segments.map((seg) => seg.coords);
 
       // Snap to nearest track segment if within reasonable distance

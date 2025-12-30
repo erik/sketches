@@ -9,7 +9,6 @@ async function init() {
   const initialMode = storedRoute ? "PACE_TRACKER" : "CONFIGURE";
 
   const store = new Livewire({ mode: initialMode });
-  store.watch((s) => console.log("state change", JSON.stringify(s)));
 
   document.querySelector("#app").appendChild(
     h.div({}, [
