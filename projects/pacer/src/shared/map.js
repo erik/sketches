@@ -108,14 +108,14 @@ export function createMap(container, options = {}) {
 
     /**
      * Display checkpoints on the map.
-     * @param {Array} checkpoints - Checkpoint objects with {id, name, coord, km}
+     * @param {Array} controls - Checkpoint objects with {id, name, coord, km}
      * @param {Object} options - Display options
      */
-    showCheckpoints(checkpoints, options = {}) {
+    showCheckpoints(controls, options = {}) {
       // Clear existing markers
-      this.clearCheckpoints();
+      this.clearControls();
 
-      checkpoints.forEach((cp, index) => {
+      controls.forEach((cp, index) => {
         const { lng, lat } = cp.coord;
 
         const name = cp.name || `CP ${index + 1}`;
@@ -131,7 +131,7 @@ export function createMap(container, options = {}) {
         const marker = L.marker([lat, lng], { icon })
           .addTo(map)
           .bindPopup(
-            `<b>${name}</b><br>${cp.km.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
+            `<b>${name}</b><br>${cp.km?.toFixed(1)} km${cp.cutoff ? `<br>Cutoff: ${new Date(cp.cutoff).toLocaleString()}` : ""}`,
           );
 
         // Click handler for setup mode
@@ -141,10 +141,30 @@ export function createMap(container, options = {}) {
 
         // Draggable in setup mode
         marker.dragging.enable();
+
+        // Visually keep track of previous position
+        let prevPositionMarker = null;
+        marker.on("dragstart", (e) => {
+          // Create ghost marker at original position
+          prevPositionMarker = L.marker(e.target.getLatLng(), {
+            icon: L.divIcon({
+              className: "",
+              html: `<div class="w-3 h-3 rounded-full bg-primary/50"></div>`,
+              iconSize: [12, 12],
+              iconAnchor: [6, 6],
+            }),
+            interactive: false,
+          }).addTo(map);
+        });
+
         marker.on("dragend", (e) => {
-          const { lng, lat } = e.target.getLatLng();
+          if (prevPositionMarker) {
+            map.removeLayer(prevPositionMarker);
+            prevPositionMarker = null;
+          }
+
           if (options.onDragEnd) {
-            options.onDragEnd(index, { lng, lat });
+            options.onDragEnd(index, e.target.getLatLng());
           }
         });
 
@@ -152,9 +172,9 @@ export function createMap(container, options = {}) {
       });
 
       // Draw dashed lines between checkpoints where anchorSegmentId is null
-      for (let i = 0; i < checkpoints.length - 1; i++) {
-        const cp1 = checkpoints[i];
-        const cp2 = checkpoints[i + 1];
+      for (let i = 0; i < controls.length - 1; i++) {
+        const cp1 = controls[i];
+        const cp2 = controls[i + 1];
 
         if (cp1.anchorSegmentId == null) {
           const latlngs = [
@@ -178,7 +198,7 @@ export function createMap(container, options = {}) {
     /**
      * Clear all checkpoint markers.
      */
-    clearCheckpoints() {
+    clearControls() {
       checkpointMarkers.forEach((marker) => map.removeLayer(marker));
       checkpointMarkers = [];
       checkpointLines.forEach((line) => map.removeLayer(line));

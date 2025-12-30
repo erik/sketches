@@ -239,10 +239,7 @@ export function createApp(globalStore: Livewire<any>) {
       <details>
         <pre>
           <store.reactive keys={Object.keys(store.$)}>
-            {(state) => {
-              console.log("state", state);
-              return JSON.stringify(state, null, 4);
-            }}
+            {(state) => JSON.stringify(state, null, 4)}
           </store.reactive>
         </pre>
       </details>
@@ -280,7 +277,7 @@ function initMap(node, store: Livewire<StoreProps>) {
   const map = createMap(node);
 
   const unwatch = store.watch(
-    ["trackSegments", "checkpoints"],
+    ["segments", "controls"],
     ({ segments, controls }) => {
       if (!map.getMap()._container?.parentNode) {
         return unwatch();

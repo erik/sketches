@@ -6,12 +6,10 @@ function isObject(obj: any) {
   return obj?.__proto__ === {}.__proto__;
 }
 
+// TODO: this might not be valuable here
 function wrapValue(v: any, parent?: Livewire<any>) {
   if (isObject(v)) {
     return new Livewire(v, parent);
-  } else if (Array.isArray(v)) {
-    // TODO: does this matter?
-    return v.map((i) => (isObject(i) ? new Livewire(i, parent) : i));
   }
 
   return v;
