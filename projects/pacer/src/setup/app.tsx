@@ -20,8 +20,14 @@ type StoreProps = {
   controls: ControlPoint[];
 };
 
-const createStore = (global: Livewire<any>): Livewire<StoreProps> => {
-  const store = new Livewire<StoreProps>(
+type ComputedProps = {
+  $valid: boolean;
+};
+
+const createStore = (
+  global: Livewire<any>,
+): Livewire<StoreProps, ComputedProps> => {
+  const store = new Livewire<StoreProps, ComputedProps>(
     {
       trackName: "Untitled",
       startTime: null,
@@ -318,7 +324,10 @@ export function createApp(globalStore: Livewire<any>) {
   );
 }
 
-async function handleGPXFile(event, store: Livewire<StoreProps>) {
+async function handleGPXFile(
+  event,
+  store: Livewire<StoreProps, ComputedProps>,
+) {
   const files: Array<File> = Array.from(event.target.files);
   const newSegments = [];
 
@@ -344,7 +353,7 @@ async function handleGPXFile(event, store: Livewire<StoreProps>) {
   store.$.segments = [...store.$.segments, ...newSegments];
 }
 
-function initMap(node, store: Livewire<StoreProps>) {
+function initMap(node: Element, store: Livewire<StoreProps, ComputedProps>) {
   const map = createMap(node);
   let prevSegmentLength = 0;
 

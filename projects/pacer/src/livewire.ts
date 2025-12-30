@@ -6,41 +6,40 @@ function isObject(obj: any) {
   return obj?.__proto__ === {}.__proto__;
 }
 
-// TODO: this might not be valuable here
-function wrapValue(v: any, parent?: Livewire<any>) {
-  if (isObject(v)) {
-    return new Livewire(v, parent);
-  }
+const wrapValue = (v: any, parent?: Livewire<any, any>) =>
+  isObject(v) ? new Livewire(v, parent) : v;
 
-  return v;
-}
+type Props = Record<string, any>;
+type StateFn<P, C> = (state: P & C) => any;
 
-export class Livewire<P extends Record<string, any>> {
-  #state = {} as P;
-  #parent?: Livewire<any> = null;
-  $: P;
+export class Livewire<P extends Props, C extends Props = {}> {
+  #state = {} as P & C;
+  $: P & C;
+  #parent?: Livewire<any, any> = null;
+  #computed = new Map<keyof C, StateFn<P, C>>();
+  #observers = new Set<StateFn<P, C>>();
+
   #queued = false;
-  #computed = new Map();
-  #observers = new Set();
 
-  constructor(props: P, parent?: Livewire<any>) {
+  constructor(props: P & Partial<C>, parent?: Livewire<any>) {
     this.#parent = parent;
+    this.#state = {} as P & C;
 
     for (const [k, v] of Object.entries(props)) {
       if (k.startsWith("$")) {
         this.compute(k, v);
       } else {
-        (this.#state as Record<string, any>)[k] = wrapValue(v, this);
+        this.#state[k as keyof P] = wrapValue(v, this);
       }
     }
 
-    this.$ = new Proxy(this.#state, {
-      set: (target, key, value) => this.#set(target, key, value),
-      get: (target, key) => Reflect.get(target, key),
-    }) as P;
+    this.$ = new Proxy<P & C>(this.#state, {
+      set: (target, key: string, value: any) => this.#set(target, key, value),
+      get: (target, key: string) => Reflect.get(target, key),
+    });
   }
 
-  #set(target, key, value) {
+  #set(target: P & C, key: string, value: any) {
     // Prevent setting computed properties
     if (this.#computed.has(key)) {
       throw Error(`Cannot set computed property: ${key}`);
@@ -61,10 +60,9 @@ export class Livewire<P extends Record<string, any>> {
     return true;
   }
 
-  reactive = ({ keys }, children: ((state: P) => any)[]) => {
-    return this.render(keys, (state: P) =>
-      createElement(
-        "fragment",
+  reactive = ({ keys }, children: StateFn<P, C>[]) => {
+    return this.render(keys, (state) =>
+      createFragment(
         {},
         children.map((fn) => fn(state)),
       ),
@@ -73,22 +71,19 @@ export class Livewire<P extends Record<string, any>> {
 
   reactiveEach = (
     { key },
-    children: ((value: any, index: number, state: P) => any)[],
+    children: ((value: any, index: number, state: P & C) => any)[],
   ) => {
-    return this.render([key], (state: P) =>
-      createElement(
-        "fragment",
+    return this.render([key], (state: P & C) =>
+      createFragment(
         {},
         children.map((fn) =>
-          state[key].map((value: any, index: number) =>
-            fn(value, index, state),
-          ),
+          state[key].map((value, index) => fn(value, index, state)),
         ),
       ),
     );
   };
 
-  render(keys: string | string[], fn: (state: P) => any) {
+  render(keys: string | string[], fn: StateFn<P, C>) {
     let node = fn(this.#state);
     let anchor = null;
     let fragmentNodes = [];
@@ -99,7 +94,7 @@ export class Livewire<P extends Record<string, any>> {
       fragmentNodes = Array.from(node.childNodes);
     }
 
-    const unwatch = this.watch(keys, (state: P) => {
+    const unwatch = this.watch(keys, (state: P & C) => {
       const newNode = fn(state);
 
       // for fragments, replace all children
@@ -131,28 +126,25 @@ export class Livewire<P extends Record<string, any>> {
     return node;
   }
 
-  compute(key: string, fn: (state: P) => any) {
+  compute(key: string, fn: StateFn<P, C>) {
     this.#computed.set(key, fn);
-    (this.#state as Record<string, any>)[key] = fn(this.#state);
+    this.#state[key as keyof C] = fn(this.#state);
     return this;
   }
 
-  watch(
-    maybeFn: string | string[] | ((state: P) => any),
-    fn: ((state: P) => any) | undefined,
-  ) {
-    let wrappedFn: (state: P) => any;
+  watch(maybeFn: string | string[] | StateFn<P, C>, fn?: StateFn<P, C>) {
+    let wrappedFn: StateFn<P, C>;
 
     if (typeof maybeFn === "function") {
       wrappedFn = maybeFn;
     } else {
       // Watch specific keys
       const keys = new Set([maybeFn].flat());
-      const filterState = (s: P) =>
+      const filterState = (s: P & C) =>
         Object.entries(s).filter(([k]) => keys.has(k));
 
       let prev = JSON.stringify(filterState(this.#state));
-      wrappedFn = (state: P) => {
+      wrappedFn = (state: P & C) => {
         const curr = JSON.stringify(filterState(state));
         if (curr !== prev) {
           prev = curr;
@@ -170,7 +162,7 @@ export class Livewire<P extends Record<string, any>> {
     this.#parent?.tick();
 
     for (const [key, fn] of this.#computed) {
-      (this.#state as Record<string, any>)[key] = fn(this.#state);
+      this.#state[key] = fn(this.#state);
     }
 
     this.#triggerWatchers();
@@ -183,16 +175,14 @@ export class Livewire<P extends Record<string, any>> {
     queueMicrotask(() => {
       this.#queued = false;
       for (const fn of this.#observers) {
-        // TODO: fix typing
-        // @ts-ignore
         fn(this.#state);
       }
     });
   }
 }
 
-export function createFragment(_tag, children) {
-  return _createElement("fragment", {}, ...children);
+export function createFragment(attrs, children) {
+  return _createElement("fragment", attrs, children);
 }
 
 export function htmlTemplate(s: string) {
