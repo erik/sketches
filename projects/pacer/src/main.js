@@ -33,11 +33,11 @@ async function init() {
             </div>
           </div>
       `,
-      store.render(["mode"], ({ mode }) =>
-        mode === "CONFIGURE"
+      store.render(["mode"], ({ mode }) => {
+        return mode === "CONFIGURE"
           ? createSetupApp(store)
-          : createPaceTrackerApp(store),
-      ),
+          : createPaceTrackerApp(store);
+      }),
     ]),
   );
 }

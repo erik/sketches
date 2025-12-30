@@ -2,7 +2,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
-import { ControlPointKind } from "../shared/index.js";
+import { Segment, type ControlPoint } from "../shared/index.js";
 
 import {
   parseGPX,
@@ -12,25 +12,34 @@ import {
 } from "../shared/geo.js";
 import { Livewire } from "../livewire.js";
 
-const createStore = (global: Livewire) =>
-  new Livewire(
+type StoreProps = {
+  trackName: string;
+  startTime?: Date;
+  endTime?: Date;
+  segments: Segment[];
+  controls: ControlPoint[];
+};
+
+const createStore = (global: Livewire<any>): Livewire<StoreProps> => {
+  const store = new Livewire<StoreProps>(
     {
-      global,
       trackName: "Untitled",
       startTime: null,
       endTime: null,
-      trackSegments: [],
-      checkpoints: [],
-      files: [],
-
-      $valid: ({ trackName, checkpoints, startTime, endTime }) =>
-        trackName?.length &&
-        checkpoints.length >= 2 &&
-        !!startTime &&
-        !!endTime,
+      segments: [],
+      controls: [],
     },
     global,
   );
+
+  store.compute(
+    "$valid",
+    ({ trackName, controls, startTime, endTime }) =>
+      trackName?.length && controls.length >= 2 && !!startTime && !!endTime,
+  );
+
+  return store;
+};
 
 const Fieldset = (props, children) => {
   return (
@@ -55,15 +64,15 @@ const EditableText = ({ onChange, value, placeholder }) => {
         placeholder={placeholder}
         autoFocus
         onBlur={(e) => {
-          store.editing = false;
-          store.textValue = e.target.value;
-          store.textValue !== placeholder && onChange(store.textValue);
+          store.$.editing = false;
+          store.$.textValue = e.target.value;
+          store.$.textValue !== placeholder && onChange(store.$.textValue);
         }}
         class="input input-sm"
       />
     ) : (
       <span
-        onClick={() => (store.editing = true)}
+        onClick={() => (store.$.editing = true)}
         class="cursor-pointer text-sm hover:bg-base-100 p-2"
       >
         {textValue || placeholder}
@@ -83,15 +92,15 @@ const ControlPointRow = ({ store, index, cp }) => {
         value={cp.name}
         placeholder={`CP ${index + 1}`}
         onChange={(s) => {
-          store.checkpoints[index].name = s;
-          store.checkpoints = [...store.checkpoints];
+          store.$.controls[index].name = s;
+          store.$.controls = [...store.$.controls];
         }}
       />
       <span class="flex-1" />
       <button
         onClick={() => {
-          store.checkpoints.splice(index, 1);
-          store.checkpoints = [...store.checkpoints];
+          store.$.controls.splice(index, 1);
+          store.$.controls = [...store.$.controls];
         }}
         class="btn btn-soft btn-sm hover:btn-error"
       >
@@ -104,17 +113,17 @@ const ControlPointRow = ({ store, index, cp }) => {
 const ControlPointTable = ({ store }) => {
   return (
     <ul class="list">
-      <store.reactive keys="checkpoints">
-        {({ checkpoints }) =>
-          checkpoints.length === 0 ? (
-            <p class="label">No checkpoints added yet</p>
+      <store.reactive keys="controls">
+        {({ controls }) =>
+          controls.length === 0 ? (
+            <p class="label">No controls added yet</p>
           ) : (
             <></>
           )
         }
       </store.reactive>
 
-      <store.reactiveEach key="checkpoints">
+      <store.reactiveEach key="controls">
         {(cp, idx) => <ControlPointRow store={store} index={idx} cp={cp} />}
       </store.reactiveEach>
     </ul>
@@ -142,7 +151,7 @@ const DateTimePicker = ({ title, onChange }) => {
   );
 };
 
-export function createApp(globalStore) {
+export function createApp(globalStore: Livewire<any>) {
   const store = createStore(globalStore);
 
   return (
@@ -157,22 +166,20 @@ export function createApp(globalStore) {
                 minLength={1}
                 type="text"
                 id="routeName"
-                value={store.trackName}
+                value={store.$.trackName}
                 placeholder="Transcontinental no11"
-                onInput={(e) => {
-                  store.trackName = e.target.value;
-                }}
+                onInput={(e) => (store.$.trackName = e.target.value)}
               />
             </label>
 
             <DateTimePicker
               title={"Start"}
-              onChange={(date) => (store.startTime = date)}
+              onChange={(date) => (store.$.startTime = date)}
             />
 
             <DateTimePicker
               title={"End"}
-              onChange={(date) => (store.endTime = date)}
+              onChange={(date) => (store.$.endTime = date)}
             />
           </Fieldset>
 
@@ -191,7 +198,7 @@ export function createApp(globalStore) {
             </p>
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
-              <store.reactiveEach key="trackSegments">
+              <store.reactiveEach key="segments">
                 {(seg) => (
                   <li
                     class="list-row flex items-baseline cursor-move border border-base-300 bg-base-100 hover:bg-base-200 "
@@ -231,8 +238,11 @@ export function createApp(globalStore) {
 
       <details>
         <pre>
-          <store.reactive keys={Object.keys(store)}>
-            {(s) => JSON.stringify(s, null, 4)}
+          <store.reactive keys={Object.keys(store.$)}>
+            {(state) => {
+              console.log("state", state);
+              return JSON.stringify(state, null, 4);
+            }}
           </store.reactive>
         </pre>
       </details>
@@ -240,7 +250,7 @@ export function createApp(globalStore) {
   );
 }
 
-async function handleGPXFile(event, store) {
+async function handleGPXFile(event, store: Livewire<StoreProps>) {
   const files: Array<File> = Array.from(event.target.files);
   const newSegments = [];
 
@@ -263,27 +273,25 @@ async function handleGPXFile(event, store) {
 
   // Reset form input
   event.target.value = "";
-  store.trackSegments = [...store.trackSegments, ...newSegments];
+  store.$.segments = [...store.$.segments, ...newSegments];
 }
 
-function initMap(node, store) {
+function initMap(node, store: Livewire<StoreProps>) {
   const map = createMap(node);
 
   const unwatch = store.watch(
     ["trackSegments", "checkpoints"],
-    ({ trackSegments, checkpoints }) => {
+    ({ segments, controls }) => {
       if (!map.getMap()._container?.parentNode) {
         return unwatch();
       }
 
-      console.log(checkpoints);
-
-      const line = trackSegments.map((seg) => seg.coords);
+      const line = segments.map((seg) => seg.coords);
       map.showTrack(line);
-      map.showCheckpoints(checkpoints, {
+      map.showCheckpoints(controls, {
         onDragEnd: (index, coord) => {
-          store.checkpoints[index].coord = coord;
-          store.checkpoints = [...store.checkpoints];
+          store.$.controls[index].coord = coord;
+          store.$.controls = [...store.$.controls];
         },
       });
     },
@@ -294,7 +302,7 @@ function initMap(node, store) {
 
     function addCheckpointAt(coord) {
       // Get all track segments for snapping
-      const trackSegments = store.trackSegments.map((seg) => seg.coords);
+      const trackSegments = store.$.segments.map((seg) => seg.coords);
 
       // Snap to nearest track segment if within reasonable distance
       const snapResult = snapToNearestTrackSegment(
@@ -304,17 +312,15 @@ function initMap(node, store) {
         200, // 20 pixel threshold
       );
 
-      const control = {
-        kind: ControlPointKind.Control,
+      const control: ControlPoint = {
+        kind: "cp",
         name: null,
-        km: snapResult.km,
-        opensAt: null,
         closesAt: null,
         coord: { lng: snapResult.coord[0], lat: snapResult.coord[1] },
         anchorSegmentId: snapResult.segmentId, // null if not snapped to any segment
       };
 
-      store.checkpoints = [...store.checkpoints, control];
+      store.$.controls = [...store.$.controls, control];
       popup.close();
     }
 

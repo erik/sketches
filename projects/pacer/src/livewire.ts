@@ -1,107 +1,98 @@
 // livewire -- no dependency JS reactivity
 
 // i.e. not a class, not an array, etc.
-function isObject(obj) {
+function isObject(obj: any) {
+  // @ts-ignore -- TODO: why
   return obj?.__proto__ === {}.__proto__;
 }
 
-function wrapValue(v) {
-  if (isObject(v)) return new Livewire(v, this);
-
-  if (Array.isArray(v))
-    return v.map((i) => (isObject(i) ? new Livewire(i, this) : i));
+function wrapValue(v: any, parent?: Livewire<any>) {
+  if (isObject(v)) {
+    return new Livewire(v, parent);
+  } else if (Array.isArray(v)) {
+    // TODO: does this matter?
+    return v.map((i) => (isObject(i) ? new Livewire(i, parent) : i));
+  }
 
   return v;
 }
 
-export class Livewire {
-  #state = null;
-  #proxy = null;
-  #parent = null;
+export class Livewire<P extends Record<string, any>> {
+  #state = {} as P;
+  #parent?: Livewire<any> = null;
+  $: P;
   #queued = false;
   #computed = new Map();
   #observers = new Set();
 
-  constructor(props, parent) {
+  constructor(props: P, parent?: Livewire<any>) {
     this.#parent = parent;
-    this.#state = new Map();
 
     for (const [k, v] of Object.entries(props)) {
       if (k.startsWith("$")) {
-        this.#computedKey(k, v);
+        this.compute(k, v);
       } else {
-        this.#state[k] = wrapValue(v);
+        (this.#state as Record<string, any>)[k] = wrapValue(v, this);
       }
     }
 
-    this.#proxy = new Proxy(this.#state, {
+    this.$ = new Proxy(this.#state, {
       set: (target, key, value) => this.#set(target, key, value),
-      get: (target, key) => this.#get(target, key),
-    });
-
-    return this.#proxy;
+      get: (target, key) => Reflect.get(target, key),
+    }) as P;
   }
 
   #set(target, key, value) {
     // Prevent setting computed properties
     if (this.#computed.has(key)) {
-      console.warn(`Cannot set computed property: ${key}`);
-      return false;
+      throw Error(`Cannot set computed property: ${key}`);
     }
 
     // TODO: doesn't work
     // Don't allow setting arbitrary properties
-    if (!this.#state.hasOwnProperty(key)) {
-      console.warn(`Cannot set unknown property: ${key}`);
-      return false;
+    if (!(key in this.#state)) {
+      throw Error(`tried to set unknown prop: ${key}`);
     }
 
     // Skip no-op updates
     const oldValue = target[key];
     if (oldValue === value) return true;
 
-    Reflect.set(target, key, wrapValue(value));
-    this.#deriveState();
+    Reflect.set(target, key, wrapValue(value, this));
+    this.tick();
     return true;
   }
 
-  #get(target, key) {
-    switch (key) {
-      case "compute":
-        return (key, fn) => this.#computedKey(key, fn);
-      case "render":
-        return (keys, fn) => this.#render(keys, fn);
-      case "reactive":
-        return ({ keys }, children) =>
-          this.#render(keys, (state) =>
-            createElement(
-              "fragment",
-              {},
-              children.map((f) => f(state)),
-            ),
-          );
-      case "reactiveEach":
-        return ({ key }, children) =>
-          this.#render([key], (state) =>
-            createElement(
-              "fragment",
-              {},
-              children.map((f) => state[key].map((v, i) => f(v, i, state))),
-            ),
-          );
-      case "watch":
-        return (keysOrFn, maybeFn) => this.#observer(keysOrFn, maybeFn);
-      case "update":
-        return (obj) =>
-          Object.entries(obj).forEach(([k, v]) => this.#set(k, v));
-      case "recompute":
-        return () => this.#deriveState();
-      default:
-        return Reflect.get(target, key);
-    }
-  }
+  reactive = ({ keys }, children: ((state: P) => any)[]) => {
+    return this.render(keys, (state: P) =>
+      createElement(
+        "fragment",
+        {},
+        children.map((fn) => fn(state)),
+      ),
+    );
+  };
 
-  #render(keys, fn) {
+  reactiveEach = (
+    { key },
+    children: ((value: any, index: number, state: P) => any)[],
+  ) => {
+    return this.render([key], (state: P) =>
+      createElement(
+        "fragment",
+        {},
+        children.map((fn) =>
+          state[key].map((value: any, index: number) =>
+            fn(value, index, state),
+          ),
+        ),
+      ),
+    );
+  };
+
+  render(keys: string | string[], fn: (state: P) => any) {
+    console.log("render called with keys:", keys);
+    console.log("initial state:", this.#state);
     let node = fn(this.#state);
     let anchor = null;
     let fragmentNodes = [];
@@ -112,7 +103,8 @@ export class Livewire {
       fragmentNodes = Array.from(node.childNodes);
     }
 
-    const unwatch = this.#observer(keys, (state) => {
+    const unwatch = this.watch(keys, (state: P) => {
+      console.log("watch triggered with state:", state);
       const newNode = fn(state);
 
       // for fragments, replace all children
@@ -144,26 +136,32 @@ export class Livewire {
     return node;
   }
 
-  #computedKey(key, fn) {
+  compute(key: string, fn: (state: P) => any) {
     this.#computed.set(key, fn);
-    this.#state[key] = fn(this.#state);
-    return this.#proxy;
+    (this.#state as Record<string, any>)[key] = fn(this.#state);
+    return this;
   }
 
-  #observer(...args) {
-    let wrappedFn = args[0];
+  watch(
+    maybeFn: string | string[] | ((state: P) => any),
+    fn: ((state: P) => any) | undefined,
+  ) {
+    let wrappedFn: (state: P) => any;
 
-    // Watch specific keys
-    if (typeof args[1] === "function") {
-      const keys = new Set([args[0]].flat());
-      const mapState = (s) => Object.entries(s).filter(([k]) => keys.has(k));
+    if (typeof maybeFn === "function") {
+      wrappedFn = maybeFn;
+    } else {
+      // Watch specific keys
+      const keys = new Set([maybeFn].flat());
+      const filterState = (s: P) =>
+        Object.entries(s).filter(([k]) => keys.has(k));
 
-      let prev = JSON.stringify(mapState(this.#state));
-      wrappedFn = (state) => {
-        const curr = JSON.stringify(mapState(state));
+      let prev = JSON.stringify(filterState(this.#state));
+      wrappedFn = (state: P) => {
+        const curr = JSON.stringify(filterState(state));
         if (curr !== prev) {
           prev = curr;
-          args[1].call(this, state);
+          fn.call(this, state);
         }
       };
     }
@@ -172,31 +170,29 @@ export class Livewire {
     return () => this.#observers.delete(wrappedFn);
   }
 
-  #deriveState() {
+  protected tick() {
     // Child state could depend on parent state, so derive it first
-    if (this.#parent) {
-      this.#parent.recompute();
-    }
+    this.#parent?.tick();
 
     for (const [key, fn] of this.#computed) {
-      this.#state[key] = fn(this.#state);
+      (this.#state as Record<string, any>)[key] = fn(this.#state);
     }
 
-    this.#observe();
+    this.#triggerWatchers();
   }
 
-  #observe() {
+  #triggerWatchers() {
     if (this.#queued) return;
     this.#queued = true;
 
     queueMicrotask(() => {
       this.#queued = false;
       for (const fn of this.#observers) {
+        // TODO: fix typing
+        // @ts-ignore
         fn(this.#state);
       }
     });
-
-    return this.#proxy;
   }
 }
 
@@ -204,7 +200,7 @@ export function createFragment(_tag, children) {
   return _createElement("fragment", {}, ...children);
 }
 
-export function htmlTemplate(s) {
+export function htmlTemplate(s: string) {
   return _createElement("template", { innerHTML: s }).content;
 }
 
