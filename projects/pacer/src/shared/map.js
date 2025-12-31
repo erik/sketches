@@ -15,11 +15,14 @@ export function createMap(container, options = {}) {
   });
 
   // Add tile layer
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }).addTo(map);
+  L.tileLayer(
+    "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png",
+    {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    },
+  ).addTo(map);
 
   // Track state
   let trackLayer = null;
@@ -38,30 +41,31 @@ export function createMap(container, options = {}) {
         "leaflet-bar leaflet-control leaflet-control-custom",
       );
       container.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" >
-          <!-- Top-left corner bracket -->
-          <path d="M 80 140 Q 80 80 140 80" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+        <a href="#" role="button" title="Recenter map" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" >
+            <!-- Top-left corner bracket -->
+            <path d="M 80 140 Q 80 80 140 80" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
 
-          <!-- Top-right corner bracket -->
-          <path d="M 372 80 Q 432 80 432 140" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+            <!-- Top-right corner bracket -->
+            <path d="M 372 80 Q 432 80 432 140" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
 
-          <!-- Bottom-left corner bracket -->
-          <path d="M 140 432 Q 80 432 80 372" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+            <!-- Bottom-left corner bracket -->
+            <path d="M 140 432 Q 80 432 80 372" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
 
-          <!-- Bottom-right corner bracket -->
-          <path d="M 432 372 Q 432 432 372 432" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+            <!-- Bottom-right corner bracket -->
+            <path d="M 432 372 Q 432 432 372 432" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
 
-          <!-- Center rounded rectangle -->
-          <rect x="160" y="140" width="192" height="232" rx="30" ry="30" fill="none" stroke="#000" stroke-width="32"/>
-        </svg>
+            <!-- Center rounded rectangle -->
+            <rect x="160" y="140" width="192" height="232" rx="30" ry="30" fill="none" stroke="#000" stroke-width="32"/>
+          </svg>
+        </a>
       `;
       container.style.backgroundColor = "white";
-      container.style.width = "30px";
-      container.style.height = "30px";
       container.style.cursor = "pointer";
       container.title = "Recenter map";
 
       container.onclick = function () {
+        L.DomEvent.disableClickPropagation(container);
         mapController.fitToContent();
       };
 

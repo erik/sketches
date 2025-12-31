@@ -18,6 +18,7 @@ type StoreProps = {
   endTime?: Date;
   segments: Segment[];
   controls: ControlPoint[];
+  approxDistanceKm?: number;
 };
 
 type ComputedProps = {
@@ -34,6 +35,7 @@ const createStore = (
       endTime: null,
       segments: [],
       controls: [],
+      approxDistanceKm: null,
     },
     global,
   );
@@ -49,7 +51,7 @@ const createStore = (
 
 const Fieldset = (props, children) => {
   return (
-    <fieldset class="fieldset bg-base-200 border border-base-300 p-4">
+    <fieldset class="fieldset bg-base-200 border border-base-300 p-2">
       <legend class="fieldset-legend">{props.title}</legend>
       {...children}
     </fieldset>
@@ -246,7 +248,12 @@ export function createApp(globalStore: Livewire<any, any>) {
                 onInput={(e) => (store.$.trackName = e.target.value)}
               />
             </label>
+          </Fieldset>
 
+          <Fieldset title="Timing">
+            <p class="label whitespace-normal!">
+              Set start and end time to calculate required pacing.
+            </p>
             <DateTimePicker
               title={"Start"}
               onChange={(date) => (store.$.startTime = date)}
@@ -257,19 +264,38 @@ export function createApp(globalStore: Livewire<any, any>) {
               onChange={(date) => (store.$.endTime = date)}
             />
           </Fieldset>
-          <Fieldset title="GPX Files">
+
+          <Fieldset title="Route">
+            <p class="label whitespace-normal!">
+              Add GPX files for race route. Can be a single file for the entire
+              course or split into individual files.
+            </p>
+
             <input
+              id="gpx-files"
               type="file"
-              id="gpxFiles"
-              class="file-input"
+              class="hidden"
               accept=".gpx"
               multiple={true}
               onChange={(e) => handleGPXFile(e, store)}
             />
 
-            <p class="label">
-              Add and arrange any GPX files related to this route.
-            </p>
+            <store.reactive keys="segments">
+              {({ segments }) =>
+                segments.length === 0 ? (
+                  ""
+                ) : (
+                  <div class="inline-flex space-x-1 justify-end">
+                    <span class="badge badge-soft badge-xs badge-neutral">
+                      {`${segments.length} segments`}
+                    </span>
+                    <span class="badge badge-soft badge-xs badge-neutral">
+                      {`${segments.reduce((xs, x) => x.length + xs, 0).toFixed()}km`}
+                    </span>
+                  </div>
+                )
+              }
+            </store.reactive>
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
@@ -277,7 +303,10 @@ export function createApp(globalStore: Livewire<any, any>) {
                   <SortableRow store={store} index={idx} onUpdate="segments">
                     {seg.name}
                     <span class="flex-1" />
-                    <span class="tabular-nums">{seg.length.toFixed(0)} km</span>
+
+                    <span class="badge badge-soft badge-xs tabular-nums">
+                      {seg.length.toFixed(0)} km
+                    </span>
                     <button
                       onClick={() => {
                         store.$.segments.splice(idx, 1);
@@ -291,11 +320,73 @@ export function createApp(globalStore: Livewire<any, any>) {
                 )}
               </store.reactiveEach>
             </ul>
+
+            <div class="flex space-x-2">
+              <button
+                // @ts-ignore
+                onClick={() => document.querySelector("#gpx-files").click()}
+                class="btn btn-neutral"
+              >
+                Add Route Files
+              </button>
+
+              <store.reactive keys={"segments"}>
+                {({ segments }) =>
+                  segments.length === 0 ? (
+                    <button
+                      class="btn"
+                      onClick={() => (store.$.approxDistanceKm = 0.01)}
+                    >
+                      Unknown Race
+                    </button>
+                  ) : (
+                    ((store.$.approxDistanceKm = null), (<></>))
+                  )
+                }
+              </store.reactive>
+            </div>
+
+            <store.reactive keys={"approxDistanceKm"}>
+              {({ approxDistanceKm }) =>
+                !!approxDistanceKm ? (
+                  <>
+                    <p class="label whitespace-normal!">
+                      Use your best guess of the distance so we can have roughly
+                      accurate pace estimates.
+                    </p>
+                    <label className="input">
+                      <span className="label">Distance</span>
+
+                      <input
+                        type="int"
+                        placeholder="1200"
+                        onInput={(e) => (store.$.trackName = e.target.value)}
+                      />
+
+                      <button
+                        className="label cursor-pointer"
+                        onClick={() =>
+                          (globalStore.$.units =
+                            globalStore.$.units === "METRIC"
+                              ? "IMPERIAL"
+                              : "METRIC")
+                        }
+                      >
+                        <globalStore.reactive keys={"units"}>
+                          {(s) => (s.units === "METRIC" ? "km" : "mi")}
+                        </globalStore.reactive>
+                      </button>
+                    </label>
+                  </>
+                ) : (
+                  <></>
+                )
+              }
+            </store.reactive>
           </Fieldset>
           <Fieldset title="Checkpoints">
             <ControlPointTable store={store} />
           </Fieldset>
-
           <store.reactive keys="$valid">
             {({ $valid }) => (
               <button class="btn" onClick="" disabled={!$valid}>
