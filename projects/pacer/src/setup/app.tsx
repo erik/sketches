@@ -226,7 +226,7 @@ const DateTimePicker = ({ title, onChange }) => {
   );
 };
 
-export function createApp(globalStore: Livewire<any>) {
+export function createApp(globalStore: Livewire<any, any>) {
   const store = createStore(globalStore);
 
   return (

@@ -185,7 +185,7 @@ export function createFragment(attrs, children) {
   return _createElement("fragment", attrs, children);
 }
 
-export function htmlTemplate(s: string) {
+export function htmlTemplate(s: TemplateStringsArray): Element {
   return _createElement("template", { innerHTML: s }).content;
 }
 
@@ -230,10 +230,16 @@ function _createElement(tag, attrs, ...children) {
   return el;
 }
 
+type CreateElementCurry = {
+  [key: string]: (attrs: Record<string, any>, ...children: any[]) => any;
+} & {
+  (tag: string, attrs?: Record<string, any>, ...children: any[]): any;
+};
+
 // magic curry sauce
 export const createElement = new Proxy(_createElement, {
   get:
-    (_target, prop, receiver) =>
-    (attrs, ...children) =>
-      receiver(prop, attrs, ...children),
-});
+    (_, prop) =>
+    (attrs: Record<string, any>, ...children: any[]) =>
+      _createElement(prop, attrs, ...children),
+}) as CreateElementCurry;
