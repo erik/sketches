@@ -37,15 +37,28 @@ export function createMap(container, options = {}) {
         "div",
         "leaflet-bar leaflet-control leaflet-control-custom",
       );
-      container.innerHTML = `<span class="p text-xs self-baseline">x</span>`;
+      container.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" >
+          <!-- Top-left corner bracket -->
+          <path d="M 80 140 Q 80 80 140 80" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+
+          <!-- Top-right corner bracket -->
+          <path d="M 372 80 Q 432 80 432 140" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+
+          <!-- Bottom-left corner bracket -->
+          <path d="M 140 432 Q 80 432 80 372" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+
+          <!-- Bottom-right corner bracket -->
+          <path d="M 432 372 Q 432 432 372 432" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
+
+          <!-- Center rounded rectangle -->
+          <rect x="160" y="140" width="192" height="232" rx="30" ry="30" fill="none" stroke="#000" stroke-width="32"/>
+        </svg>
+      `;
       container.style.backgroundColor = "white";
       container.style.width = "30px";
       container.style.height = "30px";
-      container.style.lineHeight = "30px";
-      container.style.textAlign = "center";
-      container.style.fontSize = "20px";
       container.style.cursor = "pointer";
-      container.style.fontWeight = "bold";
       container.title = "Recenter map";
 
       container.onclick = function () {
