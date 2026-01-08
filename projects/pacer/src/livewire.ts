@@ -2,8 +2,7 @@
 
 // i.e. not a class, not an array, etc.
 function isObject(obj: any) {
-  // @ts-ignore -- TODO: why
-  return obj?.__proto__ === {}.__proto__;
+  return obj?.__proto__ === Object.prototype;
 }
 
 const wrapValue = (v: any, parent?: Livewire<any, any>) =>
@@ -214,7 +213,7 @@ function _createElement(tag, attrs, ...children) {
       el.setAttribute("class", v);
     } else if (k === "innerHTML") {
       el.innerHTML = v;
-    } else if (v === false || v === "") {
+    } else if (v === false || v === "" || v == null) {
       el.removeAttribute(k);
     } else {
       el.setAttribute(k, v);

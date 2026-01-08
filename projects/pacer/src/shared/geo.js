@@ -1,11 +1,3 @@
-/**
- * Geospatial operations: GPX parsing, track simplification, distance calculations.
- * Uses turf.js for heavy lifting.
- */
-
-// We'll import turf modules. With Vite, you can npm install these:
-// npm install @turf/helpers @turf/simplify @turf/nearest-point-on-line @turf/length @turf/line-slice @turf/distance @turf/along @turf/bbox
-
 import { lineString, point } from "@turf/helpers";
 import simplify from "@turf/simplify";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
@@ -165,7 +157,8 @@ export function snapToNearestTrackSegment(
   let nearestResult = null;
   let minPixelDistance = Infinity;
 
-  tracks.forEach((track, segmentIndex) => {
+  tracks.forEach((segment, segmentIndex) => {
+    let track = segment.coords;
     if (track.length < 2) return;
 
     const line = lineString(track);

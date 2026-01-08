@@ -19,6 +19,7 @@ type StoreProps = {
   segments: Segment[];
   controls: ControlPoint[];
   approxDistanceKm?: number;
+  computeDistance: boolean;
 };
 
 type ComputedProps = {
@@ -36,6 +37,7 @@ const createStore = (
       segments: [],
       controls: [],
       approxDistanceKm: null,
+      computeDistance: true,
     },
     global,
   );
@@ -266,11 +268,6 @@ export function createApp(globalStore: Livewire<any, any>) {
           </Fieldset>
 
           <Fieldset title="Route">
-            <p class="label whitespace-normal!">
-              Add GPX files for race route. Can be a single file for the entire
-              course or split into individual files.
-            </p>
-
             <input
               id="gpx-files"
               type="file"
@@ -280,16 +277,21 @@ export function createApp(globalStore: Livewire<any, any>) {
               onChange={(e) => handleGPXFile(e, store)}
             />
 
+            <p class="label whitespace-normal!">
+              Add GPX files for race route. Can be a single file for the entire
+              course or split into individual files.
+            </p>
+
             <store.reactive keys="segments">
               {({ segments }) =>
                 segments.length === 0 ? (
                   ""
                 ) : (
                   <div class="inline-flex space-x-1 justify-end">
-                    <span class="badge badge-soft badge-xs badge-neutral">
+                    <span class="badge badge-soft badge-xs">
                       {`${segments.length} segments`}
                     </span>
-                    <span class="badge badge-soft badge-xs badge-neutral">
+                    <span class="badge badge-soft badge-xs">
                       {`${segments.reduce((xs, x) => x.length + xs, 0).toFixed()}km`}
                     </span>
                   </div>
@@ -321,7 +323,7 @@ export function createApp(globalStore: Livewire<any, any>) {
               </store.reactiveEach>
             </ul>
 
-            <div class="flex space-x-2">
+            <div class="flex">
               <button
                 // @ts-ignore
                 onClick={() => document.querySelector("#gpx-files").click()}
@@ -329,64 +331,58 @@ export function createApp(globalStore: Livewire<any, any>) {
               >
                 Add Route Files
               </button>
-
-              <store.reactive keys={"segments"}>
-                {({ segments }) =>
-                  segments.length === 0 ? (
-                    <button
-                      class="btn"
-                      onClick={() => (store.$.approxDistanceKm = 0.01)}
-                    >
-                      Unknown Race
-                    </button>
-                  ) : (
-                    ((store.$.approxDistanceKm = null), (<></>))
-                  )
-                }
-              </store.reactive>
             </div>
 
-            <store.reactive keys={"approxDistanceKm"}>
-              {({ approxDistanceKm }) =>
-                !!approxDistanceKm ? (
-                  <>
-                    <p class="label whitespace-normal!">
-                      Use your best guess of the distance so we can have roughly
-                      accurate pace estimates.
-                    </p>
-                    <label className="input">
-                      <span className="label">Distance</span>
+            <p class="label whitespace-normal!">
+              If you don't have a full route available (or parts are still
+              unknown), use your best guess of the distance so we can have
+              roughly accurate pace estimates.
+            </p>
 
-                      <input
-                        type="int"
-                        placeholder="1200"
-                        onInput={(e) => (store.$.trackName = e.target.value)}
-                      />
+            <label class="label">
+              <input
+                type="checkbox"
+                class="toggle"
+                checked={!store.$.computeDistance}
+                onChange={() =>
+                  (store.$.computeDistance = !store.$.computeDistance)
+                }
+              />
+              Manual Distance
+            </label>
 
-                      <button
-                        className="label cursor-pointer"
-                        onClick={() =>
-                          (globalStore.$.units =
-                            globalStore.$.units === "METRIC"
-                              ? "IMPERIAL"
-                              : "METRIC")
-                        }
-                      >
-                        <globalStore.reactive keys={"units"}>
-                          {(s) => (s.units === "METRIC" ? "km" : "mi")}
-                        </globalStore.reactive>
-                      </button>
-                    </label>
-                  </>
-                ) : (
-                  <></>
-                )
-              }
+            <store.reactive keys={["computeDistance", "approxDistanceKm"]}>
+              {({ computeDistance, approxDistanceKm }) => (
+                <>
+                  <label className="input" disabled={computeDistance}>
+                    <span className="label">Distance</span>
+
+                    <input
+                      type="int"
+                      placeholder="1200"
+                      value={approxDistanceKm}
+                      onBlur={(e) =>
+                        (store.$.approxDistanceKm = +e.target.value)
+                      }
+                    />
+
+                    <span className="label">km</span>
+                  </label>
+                </>
+              )}
             </store.reactive>
           </Fieldset>
-          <Fieldset title="Checkpoints">
-            <ControlPointTable store={store} />
-          </Fieldset>
+
+          <div class="h-screen">
+            <Fieldset title="Controls">
+              <div
+                $mount={(el) => initMap(el, store)}
+                class="h-100 rounded-box shadow-md"
+              />
+              <ControlPointTable store={store} />
+            </Fieldset>
+          </div>
+
           <store.reactive keys="$valid">
             {({ $valid }) => (
               <button class="btn" onClick="" disabled={!$valid}>
@@ -394,13 +390,6 @@ export function createApp(globalStore: Livewire<any, any>) {
               </button>
             )}
           </store.reactive>
-        </div>
-
-        <div class="w-full h-150 p-4">
-          <div
-            $mount={(el) => initMap(el, store)}
-            class="h-full rounded-box shadow-md"
-          />
         </div>
       </div>
 
@@ -444,28 +433,53 @@ async function handleGPXFile(
   store.$.segments = [...store.$.segments, ...newSegments];
 }
 
-function initMap(node: Element, store: Livewire<StoreProps, ComputedProps>) {
+function initMap(
+  node: HTMLElement,
+  store: Livewire<StoreProps, ComputedProps>,
+) {
   const map = createMap(node);
   let prevSegmentLength = 0;
 
   const unwatch = store.watch(
     ["segments", "controls"],
     ({ segments, controls }) => {
-      if (!map.getMap()._container?.parentNode) {
+      if (!map.getMap().getContainer()?.parentNode) {
         return unwatch();
       }
 
       const line = segments.map((seg) => seg.coords);
-      map.showTrack(line, {
+
+      // @ts-ignore TODO fixme
+      map.setTrack(line, {
         fitBounds: segments.length !== prevSegmentLength,
       });
-      map.showCheckpoints(controls, {
-        trackCoords: line,
-        onDragEnd: (index, coord) => {
-          store.$.controls[index].coord = coord;
+
+      map.setControlPoints(controls, {
+        onDragEnd: (index, coord, marker) => {
+          console.log("line", line, "segments", store.$.segments);
+          const snap = snapToNearestTrackSegment(
+            store.$.segments,
+            [coord.lng, coord.lat],
+            map.getMap(),
+            50,
+          );
+
+          // Update the control with snapped position and segment info
+          store.$.controls[index] = {
+            ...store.$.controls[index],
+            coord: {
+              lng: snap.coord[0],
+              lat: snap.coord[1],
+            },
+            anchorSegmentId: snap.segmentId,
+          };
           store.$.controls = [...store.$.controls];
+
+          // Update the marker position to the snapped location
+          marker.setLatLng(snap.coord);
         },
       });
+
       prevSegmentLength = segments.length;
     },
   );
@@ -474,14 +488,11 @@ function initMap(node: Element, store: Livewire<StoreProps, ComputedProps>) {
     const popup = L.popup().setLatLng([coord[1], coord[0]]);
 
     function addCheckpointAt(coord) {
-      const trackSegments = store.$.segments.map((seg) => seg.coords);
-
-      // Snap to nearest track segment if within reasonable distance
       const snapResult = snapToNearestTrackSegment(
-        trackSegments,
+        store.$.segments,
         coord,
         map.getMap(),
-        200, // 20 pixel threshold
+        200,
       );
 
       const control: ControlPoint = {
@@ -489,7 +500,7 @@ function initMap(node: Element, store: Livewire<StoreProps, ComputedProps>) {
         name: null,
         closesAt: null,
         coord: { lng: snapResult.coord[0], lat: snapResult.coord[1] },
-        anchorSegmentId: snapResult.segmentId, // null if not snapped to any segment
+        anchorSegmentId: snapResult.segmentId,
       };
 
       store.$.controls = [...store.$.controls, control];
