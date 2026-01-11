@@ -1,8 +1,3 @@
-/**
- * Compress an object to a URL-safe string.
- * @param {Object} obj
- * @returns {Promise<string>}
- */
 export async function compressToURL(obj) {
   const json = JSON.stringify(obj);
   const bytes = new TextEncoder().encode(json);
@@ -29,9 +24,7 @@ export async function compressToURL(obj) {
  * @returns {Promise<Object>}
  */
 export async function decompressFromURL(base64) {
-  // Restore standard base64
   let padded = base64.replace(/-/g, "+").replace(/_/g, "/");
-  // Add padding if needed
   while (padded.length % 4 !== 0) {
     padded += "=";
   }

@@ -4,16 +4,20 @@ import { loadRouteFromURL } from "./shared/storage.js";
 import { Livewire, createElement as h, htmlTemplate } from "./livewire.js";
 import { createApp as createSetupApp } from "./setup/app.jsx";
 
+export type GlobalStoreProps = {
+  mode: "PACE_TRACKER" | "SETUP";
+  units: "METRIC" | "IMPERIAL";
+};
+
 async function init() {
   const storedRoute = await loadRouteFromURL();
-  const initialMode = storedRoute ? "PACE_TRACKER" : "CONFIGURE";
+  const initialMode = "PACE_TRACKER"; // storedRoute ? "PACE_TRACKER" : "CONFIGURE";
 
-  const store = new Livewire({
+  const store = new Livewire<GlobalStoreProps>({
     mode: initialMode,
     units: "METRIC",
   });
 
-  // Set up theme toggle
   const toggleTheme = () => {
     const theme =
       document.documentElement.getAttribute("data-theme") === "dark"

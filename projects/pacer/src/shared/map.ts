@@ -1,6 +1,6 @@
 import L, { LatLngExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { ControlPoint } from "./index.js";
+import { OldControlPoint } from "./index.js";
 
 class RecenterMapControl extends L.Control {
   controller: MapController;
@@ -98,10 +98,10 @@ export class MapController {
   }
 
   setControlPoints(
-    controls: ControlPoint[],
+    controls: OldControlPoint[],
     options: {
       trackCoords?: any[];
-      onClick?: (c: ControlPoint) => void;
+      onClick?: (c: OldControlPoint) => void;
       onDragEnd?: (i: number, pt: L.LatLng, m: L.Marker) => void;
     } = {},
   ) {

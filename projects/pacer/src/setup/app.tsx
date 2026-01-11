@@ -2,7 +2,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
-import { Segment, type ControlPoint } from "../shared/index.js";
+import { Segment, type OldControlPoint } from "../shared/index.js";
 
 import {
   parseGPX,
@@ -11,13 +11,14 @@ import {
   snapToNearestTrackSegment,
 } from "../shared/geo.js";
 import { Livewire } from "../livewire.js";
+import { GlobalStoreProps } from "../main.jsx";
 
 type StoreProps = {
   trackName: string;
   startTime?: Date;
   endTime?: Date;
   segments: Segment[];
-  controls: ControlPoint[];
+  controls: OldControlPoint[];
   approxDistanceKm?: number;
   computeDistance: boolean;
 };
@@ -27,7 +28,7 @@ type ComputedProps = {
 };
 
 const createStore = (
-  global: Livewire<any>,
+  global: Livewire<GlobalStoreProps>,
 ): Livewire<StoreProps, ComputedProps> => {
   const store = new Livewire<StoreProps, ComputedProps>(
     {
@@ -230,7 +231,7 @@ const DateTimePicker = ({ title, onChange }) => {
   );
 };
 
-export function createApp(globalStore: Livewire<any, any>) {
+export function createApp(globalStore: Livewire<GlobalStoreProps>) {
   const store = createStore(globalStore);
 
   return (
@@ -301,13 +302,13 @@ export function createApp(globalStore: Livewire<any, any>) {
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
-                {(seg, idx) => (
+                {(seg: Segment, idx) => (
                   <SortableRow store={store} index={idx} onUpdate="segments">
-                    {seg.name}
+                    {seg.title ?? seg.fileName}
                     <span class="flex-1" />
 
                     <span class="badge badge-soft badge-xs tabular-nums">
-                      {seg.length.toFixed(0)} km
+                      {seg.segmentLength.toFixed(0)} km
                     </span>
                     <button
                       onClick={() => {
@@ -409,7 +410,7 @@ async function handleGPXFile(
   store: Livewire<StoreProps, ComputedProps>,
 ) {
   const files: Array<File> = Array.from(event.target.files);
-  const newSegments = [];
+  const newSegments: Segment[] = [];
 
   for (const file of files) {
     const text = await file.text();
@@ -422,9 +423,9 @@ async function handleGPXFile(
 
     newSegments.push({
       id: Math.random().toString(36).substring(2, 10),
-      name: file.name,
-      coords: simplifyTrack(coords),
-      length: calculateTrackLength(coords),
+      fileName: file.name,
+      geometry: simplifyTrack(coords),
+      segmentLength: calculateTrackLength(coords),
     });
   }
 
@@ -447,7 +448,7 @@ function initMap(
         return unwatch();
       }
 
-      const line = segments.map((seg) => seg.coords);
+      const line = segments.map((seg) => seg.geometry);
 
       // @ts-ignore TODO fixme
       map.setTrack(line, {
@@ -456,7 +457,6 @@ function initMap(
 
       map.setControlPoints(controls, {
         onDragEnd: (index, coord, marker) => {
-          console.log("line", line, "segments", store.$.segments);
           const snap = snapToNearestTrackSegment(
             store.$.segments,
             [coord.lng, coord.lat],
@@ -495,7 +495,7 @@ function initMap(
         200,
       );
 
-      const control: ControlPoint = {
+      const control: OldControlPoint = {
         kind: "cp",
         name: null,
         closesAt: null,
