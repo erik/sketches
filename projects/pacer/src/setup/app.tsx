@@ -353,6 +353,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
       <button
         class="btn"
+        // @ts-ignore -- todo fixme
         onClick={() => globalStore.dispatch("setMode", "PACE_TRACKER")}
       >
         switch

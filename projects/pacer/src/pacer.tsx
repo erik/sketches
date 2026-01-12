@@ -5,6 +5,8 @@ import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
 import { type EventConfig } from "./shared/index.js";
 
+/// <reference types="temporal-spec" />
+
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
 
@@ -12,44 +14,56 @@ type EventState = {
   eventStatus: "before" | "during" | "after";
   nextMarkerId: string;
   currentDistance: number;
-  markerArrivalTimes: Record<string, Date>;
+  markerArrivalTimes: Record<string, Temporal.Instant>;
 };
 
-function formatDateTimeCompact(date: Date | null): string {
-  if (!date) return "??";
+function formatDateTimeCompact(instant: Temporal.Instant | null): string {
+  if (!instant) return "?null?";
+  const zdt = instant.toZonedDateTimeISO("UTC");
 
-  return date
-    .toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      hour12: false,
-    })
-    .replace(",", "");
+  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
+
+  const dateFormatter = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+
+  const time = timeFormatter.format(zdt.toInstant());
+  const date = dateFormatter.format(zdt.toInstant());
+
+  return `${time} ${date}`;
 }
 
-function formatDuration(seconds: number): string {
-  const days = Math.floor(seconds / (24 * 60 * 60));
-  const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60));
-  const minutes = Math.floor((seconds % (60 * 60)) / 60);
+function formatDuration(duration: Temporal.Duration): string {
+  const days = Math.floor(duration.total({ unit: "days" }));
+  const hours = Math.floor(duration.total({ unit: "hours" }) % 24);
+  const minutes = Math.floor(duration.total({ unit: "minutes" }) % 60);
+  const seconds = Math.floor(duration.total({ unit: "seconds" }) % 60);
 
   const parts = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0) parts.push(`${seconds}s`);
   if (parts.length === 0) parts.push("0s");
 
   return parts.join(" ");
 }
 
-function getTimeRemaining(endTime: Date): string {
-  const now = new Date();
-  const remainingMs = endTime.getTime() - now.getTime();
+function getTimeRemaining(endTime: Temporal.Instant): string {
+  const now = Temporal.Now.instant();
+  const remainingDuration = endTime.since(now);
 
-  if (remainingMs <= 0) return "Event completed";
+  if (remainingDuration.total({ unit: "seconds" }) <= 0)
+    return "Event completed";
 
-  return formatDuration(Math.floor(remainingMs / 1000));
+  return formatDuration(remainingDuration);
 }
 
 function getRemainingDistance(
@@ -61,24 +75,24 @@ function getRemainingDistance(
 }
 
 function calculateElapsedTime(event: EventConfig): string {
-  const now = new Date();
-  const startTime = event.startTime ? new Date(event.startTime) : now;
-  const elapsedMs = now.getTime() - startTime.getTime();
-  return formatDuration(Math.floor(elapsedMs / 1000));
+  const now = Temporal.Now.instant();
+  const startTime = event.startTime || now;
+  const elapsedDuration = now.since(startTime);
+  return formatDuration(elapsedDuration);
 }
 
-function getEtaRemainingTime(eta: Date | null): string {
+function getEtaRemainingTime(eta: Temporal.Instant | null): string {
   if (eta == null) return "??";
 
-  const now = new Date();
-  const remainingMs = eta.getTime() - now.getTime();
-  if (remainingMs <= 0) return "Arrived";
-  return "in " + formatDuration(Math.floor(remainingMs / 1000));
+  const now = Temporal.Now.instant();
+  const remainingDuration = eta.since(now);
+  if (remainingDuration.total({ unit: "seconds" }) <= 0) return "Arrived";
+  return "in " + formatDuration(remainingDuration);
 }
 
 type ProgressEvent = {
   markerId: string;
-  arrivalTime: Date;
+  arrivalTime: Temporal.Instant;
   segmentPace: number;
 };
 
@@ -87,14 +101,13 @@ type StoreProps = {
   event: EventConfig;
   progress: ProgressEvent[];
   userLocation?: Position;
-  editingTimeId: string | null;
 };
 
 type ComputedProps = {
   $currentDistance: number;
   $currentPace: number;
   $requiredPace: number;
-  $eta: Date;
+  $eta: Temporal.Instant;
 };
 
 function handleUserLocation(store: Livewire<StoreProps, ComputedProps>) {
@@ -117,12 +130,11 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
       state: "inprogress",
       event: DEMO_DATA,
       userLocation: undefined,
-      editingTimeId: null,
       progress: [
         // Dummy progress data for demo
         {
           markerId: "m0",
-          arrivalTime: new Date("2026-04-26T06:00Z"),
+          arrivalTime: Temporal.Instant.from("2026-04-26T06:00:00Z"),
           segmentPace: 18.5,
         },
       ],
@@ -152,7 +164,7 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
 
   store.compute("$requiredPace", ({ event, progress }) => {
     // Calculate required pace to reach next control point
-    const now = new Date();
+    const now = Temporal.Now.instant();
     const markers = event.markers.filter(
       (m) => m.kind === "control" || m.kind === "finish",
     );
@@ -166,44 +178,28 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
 
     if (!nextMarker || !nextMarker.cutoffTime) return 0;
 
-    const timeRemaining = nextMarker.cutoffTime.getTime() - now.getTime();
-    if (timeRemaining <= 0) return 0; // Cutoff already passed
+    const timeRemainingDuration = nextMarker.cutoffTime.since(now);
+    if (timeRemainingDuration.total({ unit: "seconds" }) <= 0) return 0; // Cutoff already passed
 
-    const hoursRemaining = timeRemaining / (1000 * 60 * 60);
+    const hoursRemaining = timeRemainingDuration.total({ unit: "hours" });
     const distanceToFinish = nextMarker.routeDistance || event.routeLength || 0;
 
     return distanceToFinish / hoursRemaining;
   });
 
-  store.compute(
-    "$eta",
-    ({ event, progress, $currentDistance, $requiredPace }) => {
-      if (!event?.markers || !$requiredPace) return null;
+  store.compute("$eta", ({ event, $currentDistance, $currentPace }) => {
+    const now = Temporal.Now.instant();
+    const finishMarker = event.markers.find((m) => m.kind === "finish");
 
-      const now = new Date();
-      const markers = event.markers.filter(
-        (m) => m.kind === "control" || m.kind === "finish",
-      );
+    if (!finishMarker) {
+      console.error("bug, finish marker wrong", finishMarker);
+      return null;
+    }
 
-      if (!markers.length) return null;
-
-      const finishMarker = markers.find((marker) => {
-        return !progress.some((p) => p.markerId === marker.id);
-      });
-
-      if (!finishMarker || !finishMarker.cutoffTime) return null;
-
-      const distanceToFinish =
-        (finishMarker.routeDistance || event.routeLength || 0) -
-        ($currentDistance || 0);
-      const hoursToArrival = distanceToFinish / $requiredPace;
-
-      const arrivalTime = new Date(
-        now.getTime() + hoursToArrival * 60 * 60 * 1000,
-      );
-      return arrivalTime;
-    },
-  );
+    const distanceToFinish = event.routeLength - ($currentDistance || 0);
+    const hoursToArrival = distanceToFinish / $currentPace;
+    return now.add({ seconds: Math.round(hoursToArrival * 3600) });
+  });
 
   return store;
 };
@@ -316,7 +312,7 @@ const StatsTab = ({ store }) => {
                     value={`${$requiredPace.toFixed(1)} km/h`}
                   />
                   <StatCard
-                    title="ETA"
+                    title="Finish ETA"
                     value={formatDateTimeCompact($eta)}
                     subtitle={getEtaRemainingTime($eta)}
                   />
@@ -367,26 +363,11 @@ const ControlPointCard = ({ cp, index, store }) => {
       ...store.$.progress,
       {
         markerId: cp.id,
-        arrivalTime: new Date(),
+        arrivalTime: Temporal.Now.instant(),
         // TODO: this needs to be calculated
         segmentPace: store.$.$currentPace || 15,
       },
     ];
-  };
-
-  const handleTimeEdit = (newTime) => {
-    if (!isNaN(newTime.getTime())) {
-      const updatedProgress = store.$.progress.map((p) =>
-        p.markerId === cp.id
-          ? {
-              ...p,
-              arrivalTime: newTime,
-            }
-          : p,
-      );
-      store.$.progress = updatedProgress;
-      store.$.editingTimeId = null;
-    }
   };
 
   return (
@@ -431,47 +412,9 @@ const ControlPointCard = ({ cp, index, store }) => {
           <div className="text-xs text-gray-500">Time</div>
           <div className="font-mono">
             {progressEvent ? (
-              <store.reactive keys="editingTimeId">
-                {({ editingTimeId }) => {
-                  const isEditing = editingTimeId === cp.id;
-                  const time = new Date(progressEvent.arrivalTime);
-
-                  return isEditing ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="datetime-local"
-                        value={time.toISOString().slice(0, 16)}
-                        onChange={(e) => {
-                          handleTimeEdit(new Date(e.target.value));
-                        }}
-                        className="input input-xs input-bordered"
-                      />
-                      <button
-                        className="btn btn-xs btn-success"
-                        onClick={() => (store.$.editingTimeId = null)}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => (store.$.editingTimeId = null)}
-                      >
-                        ✗
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <span>{formatDateTimeCompact(time)}</span>
-                      <button
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => (store.$.editingTimeId = cp.id)}
-                      >
-                        ✏️
-                      </button>
-                    </div>
-                  );
-                }}
-              </store.reactive>
+              <div className="flex items-center gap-1">
+                <span>{formatDateTimeCompact(progressEvent.arrivalTime)}</span>
+              </div>
             ) : (
               "-"
             )}

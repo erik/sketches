@@ -3,8 +3,8 @@ import { type LineString, type Position } from "geojson";
 export type EventConfig = {
   name: string;
   notes?: string;
-  startTime: Date;
-  endTime: Date;
+  startTime: Temporal.Instant;
+  endTime: Temporal.Instant;
   routeLength: number;
   segments: Segment[];
   markers: RouteMarker[];
@@ -26,8 +26,8 @@ export type RouteMarker = {
   icon?: string;
   segmentId?: string;
   routeDistance?: number;
-  goalTime?: Date;
-  cutoffTime?: Date;
+  goalTime?: Temporal.Instant;
+  cutoffTime?: Temporal.Instant;
   coordinate: Position;
 };
 

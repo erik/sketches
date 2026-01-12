@@ -1,7 +1,9 @@
 import "./style.css";
+import "temporal-polyfill/global";
+
 import { loadRouteFromURL } from "./shared/storage.js";
 
-import { Livewire, createElement as h, htmlTemplate } from "./livewire.js";
+import { Livewire, htmlTemplate } from "./livewire.js";
 import { createApp as createSetupApp } from "./setup/app.jsx";
 import { createApp as createPaceTrackerApp } from "./pacer.jsx";
 
@@ -31,7 +33,7 @@ async function init() {
     },
     {
       actions: {
-        setMode: (state, mode: string) => ({ mode }),
+        setMode: (state: GlobalStoreProps, mode: string) => ({ mode }),
       },
     },
   );
