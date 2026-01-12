@@ -18,7 +18,6 @@ export function parseGPX(gpxText) {
 
   const coords = [];
 
-  // Try track points first (most common)
   const trkpts = doc.querySelectorAll("trkpt");
   if (trkpts.length > 0) {
     trkpts.forEach((pt) => {
@@ -60,40 +59,6 @@ export function simplifyTrack(coords, tolerance = 0.001) {
 }
 
 /**
- * Calculate the total length of a track in kilometers.
- * @param {[number, number][]} coords
- * @returns {number}
- */
-export function trackLength(coords) {
-  if (coords.length < 2) return 0;
-  const line = lineString(coords);
-  return length(line, { units: "kilometers" });
-}
-
-/**
- * Find the nearest point on the track to a given location.
- * @param {[number, number][]} track - Track coordinates
- * @param {[number, number]} location - [lng, lat] to snap
- * @returns {{coord: [number, number], km: number, index: number} | null}
- */
-export function snapToTrack(track, location) {
-  if (track.length < 2) return null;
-
-  const line = lineString(track);
-  const pt = point(location);
-  const snapped = nearestPointOnLine(line, pt, { units: "kilometers" });
-
-  // Calculate distance along track
-  const km = calculateDistanceAlongTrack(track, snapped.geometry.coordinates);
-
-  return {
-    coord: snapped.geometry.coordinates,
-    km,
-    index: snapped.properties.index,
-  };
-}
-
-/**
  * Calculate distance along track to a specific point.
  * @param {[number, number][]} track
  * @param {[number, number]} targetPoint
@@ -111,22 +76,6 @@ export function calculateDistanceAlongTrack(track, targetPoint) {
   const sliced = lineSlice(start, snapped, line);
 
   return length(sliced, { units: "kilometers" });
-}
-
-/**
- * Find checkpoint coordinates by snapping to nearest point on track.
- * Used when placing checkpoints by clicking on map.
- * @param {[number, number][]} track
- * @param {[number, number]} clickLocation
- * @returns {{coord: [number, number], km: number}}
- */
-export function findCheckpointOnTrack(track, clickLocation) {
-  const snapped = snapToTrack(track, clickLocation);
-  if (!snapped) {
-    // Fallback if track is empty
-    return { coord: clickLocation, km: 0 };
-  }
-  return { coord: snapped.coord, km: snapped.km };
 }
 
 /**
@@ -204,87 +153,4 @@ export function snapToNearestTrackSegment(
   }
 
   return nearestResult;
-}
-
-/**
- * Validate that a checkpoint km value is reasonable for the track.
- * @param {[number, number][]} track
- * @param {number} km
- * @returns {boolean}
- */
-export function isValidCheckpointKm(track, km) {
-  const totalLength = trackLength(track);
-  return km >= 0 && km <= totalLength;
-}
-
-/**
- * Get the coordinate at a specific km along the track.
- * Used when user manually enters a km value for a checkpoint.
- * @param {[number, number][]} track
- * @param {number} targetKm
- * @returns {[number, number] | null}
- */
-export function getCoordAtKm(track, targetKm) {
-  if (track.length < 2) return null;
-
-  const line = lineString(track);
-  const totalLength = length(line, { units: "kilometers" });
-
-  if (targetKm < 0 || targetKm > totalLength) return null;
-  if (targetKm === 0) return track[0];
-  if (targetKm >= totalLength) return track[track.length - 1];
-
-  // Use turf along to get point at distance
-  const pt = along(line, targetKm, { units: "kilometers" });
-  return pt.geometry.coordinates;
-}
-
-/**
- * Calculate bounds for a track (for map centering).
- * @param {[number, number][]} coords
- * @returns {[[number, number], [number, number]] | null} [[minLng, minLat], [maxLng, maxLat]]
- */
-export function getTrackBounds(coords) {
-  if (coords.length === 0) return null;
-
-  const line = lineString(coords);
-  const box = bbox(line);
-
-  // bbox returns [minLng, minLat, maxLng, maxLat]
-  // Convert to [[minLng, minLat], [maxLng, maxLat]]
-  return [
-    [box[0], box[1]],
-    [box[2], box[3]],
-  ];
-}
-
-/**
- * Calculate distance between two coordinates.
- * @param {[number, number]} coord1 - [lng, lat]
- * @param {[number, number]} coord2 - [lng, lat]
- * @returns {number} Distance in km
- */
-export function calculateDistance(coord1, coord2) {
-  const pt1 = point(coord1);
-  const pt2 = point(coord2);
-  return distance(pt1, pt2, { units: "kilometers" });
-}
-
-/**
- * Calculate distance between two checkpoints along the track.
- * @param {import('./state.js').Checkpoint} cpA
- * @param {import('./state.js').Checkpoint} cpB
- * @returns {number} Distance in km
- */
-export function distanceBetweenCheckpoints(cpA, cpB) {
-  return Math.abs(cpB.km - cpA.km);
-}
-
-/**
- * Sort checkpoints by distance along track.
- * @param {import('./state.js').Checkpoint[]} checkpoints
- * @returns {import('./state.js').Checkpoint[]}
- */
-export function sortCheckpointsByDistance(checkpoints) {
-  return [...checkpoints].sort((a, b) => a.km - b.km);
 }

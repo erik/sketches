@@ -1,2 +1,49 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+/* Map marker styling */
+.leaflet-container {
+    @apply h-full w-full;
+}
+
+.leaflet-popup-content {
+    @apply text-sm;
+}
+
+.leaflet-popup-content h4 {
+    @apply font-bold mb-1;
+}
+
+.leaflet-popup-content p {
+    @apply my-1;
+}
+
+/* Leaflet marker fixes - allow necessary transforms but prevent jumping */
+.leaflet-marker-icon {
+    transition: none !important;
+}
+
+.leaflet-marker-pane {
+    z-index: 600;
+}
+
+/* Fix for custom marker positioning */
+.leaflet-div-icon {
+    margin: 0 !important;
+    position: relative;
+    transform: translate(-50%, -50%) !important;
+}
+
+/* User location marker - solid blue dot without emoji */
+.user-location-marker {
+    @apply animate-pulse;
+}
+
+/* Map container styling */
+#map-container {
+    @apply h-full w-full;
+}
+
+.leaflet-container {
+    @apply h-full w-full;
+}

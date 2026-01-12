@@ -1,4 +1,6 @@
-export async function compressToURL(obj) {
+import { EventConfig } from "./index.js";
+
+export async function compressToURL(obj: any): Promise<string> {
   const json = JSON.stringify(obj);
   const bytes = new TextEncoder().encode(json);
 
@@ -18,12 +20,7 @@ export async function compressToURL(obj) {
   return base64;
 }
 
-/**
- * Decompress a URL-safe string back to an object.
- * @param {string} base64
- * @returns {Promise<Object>}
- */
-export async function decompressFromURL(base64) {
+export async function decompressFromURL(base64: string): Promise<any> {
   let padded = base64.replace(/-/g, "+").replace(/_/g, "/");
   while (padded.length % 4 !== 0) {
     padded += "=";
@@ -41,13 +38,14 @@ export async function decompressFromURL(base64) {
   return JSON.parse(json);
 }
 
-export async function saveRouteToURL(route) {
-  const compressed = await compressToURL(route);
+export async function setUrlToEvent(event: EventConfig) {
+  const compressed = await compressToURL(event);
   window.history.replaceState(null, "", `#r=${compressed}`);
 }
 
-export async function loadRouteFromURL() {
+export async function loadRouteFromURL(): Promise<EventConfig | null> {
   const hash = window.location.hash;
+
   if (!hash.startsWith("#r=")) {
     return null;
   }
@@ -57,29 +55,6 @@ export async function loadRouteFromURL() {
     return await decompressFromURL(compressed);
   } catch (e) {
     console.error("Failed to decompress route from URL:", e);
-    return null;
-  }
-}
-
-function getStorageKey(id) {
-  return `route.${id}`;
-}
-
-export function saveState(id, state) {
-  if (!id) return;
-  const key = getStorageKey(id);
-  localStorage.setItem(key, JSON.stringify(state));
-}
-
-export function restoreState(id) {
-  const key = getStorageKey(id);
-  const json = localStorage.getItem(key);
-  if (!json) return null;
-
-  try {
-    return JSON.parse(json);
-  } catch (e) {
-    console.error("Failed to parse tracking data:", e);
     return null;
   }
 }

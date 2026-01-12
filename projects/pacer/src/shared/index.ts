@@ -18,7 +18,7 @@ export type Segment = {
   geometry: LineString;
 };
 
-type RouteMarker = {
+export type RouteMarker = {
   id: string;
   kind: "start" | "finish" | "marker" | "control";
   name?: string;

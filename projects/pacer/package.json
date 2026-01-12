@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tsc": "tsc --noEmit"
   },
   "dependencies": {
     "@turf/along": "^7.3.1",
@@ -25,6 +26,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "daisyui": "^5.5.14",
     "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
     "vite": "npm:rolldown-vite@7.2.5"
   },
   "overrides": {

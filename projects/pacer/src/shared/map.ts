@@ -1,6 +1,6 @@
 import L, { LatLngExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { OldControlPoint } from "./index.js";
+import { RouteMarker, OldControlPoint } from "./index.js";
 
 class RecenterMapControl extends L.Control {
   controller: MapController;
@@ -14,7 +14,7 @@ class RecenterMapControl extends L.Control {
     this.controller = controller;
   }
 
-  onAdd(_map) {
+  onAdd(_map: L.Map) {
     const container = L.DomUtil.create(
       "div",
       "leaflet-bar leaflet-control leaflet-control-custom",
@@ -52,7 +52,9 @@ class RecenterMapControl extends L.Control {
 export class MapController {
   map: L.Map;
   trackLayer: L.Polyline;
+  userLocationMarker?: L.Marker;
   controls: L.Marker[];
+  markers: L.Marker[];
   controlSegments: L.Layer[];
 
   constructor(map: L.Map) {
@@ -60,11 +62,29 @@ export class MapController {
 
     this.trackLayer = null;
     this.controls = [];
+    this.markers = [];
     this.controlSegments = [];
   }
 
   getMap() {
     return this.map;
+  }
+
+  setUserLocation(location: LatLngExpression) {
+    if (!this.userLocationMarker) {
+      this.userLocationMarker = L.marker(location, {
+        icon: L.divIcon({
+          className: "user-location-marker",
+          html: `<div class="w-3 h-3 rounded-full bg-blue-600 border-2 border-white animate-pulse"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6],
+        }),
+      })
+        .bindPopup("<b>Your Location</b>")
+        .addTo(this.map);
+    } else {
+      this.userLocationMarker.setLatLng(location);
+    }
   }
 
   setTrack(
@@ -97,6 +117,27 @@ export class MapController {
     }
   }
 
+  setMarkers(markers: RouteMarker[]) {
+    this.clearMarkers();
+
+    for (const [index, marker] of markers.entries()) {
+      let [lng, lat] = marker.coordinate;
+
+      let icon = L.divIcon({
+        className: "",
+        html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${marker.name}"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [0, 0],
+      });
+
+      this.markers.push(
+        L.marker({ lng, lat }, { icon })
+          .addTo(this.map)
+          .bindPopup(`<b>${marker.name}</b>`),
+      );
+    }
+  }
+
   setControlPoints(
     controls: OldControlPoint[],
     options: {
@@ -106,14 +147,13 @@ export class MapController {
     } = {},
   ) {
     // Clear existing markers
-    this.clearControls();
+    this.clearMarkers();
 
     for (const [index, cp] of controls.entries()) {
       const { lng, lat } = cp.coord;
 
       const name = cp.name || `CP ${index + 1}`;
 
-      // Create custom icon for start/finish
       let icon = L.divIcon({
         className: "",
         html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${name}"></div>`,
@@ -163,7 +203,10 @@ export class MapController {
     }
   }
 
-  clearControls() {
+  clearMarkers() {
+    this.markers.forEach((marker) => this.map.removeLayer(marker));
+    this.markers = [];
+
     this.controls.forEach((marker) => this.map.removeLayer(marker));
     this.controls = [];
 
@@ -171,10 +214,8 @@ export class MapController {
     this.controlSegments = [];
   }
 
-  onMapClick(callback) {
-    this.map.on("click", (e) => {
-      callback([e.latlng.lng, e.latlng.lat]);
-    });
+  onMapClick(callback: (pt: L.LatLng) => void) {
+    this.map.on("click", (e) => callback(e.latlng));
   }
 
   /**
@@ -197,7 +238,10 @@ export class MapController {
 
 export function createMap(
   container: HTMLElement,
-  options: { center?: LatLngExpression; zoom?: number } = {},
+  options: {
+    center?: LatLngExpression;
+    zoom?: number;
+  } = {},
 ) {
   // Initialize map
   const map = L.map(container, {
@@ -217,8 +261,6 @@ export function createMap(
   ).addTo(map);
 
   const controller = new MapController(map);
-
   map.addControl(new RecenterMapControl(controller));
-
   return controller;
 }

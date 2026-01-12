@@ -1,34 +1,39 @@
 // livewire -- no dependency JS reactivity
 
-// i.e. not a class, not an array, etc.
-function isObject(obj: any) {
-  return obj?.__proto__ === Object.prototype;
-}
-
-const wrapValue = (v: any, parent?: Livewire<any, any>) =>
-  isObject(v) ? new Livewire(v, parent) : v;
-
 type Props = Record<string, any>;
 type StateFn<P, C> = (state: P & C) => any;
+type StateAction<P, C> = (state: P & C, ...args: any[]) => Partial<P>;
+type StateActions<P, C> = Record<string, StateAction<P, C>>;
 
-export class Livewire<P extends Props, C extends Props = {}> {
+type LivewireOptions<A> = {
+  actions?: A;
+  parent?: Livewire<any, any, any>;
+};
+
+export class Livewire<
+  P extends Props,
+  C extends Props = {},
+  A extends StateActions<P, C> = {},
+> {
   #state = {} as P & C;
+  #actions = {} as A;
   $: P & C;
-  #parent?: Livewire<any, any> = null;
+  #parent?: Livewire<any, any, any> = null;
   #computed = new Map<keyof C, StateFn<P, C>>();
   #observers = new Set<StateFn<P, C>>();
 
   #queued = false;
 
-  constructor(props: P & Partial<C>, parent?: Livewire<any>) {
-    this.#parent = parent;
+  constructor(props: P & Partial<C>, options: LivewireOptions<A> = {}) {
     this.#state = {} as P & C;
+    options.parent && (this.#parent = options.parent);
+    options.actions && (this.#actions = options.actions);
 
     for (const [k, v] of Object.entries(props)) {
       if (k.startsWith("$")) {
         this.compute(k, v);
       } else {
-        this.#state[k as keyof P] = wrapValue(v, this);
+        this.#state[k as keyof P] = v;
       }
     }
 
@@ -44,7 +49,6 @@ export class Livewire<P extends Props, C extends Props = {}> {
       throw Error(`Cannot set computed property: ${key}`);
     }
 
-    // TODO: doesn't work
     // Don't allow setting arbitrary properties
     if (!(key in this.#state)) {
       throw Error(`tried to set unknown prop: ${key}`);
@@ -54,9 +58,21 @@ export class Livewire<P extends Props, C extends Props = {}> {
     const oldValue = target[key];
     if (oldValue === value) return true;
 
-    Reflect.set(target, key, wrapValue(value, this));
+    Reflect.set(target, key, value);
     this.tick();
     return true;
+  }
+
+  reduce(fn: StateAction<P, C>, ...args: any[]) {
+    this.#state = {
+      ...this.#state,
+      ...fn(this.#state, ...args),
+    };
+    this.tick();
+  }
+
+  dispatch(action: keyof A, ...args: any[]) {
+    this.reduce(this.#actions[action], ...args);
   }
 
   reactive = ({ keys }, children: StateFn<P, C>[]) => {
@@ -137,12 +153,11 @@ export class Livewire<P extends Props, C extends Props = {}> {
     if (typeof maybeFn === "function") {
       wrappedFn = maybeFn;
     } else {
-      // Watch specific keys
-      const keys = new Set([maybeFn].flat());
+      const keys = new Set([maybeFn].flat(Infinity));
       const filterState = (s: P & C) =>
         Object.entries(s).filter(([k]) => keys.has(k));
 
-      let prev = JSON.stringify(filterState(this.#state));
+      let prev = null;
       wrappedFn = (state: P & C) => {
         const curr = JSON.stringify(filterState(state));
         if (curr !== prev) {
@@ -221,8 +236,11 @@ function _createElement(tag, attrs, ...children) {
   }
 
   for (const c of [children].flat(Infinity)) {
-    if (c == null) continue;
     const v = typeof c === "function" ? c() : c;
+    if (v == null || v === false || (Array.isArray(v) && v.length === 0)) {
+      continue;
+    }
+
     el.appendChild(v instanceof Node ? v : document.createTextNode(String(v)));
   }
 

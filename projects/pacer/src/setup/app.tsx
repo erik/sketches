@@ -19,8 +19,6 @@ type StoreProps = {
   endTime?: Date;
   segments: Segment[];
   controls: OldControlPoint[];
-  approxDistanceKm?: number;
-  computeDistance: boolean;
 };
 
 type ComputedProps = {
@@ -37,10 +35,8 @@ const createStore = (
       endTime: null,
       segments: [],
       controls: [],
-      approxDistanceKm: null,
-      computeDistance: true,
     },
-    global,
+    { parent: global },
   );
 
   store.compute(
@@ -333,48 +329,9 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
                 Add Route Files
               </button>
             </div>
-
-            <p class="label whitespace-normal!">
-              If you don't have a full route available (or parts are still
-              unknown), use your best guess of the distance so we can have
-              roughly accurate pace estimates.
-            </p>
-
-            <label class="label">
-              <input
-                type="checkbox"
-                class="toggle"
-                checked={!store.$.computeDistance}
-                onChange={() =>
-                  (store.$.computeDistance = !store.$.computeDistance)
-                }
-              />
-              Manual Distance
-            </label>
-
-            <store.reactive keys={["computeDistance", "approxDistanceKm"]}>
-              {({ computeDistance, approxDistanceKm }) => (
-                <>
-                  <label className="input" disabled={computeDistance}>
-                    <span className="label">Distance</span>
-
-                    <input
-                      type="int"
-                      placeholder="1200"
-                      value={approxDistanceKm}
-                      onBlur={(e) =>
-                        (store.$.approxDistanceKm = +e.target.value)
-                      }
-                    />
-
-                    <span className="label">km</span>
-                  </label>
-                </>
-              )}
-            </store.reactive>
           </Fieldset>
 
-          <div class="h-screen">
+          <div class="">
             <Fieldset title="Controls">
               <div
                 $mount={(el) => initMap(el, store)}
@@ -393,6 +350,13 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
           </store.reactive>
         </div>
       </div>
+
+      <button
+        class="btn"
+        onClick={() => globalStore.dispatch("setMode", "PACE_TRACKER")}
+      >
+        switch
+      </button>
 
       <details>
         <pre>
@@ -484,13 +448,13 @@ function initMap(
     },
   );
 
-  map.onMapClick((coord) => {
-    const popup = L.popup().setLatLng([coord[1], coord[0]]);
+  map.onMapClick(({ lng, lat }) => {
+    const popup = L.popup().setLatLng({ lng, lat });
 
-    function addCheckpointAt(coord) {
+    function addControlHere() {
       const snapResult = snapToNearestTrackSegment(
         store.$.segments,
-        coord,
+        { lng, lat },
         map.getMap(),
         200,
       );
@@ -510,7 +474,7 @@ function initMap(
     const content = (
       <div>
         <p class="text-md">Add control here?</p>
-        <button onClick={() => addCheckpointAt(coord)} class="btn btn-sm">
+        <button onClick={addControlHere} class="btn btn-sm">
           Add
         </button>
       </div>
