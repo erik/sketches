@@ -79,9 +79,7 @@ export class MapController {
           iconSize: [12, 12],
           iconAnchor: [6, 6],
         }),
-      })
-        .bindPopup("<b>Your Location</b>")
-        .addTo(this.map);
+      }).addTo(this.map);
     } else {
       this.userLocationMarker.setLatLng(location);
     }

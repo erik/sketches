@@ -61,7 +61,9 @@ async function init() {
 
       <store.reactive keys={["mode"]}>
         {({ mode }) =>
-          mode === "SETUP" ? createSetupApp(store) : createPaceTrackerApp(store)
+          mode === "22SETUP"
+            ? createSetupApp(store)
+            : createPaceTrackerApp(store)
         }
       </store.reactive>
     </div>,

@@ -3,9 +3,9 @@ import simplify from "@turf/simplify";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
 import length from "@turf/length";
 import lineSlice from "@turf/line-slice";
-import distance from "@turf/distance";
-import along from "@turf/along";
-import bbox from "@turf/bbox";
+
+// Export commonly used Turf functions for direct use in other modules
+export { nearestPointOnLine, length, lineSlice };
 
 /**
  * Parse a GPX file and extract track coordinates.
@@ -76,6 +76,30 @@ export function calculateDistanceAlongTrack(track, targetPoint) {
   const sliced = lineSlice(start, snapped, line);
 
   return length(sliced, { units: "kilometers" });
+}
+
+/**
+ * Calculate route position including distance along track and distance from track.
+ * @param {[number, number][]} routeCoordinates - Route coordinates
+ * @param {[number, number]} userLocation - User location [lng, lat]
+ * @returns {{distanceFromStart: number, distanceFromTrack: number}}
+ */
+export function calculateRoutePosition(routeCoordinates, userLocation) {
+  const line = lineString(routeCoordinates);
+  const nearest = nearestPointOnLine(line, userLocation, {
+    units: "kilometers",
+  });
+
+  // Calculate distance along track
+  const start = point(routeCoordinates[0]);
+  const snappedPoint = point(nearest.geometry.coordinates);
+  const sliced = lineSlice(start, snappedPoint, line);
+  const distanceFromStart = length(sliced, { units: "kilometers" });
+
+  return {
+    distanceFromStart,
+    distanceFromTrack: nearest.properties.dist,
+  };
 }
 
 /**

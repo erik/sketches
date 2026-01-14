@@ -28,16 +28,13 @@ type ComputedProps = {
 const createStore = (
   global: Livewire<GlobalStoreProps>,
 ): Livewire<StoreProps, ComputedProps> => {
-  const store = new Livewire<StoreProps, ComputedProps>(
-    {
-      trackName: "Untitled",
-      startTime: null,
-      endTime: null,
-      segments: [],
-      controls: [],
-    },
-    { parent: global },
-  );
+  const store = new Livewire<StoreProps, ComputedProps>({
+    trackName: "Untitled",
+    startTime: null,
+    endTime: null,
+    segments: [],
+    controls: [],
+  });
 
   store.compute(
     "$valid",

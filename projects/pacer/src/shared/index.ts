@@ -25,7 +25,7 @@ export type RouteMarker = {
   note?: string;
   icon?: string;
   segmentId?: string;
-  routeDistance?: number;
+  routeDistance: number;
   goalTime?: Temporal.Instant;
   cutoffTime?: Temporal.Instant;
   coordinate: Position;

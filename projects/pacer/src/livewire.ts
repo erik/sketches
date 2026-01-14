@@ -7,7 +7,6 @@ type StateActions<P, C> = Record<string, StateAction<P, C>>;
 
 type LivewireOptions<A> = {
   actions?: A;
-  parent?: Livewire<any, any, any>;
 };
 
 export class Livewire<
@@ -18,7 +17,6 @@ export class Livewire<
   #state = {} as P & C;
   #actions = {} as A;
   $: P & C;
-  #parent?: Livewire<any, any, any> = null;
   #computed = new Map<keyof C, StateFn<P, C>>();
   #observers = new Set<StateFn<P, C>>();
 
@@ -26,7 +24,6 @@ export class Livewire<
 
   constructor(props: P & Partial<C>, options: LivewireOptions<A> = {}) {
     this.#state = {} as P & C;
-    options.parent && (this.#parent = options.parent);
     options.actions && (this.#actions = options.actions);
 
     for (const [k, v] of Object.entries(props)) {
@@ -172,9 +169,6 @@ export class Livewire<
   }
 
   protected tick() {
-    // Child state could depend on parent state, so derive it first
-    this.#parent?.tick();
-
     for (const [key, fn] of this.#computed) {
       this.#state[key] = fn(this.#state);
     }

@@ -1,11 +1,10 @@
-import { type LineString, type Position } from "geojson";
+import { type Position } from "geojson";
 import L, { LatLngTuple } from "leaflet";
 
 import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
 import { type EventConfig } from "./shared/index.js";
-
-/// <reference types="temporal-spec" />
+import { calculateRoutePosition } from "./shared/geo.js";
 
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
@@ -18,7 +17,7 @@ type EventState = {
 };
 
 function formatDateTimeCompact(instant: Temporal.Instant | null): string {
-  if (!instant) return "?null?";
+  if (!instant) return "--";
   const zdt = instant.toZonedDateTimeISO("UTC");
 
   const timeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -44,14 +43,12 @@ function formatDuration(duration: Temporal.Duration): string {
   const days = Math.floor(duration.total({ unit: "days" }));
   const hours = Math.floor(duration.total({ unit: "hours" }) % 24);
   const minutes = Math.floor(duration.total({ unit: "minutes" }) % 60);
-  const seconds = Math.floor(duration.total({ unit: "seconds" }) % 60);
 
   const parts = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0) parts.push(`${minutes}m`);
-  if (seconds > 0) parts.push(`${seconds}s`);
-  if (parts.length === 0) parts.push("0s");
+  if (parts.length === 0) parts.push("n/a");
 
   return parts.join(" ");
 }
@@ -60,8 +57,7 @@ function getTimeRemaining(endTime: Temporal.Instant): string {
   const now = Temporal.Now.instant();
   const remainingDuration = endTime.since(now);
 
-  if (remainingDuration.total({ unit: "seconds" }) <= 0)
-    return "Event completed";
+  if (remainingDuration.total({ unit: "seconds" }) <= 0) return "--";
 
   return formatDuration(remainingDuration);
 }
@@ -70,7 +66,6 @@ function getRemainingDistance(
   event: EventConfig,
   currentDistance: number,
 ): string {
-  if (!event.routeLength) return "No route data";
   return `${(event.routeLength - currentDistance).toFixed(1)} km remaining`;
 }
 
@@ -107,58 +102,78 @@ type ComputedProps = {
   $currentDistance: number;
   $currentPace: number;
   $requiredPace: number;
-  $eta: Temporal.Instant;
+  $eta: Temporal.Instant | null;
 };
 
-function handleUserLocation(store: Livewire<StoreProps, ComputedProps>) {
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      store.$.userLocation = [
-        position.coords.longitude,
-        position.coords.latitude,
-      ];
-    },
-    (error) => {
-      console.error("failed to get location", error);
-    },
+globalThis.faker = null;
+function mockUserLocation(store: Livewire<StoreProps, ComputedProps>) {
+  if (globalThis.faker) return;
+
+  const fakePoints = [...DEMO_DATA.segments[0].geometry.coordinates].slice(
+    1000,
   );
+  globalThis.faker = setInterval(() => {
+    if (fakePoints.length === 0) {
+      clearInterval(globalThis.faker);
+    } else {
+      store.$.userLocation = fakePoints.shift();
+    }
+  }, 250);
+}
+
+function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
+  mockUserLocation(store);
+
+  // navigator.geolocation.getCurrentPosition(
+  //   (position) => {
+  //     store.$.userLocation = [
+  //       position.coords.longitude,
+  //       position.coords.latitude,
+  //     ];
+  //   },
+  //   (error) => {
+  //     console.error("failed to get location", error);
+  //   },
+  // );
 }
 
 const createStore = (g: Livewire<GlobalStoreProps>) => {
-  const store = new Livewire<StoreProps, ComputedProps>(
-    {
-      state: "inprogress",
-      event: DEMO_DATA,
-      userLocation: undefined,
-      progress: [
-        // Dummy progress data for demo
-        {
-          markerId: "m0",
-          arrivalTime: Temporal.Instant.from("2026-04-26T06:00:00Z"),
-          segmentPace: 18.5,
-        },
-      ],
-    },
-    {
-      parent: g,
-    },
-  );
+  const store = new Livewire<StoreProps, ComputedProps>({
+    state: "inprogress",
+    event: DEMO_DATA,
+    userLocation: undefined,
+    progress: [],
+  });
 
-  handleUserLocation(store);
+  store.compute("$currentDistance", ({ userLocation, event }) => {
+    // If we have user location and route data, calculate actual position
+    if (userLocation && event.segments.length > 0) {
+      const routeCoordinates = event.segments[0].geometry.coordinates;
+      const { distanceFromStart, distanceFromTrack } = calculateRoutePosition(
+        routeCoordinates,
+        userLocation,
+      );
 
-  store.compute("$currentDistance", ({ progress }) => {
-    if (progress.length > 0) {
-      // TODO: Implement proper distance calculation with track snapping
-      return progress[progress.length - 1].segmentPace * 2 || 0;
+      // If user is very far from route (50+ km), snap to position 0
+      if (distanceFromTrack > 50) {
+        return 0;
+      }
+
+      return distanceFromStart;
     }
+
     return 0;
   });
 
-  store.compute("$currentPace", ({ userLocation, progress }) => {
-    // TODO: Implement actual pace calculation
-    if (progress.length > 0) {
-      return progress[progress.length - 1].segmentPace;
+  store.compute("$currentPace", ({ event, $currentDistance }) => {
+    const now = Temporal.Now.instant();
+    const elapsedTime = now.since(event.startTime);
+    const hoursElapsed = elapsedTime.total({ unit: "hours" });
+
+    if ($currentDistance > 0 && hoursElapsed > 0) {
+      return $currentDistance / hoursElapsed;
     }
+
     return 0;
   });
 
@@ -188,16 +203,20 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
   });
 
   store.compute("$eta", ({ event, $currentDistance, $currentPace }) => {
-    const now = Temporal.Now.instant();
-    const finishMarker = event.markers.find((m) => m.kind === "finish");
+    if ($currentPace <= 0) {
+      return null;
+    }
 
+    const finishMarker = event.markers.find((m) => m.kind === "finish");
     if (!finishMarker) {
       console.error("bug, finish marker wrong", finishMarker);
       return null;
     }
 
     const distanceToFinish = event.routeLength - ($currentDistance || 0);
+
     const hoursToArrival = distanceToFinish / $currentPace;
+    const now = Temporal.Now.instant();
     return now.add({ seconds: Math.round(hoursToArrival * 3600) });
   });
 
@@ -246,6 +265,7 @@ const TabView = ({ store }) => {
 
 export function createApp(globalStore: Livewire<GlobalStoreProps>) {
   const store = createStore(globalStore);
+
   return (
     <main class="mx-auto max-w-md h-dvh flex flex-col bg-base-100">
       <TabView store={store}></TabView>
@@ -278,156 +298,243 @@ const StatCard = ({
 const StatsTab = ({ store }) => {
   return (
     <div class="flex-1 overflow-auto p-4">
-      <store.reactive
-        keys={[
-          "$currentDistance",
-          "$currentPace",
-          "$requiredPace",
-          "$eta",
-          "event",
-          "progress",
-        ]}
-      >
-        {({ $currentDistance, $currentPace, $requiredPace, $eta, event }) => {
-          const controlPoints =
-            event?.markers?.filter(
-              (m) => m.kind === "control" || m.kind === "finish",
-            ) || [];
-
-          return (
-            <div class="space-y-6">
-              <div class="stat-section">
-                <div class="grid grid-cols-2 gap-4">
-                  <StatCard
-                    title="Distance"
-                    value={`${$currentDistance.toFixed(1)} km`}
-                    subtitle={getRemainingDistance(event, $currentDistance)}
-                  />
-                  <StatCard
-                    title="Current Pace"
-                    value={`${$currentPace.toFixed(1)} km/h`}
-                  />
-                  <StatCard
-                    title="Required Pace"
-                    value={`${$requiredPace.toFixed(1)} km/h`}
-                  />
-                  <StatCard
-                    title="Finish ETA"
-                    value={formatDateTimeCompact($eta)}
-                    subtitle={getEtaRemainingTime($eta)}
-                  />
-                </div>
-
-                <div class="grid grid-cols-2 gap-4 mt-4">
-                  <StatCard
-                    title="Elapsed Time"
-                    value={calculateElapsedTime(event)}
-                    subtitle={`Started: ${formatDateTimeCompact(event.startTime)}`}
-                  />
-                  <StatCard
-                    title="Time Remaining"
-                    value={getTimeRemaining(event.endTime)}
-                    subtitle={`Cutoff: ${formatDateTimeCompact(event.endTime)}`}
-                  />
-                </div>
-              </div>
-
-              <div class="control-points-section">
-                <div class="space-y-4">
-                  {controlPoints.map((cp, index) => (
-                    <ControlPointCard cp={cp} index={index} store={store} />
-                  ))}
-                </div>
-              </div>
+      <div class="space-y-6">
+        <store.reactive
+          keys={[
+            "$currentDistance",
+            "$currentPace",
+            "$requiredPace",
+            "$eta",
+            "event",
+            "progress",
+          ]}
+        >
+          {({ $currentDistance, $currentPace, $requiredPace, $eta, event }) => (
+            <div class="grid grid-cols-2 gap-4">
+              <StatCard
+                title="Distance"
+                value={`${$currentDistance.toFixed(1)} km`}
+                subtitle={getRemainingDistance(event, $currentDistance)}
+              />
+              <StatCard
+                title="Current Pace"
+                value={`${$currentPace.toFixed(1)} km/h`}
+              />
+              <StatCard
+                title="Required Pace"
+                value={`${$requiredPace.toFixed(1)} km/h`}
+              />
+              <StatCard
+                title="Finish ETA"
+                value={formatDateTimeCompact($eta)}
+                subtitle={getEtaRemainingTime($eta)}
+              />
+              <StatCard
+                title="Elapsed Time"
+                value={calculateElapsedTime(event)}
+                subtitle={`Started: ${formatDateTimeCompact(event.startTime)}`}
+              />
+              <StatCard
+                title="Time Remaining"
+                value={getTimeRemaining(event.endTime)}
+                subtitle={`Cutoff: ${formatDateTimeCompact(event.endTime)}`}
+              />
             </div>
-          );
-        }}
-      </store.reactive>
+          )}
+        </store.reactive>
+
+        <store.reactive keys={["progress"]}>
+          {({ event }) =>
+            event.markers.map((m, index) => (
+              <RouteMarkerCard
+                marker={m}
+                index={index}
+                store={store}
+                {...store.$}
+              />
+            ))
+          }
+        </store.reactive>
+      </div>
     </div>
   );
 };
 
-const ControlPointCard = ({ cp, index, store }) => {
-  const progressEvent = store.$.progress.find((p) => p.markerId === cp.id);
+function calculateRequiredPace(
+  currentDist: number,
+  totalDist: number,
+  targetTime: Temporal.Instant | null,
+): number | null {
+  if (!targetTime) return null;
+
+  const now = Temporal.Now.instant();
+  const duration = targetTime.since(now);
+
+  if (currentDist >= totalDist || duration.total({ unit: "seconds" }) <= 0)
+    return null;
+
+  const timeRemain = duration.total({ unit: "hours" });
+  const distRemain = totalDist - currentDist;
+
+  return distRemain / timeRemain;
+}
+
+function calculateEta(
+  currentDist: number,
+  totalDist: number,
+  pace: number,
+): Temporal.Instant | null {
+  if (pace <= 0) return null;
+
+  const distRemain = totalDist - currentDist;
+  if (distRemain <= 0) return null;
+
+  const now = Temporal.Now.instant();
+  return now.add({ seconds: Math.round((distRemain / pace) * 3600) });
+}
+
+const RouteMarkerCard = ({
+  marker,
+  index,
+  store,
+  progress,
+  $currentPace,
+  $currentDistance,
+  event,
+}) => {
+  const progressEvent = progress.find((p) => p.markerId === marker.id);
   const isCompleted = !!progressEvent;
+  const currentPace = $currentPace;
+  const currentDistance = $currentDistance;
+
+  const eta = calculateEta(currentDistance, marker.routeDistance, currentPace);
+  const requiredPace = calculateRequiredPace(
+    currentDistance,
+    marker.routeDistance,
+    marker.cutoffTime,
+  );
+  const goalPace = calculateRequiredPace(
+    currentDistance,
+    marker.routeDistance,
+    marker.goalTime,
+  );
 
   const handleClearCheckpoint = () => {
-    const updatedProgress = store.$.progress.filter(
-      (p) => p.markerId !== cp.id,
-    );
-    store.$.progress = updatedProgress;
+    store.$.progress = progress.filter((p) => p.markerId !== marker.id);
   };
 
+  const isNextControlPoint = index === progress.length + 1;
   const handleCheckIn = () => {
     store.$.progress = [
-      ...store.$.progress,
+      ...progress,
       {
-        markerId: cp.id,
+        markerId: marker.id,
         arrivalTime: Temporal.Now.instant(),
         // TODO: this needs to be calculated
-        segmentPace: store.$.$currentPace || 15,
+        segmentPace: $currentPace || 15,
       },
     ];
   };
 
+  // For start point, don't allow check-in
+  const isStartPoint = marker.kind === "start";
+
+  const MiniStat = ({ title, value }) => (
+    <div class="text-xs">
+      <div class="text-gray-500">{title}</div>
+      <div>{value}</div>
+    </div>
+  );
+
   return (
     <div
-      key={cp.id}
-      className={`card shadow-sm mb-4 overflow-hidden p-4 rounded-lg ${isCompleted ? "bg-success/10 border-l-4 border-success" : "bg-base-100 border-base-300"}`}
+      class={`card shadow-sm mb-4 overflow-hidden p-4 bg-base-200 rounded-lg ${isCompleted || isStartPoint ? "bg-gray-600/10" : "bg-base-100 border-base-300"}`}
     >
-      <div className="flex justify-between items-center mb-3">
+      <div class="flex justify-between items-center mb-3">
         <div>
-          <h4 className="font-bold text-lg">{cp.name || `CP ${index + 1}`}</h4>
-          {cp.note && <p className="text-sm text-gray-600">{cp.note}</p>}
+          <h4 class="font-bold text-md">{marker.name}</h4>
+          {marker.note && <p class="text-sm text-gray-600">{marker.note}</p>}
         </div>
-        {isCompleted ? (
-          <div className="flex items-center gap-2">
-            <span className="badge badge-success badge-sm">Completed</span>
-            <button
-              className="btn btn-xs btn-ghost btn-error"
-              onClick={handleClearCheckpoint}
-            >
-              Clear
-            </button>
-          </div>
-        ) : (
-          <span className="badge badge-warning badge-sm">Pending</span>
+        {isCompleted && (
+          <button
+            class="btn btn-xs btn-ghost btn-error"
+            onClick={handleClearCheckpoint}
+          >
+            Reset
+          </button>
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-sm mb-3">
-        <div>
-          <div className="text-xs text-gray-500">Distance</div>
-          <div className="font-mono">
-            {cp.routeDistance?.toFixed(1) || "?"} km
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Pace</div>
-          <div className="font-mono">
-            {progressEvent?.segmentPace?.toFixed(1) || "-"} km/h
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Time</div>
-          <div className="font-mono">
-            {progressEvent ? (
-              <div className="flex items-center gap-1">
-                <span>{formatDateTimeCompact(progressEvent.arrivalTime)}</span>
-              </div>
-            ) : (
-              "-"
+      <div class="grid grid-cols-3">
+        {isStartPoint ? (
+          <MiniStat
+            title={"Start Time"}
+            value={formatDateTimeCompact(event.startTime)}
+          />
+        ) : isCompleted ? (
+          <>
+            <MiniStat
+              title="Distance"
+              value={`${marker.routeDistance?.toFixed(1) || "?"} km`}
+            />
+            <MiniStat
+              title="Pace"
+              value={`${progressEvent?.segmentPace?.toFixed(1) || "-"} km/h`}
+            />
+            <MiniStat
+              title="Time"
+              value={formatDateTimeCompact(progressEvent.arrivalTime)}
+            />
+          </>
+        ) : (
+          // If not arrived: show distance remaining, ETA, goal/cutoff times
+          <>
+            <MiniStat
+              title="Distance Until"
+              value={`${(marker.routeDistance - currentDistance).toFixed(1)} km`}
+            />
+            <MiniStat
+              title="ETA"
+              value={eta ? formatDateTimeCompact(eta) : "-"}
+            />
+
+            {marker.cutoffTime && (
+              <MiniStat
+                title="Cutoff"
+                value={formatDateTimeCompact(marker.cutoffTime)}
+              />
             )}
-          </div>
-        </div>
+
+            {marker.goalTime && (
+              <MiniStat
+                title="Goal"
+                value={formatDateTimeCompact(marker.goalTime)}
+              />
+            )}
+
+            {requiredPace && (
+              <MiniStat
+                title="Min Pace"
+                value={`${requiredPace.toFixed(1)} km/h`}
+              />
+            )}
+            {goalPace && (
+              <MiniStat
+                title="Goal Pace"
+                value={`${goalPace.toFixed(1)} km/h`}
+              />
+            )}
+          </>
+        )}
       </div>
 
-      {!isCompleted && (
+      {!isCompleted && !isStartPoint && (
         <button
-          className="btn btn-sm btn-primary w-full"
+          class={`btn btn-sm w-full mt-3 ${isNextControlPoint ? "btn-primary" : "btn-disabled"}`}
           onClick={handleCheckIn}
+          disabled={!isNextControlPoint}
         >
-          Check In Now
+          Mark Completed
         </button>
       )}
     </div>
@@ -459,7 +566,11 @@ function initializeMap(
 
   map.setMarkers(markers);
   map.setTrack(allCoordinates, { fitBounds: true });
+
   store.watch(["userLocation"], ({ userLocation }) => {
-    userLocation && map.setUserLocation(userLocation as LatLngTuple);
+    const [lng, lat] = userLocation;
+    map.setUserLocation({ lat, lng });
   });
+
+  watchUserLocation(store);
 }
