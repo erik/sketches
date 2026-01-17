@@ -69,7 +69,6 @@
             line-height: 1.5;
         }
 
-
         .post small {
             font-size: 0.85rem;
             color: #999;
@@ -186,18 +185,18 @@
                     <div class="media {{ post.media|length > 1 and 'gallery' }}">
                         {% for m in post.media %}
                         {% if m.type == 'photo' %}
-                        <a href="/media/{{ m.media_id }}" target="_blank" data-pswp-width="{{ m.width }}"
+                        <a href="/bots/" target="_blank" data-pswp-width="{{ m.width }}"
                             data-pswp-height="{{ m.height }}">
-                            <img src="/media/{{ m.media_id }}" loading="lazy" width="{{ m.width }}"
+                            <img data-src="/bots/media/{{ m.media_id }}" loading="lazy" width="{{ m.width }}"
                                 height="{{ m.height }}" />
                         </a>
                         {% elif m.type == 'audio' %}
                         <audio controls style="width: 100%;">
-                            <source src="/media/{{ m.media_id }}" type="{{ m.content_type }}">
+                            <source data-src="/bots/media/{{ m.media_id }}" type="{{ m.content_type }}" />
                         </audio>
                         {% elif m.type == 'video' %}
                         <video controls>
-                            <source src="/media/{{ m.media_id }}" type="{{ m.content_type }}">
+                            <source data-src="/bots/media/{{ m.media_id }}" type="{{ m.content_type }}" />
                         </video>
                         {% else %}
                         Unsupported: {{ m.type }}
@@ -209,7 +208,6 @@
             </div>
             {% endfor %}
         </section>
-
     </main>
 
     <script>
@@ -250,6 +248,22 @@
 
             return rtf.format(Math.floor(seconds), 'second');
         }
+
+        function loadMediaElements() {
+            const elements = document.querySelectorAll("img[data-src], audio source[data-src], video source[data-src]");
+
+            for (const el of elements) {
+                el.src = el.dataset.src.replace("/bots/", "/");
+                el.removeAttribute("data-src");
+
+                if (el.tagName === "SOURCE") {
+                    el.parentElement.load();
+                } else if (el.tagName === "IMG") {
+                    el.parentElement.href = el.src;
+                }
+            }
+        }
+
         window.onload = () => {
             const now = new Date();
 
@@ -258,7 +272,9 @@
                 el.title = el.innerText
                 el.innerText = timeSince(date, now);
             });
-        }
+
+            setTimeout(loadMediaElements, 100);
+        };
     </script>
 
     <script type="module">
