@@ -26,23 +26,16 @@ async function init() {
   const storedRoute = await loadRouteFromURL();
   const initialMode = storedRoute ? "PACE_TRACKER" : "SETUP";
 
-  const store = new Livewire<GlobalStoreProps>(
-    {
-      mode: initialMode,
-      units: "METRIC",
-    },
-    {
-      actions: {
-        setMode: (state: GlobalStoreProps, mode: string) => ({ mode }),
-      },
-    },
-  );
+  const store = new Livewire<GlobalStoreProps>({
+    mode: initialMode,
+    units: "METRIC",
+  });
 
   const toggleTheme = () => {
     const theme =
-      document.documentElement.getAttribute("data-theme") === "dark"
+      document.documentElement.getAttribute("data-theme") === "halloween"
         ? "light"
-        : "dark";
+        : "halloween";
     document.documentElement.setAttribute("data-theme", theme);
   };
 

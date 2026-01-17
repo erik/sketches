@@ -138,7 +138,7 @@ export class Livewire<
     return node;
   }
 
-  compute(key: string, fn: StateFn<P, C>) {
+  compute(key: keyof C, fn: StateFn<P, C>) {
     this.#computed.set(key, fn);
     this.#state[key as keyof C] = fn(this.#state);
     return this;

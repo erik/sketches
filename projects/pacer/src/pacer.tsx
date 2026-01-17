@@ -9,32 +9,33 @@ import { calculateRoutePosition } from "./shared/geo.js";
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
 
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+
+// App state persisted to /restord from LocalStorage between page loads
 type EventState = {
   eventStatus: "before" | "during" | "after";
   nextMarkerId: string;
   currentDistance: number;
+  lastLocation: Position;
   markerArrivalTimes: Record<string, Temporal.Instant>;
 };
 
 function formatDateTimeCompact(instant: Temporal.Instant | null): string {
   if (!instant) return "--";
-  const zdt = instant.toZonedDateTimeISO("UTC");
 
-  const timeFormatter = new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  });
+  const zdt = instant.toZonedDateTimeISO(Temporal.Now.timeZoneId());
 
-  const dateFormatter = new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-
-  const time = timeFormatter.format(zdt.toInstant());
-  const date = dateFormatter.format(zdt.toInstant());
+  const time = TIME_FORMAT.format(zdt.toInstant());
+  const date = DATE_FORMAT.format(zdt.toInstant());
 
   return `${time} ${date}`;
 }
@@ -55,11 +56,10 @@ function formatDuration(duration: Temporal.Duration): string {
 
 function getTimeRemaining(endTime: Temporal.Instant): string {
   const now = Temporal.Now.instant();
-  const remainingDuration = endTime.since(now);
+  const duration = endTime.since(now);
 
-  if (remainingDuration.total({ unit: "seconds" }) <= 0) return "--";
-
-  return formatDuration(remainingDuration);
+  if (duration.total({ unit: "seconds" }) <= 0) return "--";
+  return formatDuration(duration);
 }
 
 function getRemainingDistance(
@@ -85,16 +85,16 @@ function getEtaRemainingTime(eta: Temporal.Instant | null): string {
   return "in " + formatDuration(remainingDuration);
 }
 
-type ProgressEvent = {
-  markerId: string;
-  arrivalTime: Temporal.Instant;
-  segmentPace: number;
+type MarkerVisitStatus = {
+  state: "unvisited" | "visited" | "skipped";
+  arrivalTime?: Temporal.Instant;
+  segmentPace?: number;
 };
 
 type StoreProps = {
   state: "unstarted" | "inprogress" | "finished";
   event: EventConfig;
-  progress: ProgressEvent[];
+  progress: Record<string, MarkerVisitStatus>;
   userLocation?: Position;
 };
 
@@ -110,7 +110,7 @@ function mockUserLocation(store: Livewire<StoreProps, ComputedProps>) {
   if (globalThis.faker) return;
 
   const fakePoints = [...DEMO_DATA.segments[0].geometry.coordinates].slice(
-    1000,
+    15000,
   );
   globalThis.faker = setInterval(() => {
     if (fakePoints.length === 0) {
@@ -122,8 +122,6 @@ function mockUserLocation(store: Livewire<StoreProps, ComputedProps>) {
 }
 
 function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
-  mockUserLocation(store);
-
   // navigator.geolocation.getCurrentPosition(
   //   (position) => {
   //     store.$.userLocation = [
@@ -142,7 +140,7 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
     state: "inprogress",
     event: DEMO_DATA,
     userLocation: undefined,
-    progress: [],
+    progress: {},
   });
 
   store.compute("$currentDistance", ({ userLocation, event }) => {
@@ -177,29 +175,19 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
     return 0;
   });
 
-  store.compute("$requiredPace", ({ event, progress }) => {
-    // Calculate required pace to reach next control point
+  store.compute("$requiredPace", ({ event, $currentDistance, progress }) => {
     const now = Temporal.Now.instant();
-    const markers = event.markers.filter(
-      (m) => m.kind === "control" || m.kind === "finish",
+    const markers = event.markers.filter((m) => m.kind !== "start");
+
+    const next = markers.find(
+      (m) => m.cutoffTime && progress[m.id]?.state !== "visited",
     );
+    if (!next) return 0;
 
-    if (!markers.length) return 0;
+    const remaining = next.cutoffTime.since(now);
 
-    // Find next control point that hasn't been reached yet
-    const nextMarker = markers.find(
-      (m) => !progress.some((p) => p.markerId === m.id),
-    );
-
-    if (!nextMarker || !nextMarker.cutoffTime) return 0;
-
-    const timeRemainingDuration = nextMarker.cutoffTime.since(now);
-    if (timeRemainingDuration.total({ unit: "seconds" }) <= 0) return 0; // Cutoff already passed
-
-    const hoursRemaining = timeRemainingDuration.total({ unit: "hours" });
-    const distanceToFinish = nextMarker.routeDistance || event.routeLength || 0;
-
-    return distanceToFinish / hoursRemaining;
+    const dist = next.routeDistance || event.routeLength || 0;
+    return (dist - $currentDistance) / remaining.total({ unit: "hours" });
   });
 
   store.compute("$eta", ({ event, $currentDistance, $currentPace }) => {
@@ -220,6 +208,29 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
     return now.add({ seconds: Math.round(hoursToArrival * 3600) });
   });
 
+  // Automatic checkpoint detection based on current distance
+  store.watch(
+    ["$currentDistance"],
+    ({ $currentDistance, progress, event, $currentPace }) => {
+      const markers = event.markers.filter((m) => m.kind !== "start");
+
+      for (const m of markers) {
+        if (!m.routeDistance || progress[m.id]?.state === "visited") return;
+
+        if ($currentDistance >= m.routeDistance) {
+          progress[m.id] = {
+            state: "visited",
+            arrivalTime: Temporal.Now.instant(),
+            segmentPace: $currentPace,
+          };
+        }
+      }
+
+      store.$.progress = progress;
+    },
+  );
+
+  mockUserLocation(store);
   return store;
 };
 
@@ -343,7 +354,7 @@ const StatsTab = ({ store }) => {
           )}
         </store.reactive>
 
-        <store.reactive keys={["progress"]}>
+        <store.reactive keys={["progress", "$currentDistance"]}>
           {({ event }) =>
             event.markers.map((m, index) => (
               <RouteMarkerCard
@@ -395,45 +406,35 @@ function calculateEta(
 
 const RouteMarkerCard = ({
   marker,
-  index,
   store,
   progress,
   $currentPace,
   $currentDistance,
   event,
 }) => {
-  const progressEvent = progress.find((p) => p.markerId === marker.id);
-  const isCompleted = !!progressEvent;
-  const currentPace = $currentPace;
-  const currentDistance = $currentDistance;
+  const progressEvent = progress[marker.id];
+  const isCompleted = progressEvent?.state === "visited";
 
-  const eta = calculateEta(currentDistance, marker.routeDistance, currentPace);
+  const eta = calculateEta(
+    $currentDistance,
+    marker.routeDistance,
+    $currentPace,
+  );
   const requiredPace = calculateRequiredPace(
-    currentDistance,
+    $currentDistance,
     marker.routeDistance,
     marker.cutoffTime,
   );
   const goalPace = calculateRequiredPace(
-    currentDistance,
+    $currentDistance,
     marker.routeDistance,
     marker.goalTime,
   );
 
   const handleClearCheckpoint = () => {
-    store.$.progress = progress.filter((p) => p.markerId !== marker.id);
-  };
-
-  const isNextControlPoint = index === progress.length + 1;
-  const handleCheckIn = () => {
-    store.$.progress = [
-      ...progress,
-      {
-        markerId: marker.id,
-        arrivalTime: Temporal.Now.instant(),
-        // TODO: this needs to be calculated
-        segmentPace: $currentPace || 15,
-      },
-    ];
+    const newProgress = { ...progress };
+    delete newProgress[marker.id];
+    store.$.progress = newProgress;
   };
 
   // For start point, don't allow check-in
@@ -490,8 +491,8 @@ const RouteMarkerCard = ({
           // If not arrived: show distance remaining, ETA, goal/cutoff times
           <>
             <MiniStat
-              title="Distance Until"
-              value={`${(marker.routeDistance - currentDistance).toFixed(1)} km`}
+              title="Distance"
+              value={`${(marker.routeDistance - $currentDistance).toFixed(1)} km`}
             />
             <MiniStat
               title="ETA"
@@ -527,16 +528,6 @@ const RouteMarkerCard = ({
           </>
         )}
       </div>
-
-      {!isCompleted && !isStartPoint && (
-        <button
-          class={`btn btn-sm w-full mt-3 ${isNextControlPoint ? "btn-primary" : "btn-disabled"}`}
-          onClick={handleCheckIn}
-          disabled={!isNextControlPoint}
-        >
-          Mark Completed
-        </button>
-      )}
     </div>
   );
 };
