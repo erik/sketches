@@ -8,42 +8,6 @@ import lineSlice from "@turf/line-slice";
 export { nearestPointOnLine, length, lineSlice };
 
 /**
- * Parse a GPX file and extract track coordinates.
- * @param {string} gpxText - Raw GPX XML text
- * @returns {[number, number][]} Array of [lng, lat] coordinates
- */
-export function parseGPX(gpxText) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(gpxText, "application/xml");
-
-  const coords = [];
-
-  const trkpts = doc.querySelectorAll("trkpt");
-  if (trkpts.length > 0) {
-    trkpts.forEach((pt) => {
-      const lat = parseFloat(pt.getAttribute("lat"));
-      const lon = parseFloat(pt.getAttribute("lon"));
-      if (!isNaN(lat) && !isNaN(lon)) {
-        coords.push([lon, lat]); // GeoJSON is [lng, lat]
-      }
-    });
-    return coords;
-  }
-
-  // Fall back to route points
-  const rtepts = doc.querySelectorAll("rtept");
-  rtepts.forEach((pt) => {
-    const lat = parseFloat(pt.getAttribute("lat"));
-    const lon = parseFloat(pt.getAttribute("lon"));
-    if (!isNaN(lat) && !isNaN(lon)) {
-      coords.push([lon, lat]);
-    }
-  });
-
-  return coords;
-}
-
-/**
  * Simplify a track using Douglas-Peucker algorithm.
  * @param {[number, number][]} coords - Array of [lng, lat]
  * @param {number} tolerance - Simplification tolerance in degrees (0.001 ≈ 100m)

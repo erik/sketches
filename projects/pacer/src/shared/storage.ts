@@ -49,7 +49,6 @@ export async function loadRouteFromURL(): Promise<EventConfig | null> {
   if (!hash.startsWith("#r=")) {
     return null;
   }
-
   try {
     const compressed = hash.slice(3);
     return await decompressFromURL(compressed);

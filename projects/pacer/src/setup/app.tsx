@@ -1,24 +1,23 @@
-import L from "leaflet";
+import L, { LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
-import { Segment, type OldControlPoint } from "../shared/index.js";
+import { RouteMarker, Segment } from "../shared/index.js";
 
-import {
-  parseGPX,
-  simplifyTrack,
-  calculateTrackLength,
-  snapToNearestTrackSegment,
-} from "../shared/geo.js";
+import { snapToNearestTrackSegment } from "../shared/geo.js";
+import { parseGPX } from "../shared/gpx.js";
 import { Livewire } from "../livewire.js";
 import { GlobalStoreProps } from "../main.jsx";
+import length from "@turf/length";
+import nearestPointOnLine from "@turf/nearest-point-on-line";
+import lineSliceAlong from "@turf/line-slice-along";
 
 type StoreProps = {
   trackName: string;
-  startTime?: Date;
-  endTime?: Date;
+  startTime?: Temporal.Instant;
+  endTime?: Temporal.Instant;
   segments: Segment[];
-  controls: OldControlPoint[];
+  markers: RouteMarker[];
 };
 
 type ComputedProps = {
@@ -33,13 +32,11 @@ const createStore = (
     startTime: null,
     endTime: null,
     segments: [],
-    controls: [],
-  });
-
-  store.compute(
+    markers: [],
+  }).compute(
     "$valid",
-    ({ trackName, controls, startTime, endTime }) =>
-      trackName?.length && controls.length >= 2 && !!startTime && !!endTime,
+    ({ trackName, startTime, endTime }) =>
+      trackName?.length && !!startTime && !!endTime,
   );
 
   return store;
@@ -85,18 +82,17 @@ const EditableText = ({ onChange, value, placeholder }) => {
   );
 };
 
-const SortableRow = ({ store, index, onUpdate }, children) => {
-  const reorderItems = (fromIndex, toIndex) => {
-    if (fromIndex !== toIndex && fromIndex >= 0 && toIndex >= 0) {
-      const newArray = [...store.$[onUpdate]];
-      const [movedItem] = newArray.splice(fromIndex, 1);
-      newArray.splice(toIndex, 0, movedItem);
-      store.$[onUpdate] = newArray;
+const SortableRow = ({ store, index, watchKey }, children) => {
+  const reorderItems = (i: number, j: number) => {
+    if (i !== j && i >= 0 && j >= 0) {
+      const xs = [...store.$[watchKey]];
+      const [x] = xs.splice(i, 1);
+      xs.splice(j, 0, x);
+      store.$[watchKey] = xs;
     }
   };
 
   const dropStyle = ["ring-2", "ring-inset", "ring-primary", "bg-primary/20"];
-
   const cleanupDrag = () => {
     document.querySelectorAll(".sortable-row").forEach((row) => {
       dropStyle.forEach((s) => row.classList.remove(s));
@@ -158,22 +154,22 @@ const SortableRow = ({ store, index, onUpdate }, children) => {
   );
 };
 
-const ControlPointRow = ({ store, index, cp }) => {
+const RouteMarkerRow = ({ store, index, marker }) => {
   return (
-    <SortableRow store={store} index={index} onUpdate="controls">
+    <SortableRow store={store} index={index} watchKey="markers">
       <EditableText
-        value={cp.name}
+        value={marker.name}
         placeholder={`CP ${index + 1}`}
         onChange={(s) => {
-          store.$.controls[index].name = s;
-          store.$.controls = [...store.$.controls];
+          store.$.markers[index].name = s;
+          store.$.markers = [...store.$.markers];
         }}
       />
       <span class="flex-1" />
       <button
         onClick={() => {
-          store.$.controls.splice(index, 1);
-          store.$.controls = [...store.$.controls];
+          store.$.markers.splice(index, 1);
+          store.$.markers = [...store.$.markers];
         }}
         class="btn btn-soft btn-sm hover:btn-error"
       >
@@ -183,21 +179,23 @@ const ControlPointRow = ({ store, index, cp }) => {
   );
 };
 
-const ControlPointTable = ({ store }) => {
+const RouteMarkerTable = ({ store }) => {
   return (
     <ul class="list">
-      <store.reactive keys="controls">
-        {({ controls }) =>
-          controls.length === 0 ? (
-            <p class="label">No controls added yet</p>
+      <store.reactive keys="markers">
+        {({ markers }) =>
+          markers.length === 0 ? (
+            <p class="label">No route markers added yet</p>
           ) : (
             <></>
           )
         }
       </store.reactive>
 
-      <store.reactiveEach key="controls">
-        {(cp, idx) => <ControlPointRow store={store} index={idx} cp={cp} />}
+      <store.reactiveEach key="markers">
+        {(marker: RouteMarker, idx: number) => (
+          <RouteMarkerRow store={store} index={idx} marker={marker} />
+        )}
       </store.reactiveEach>
     </ul>
   );
@@ -215,9 +213,12 @@ const DateTimePicker = ({ title, onChange }) => {
             e.target.setAttribute("aria-invalid", "true");
             return;
           }
-
           e.target.removeAttribute("aria-invalid");
-          onChange(new Date(val));
+
+          const dateTime = Temporal.PlainDateTime.from(val).toZonedDateTime(
+            Temporal.Now.timeZoneId(),
+          );
+          onChange(dateTime.toInstant());
         }}
       />
     </label>
@@ -231,21 +232,6 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
     <main class="mx-auto max-w-5xl bg-base-100 p-4 shadow">
       <div class="md:grid md:grid-cols-2 gap-2">
         <div class="w-full space-y-2">
-          <Fieldset title="Details">
-            <label className="input validator">
-              <span className="label">Name</span>
-              <input
-                required
-                minLength={1}
-                type="text"
-                id="routeName"
-                value={store.$.trackName}
-                placeholder="Transcontinental no11"
-                onInput={(e) => (store.$.trackName = e.target.value)}
-              />
-            </label>
-          </Fieldset>
-
           <Fieldset title="Timing">
             <p class="label whitespace-normal!">
               Set start and end time to calculate required pacing.
@@ -277,7 +263,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
             </p>
 
             <store.reactive keys="segments">
-              {({ segments }) =>
+              {({ segments }: { segments: Segment[] }) =>
                 segments.length === 0 ? (
                   ""
                 ) : (
@@ -286,7 +272,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
                       {`${segments.length} segments`}
                     </span>
                     <span class="badge badge-soft badge-xs">
-                      {`${segments.reduce((xs, x) => x.length + xs, 0).toFixed()}km`}
+                      {`${segments.reduce((xs, x) => x.segmentLength + xs, 0).toFixed()}km`}
                     </span>
                   </div>
                 )
@@ -295,13 +281,13 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
-                {(seg: Segment, idx) => (
-                  <SortableRow store={store} index={idx} onUpdate="segments">
+                {(seg: Segment, idx: number) => (
+                  <SortableRow store={store} index={idx} watchKey="segments">
                     {seg.title ?? seg.fileName}
                     <span class="flex-1" />
 
                     <span class="badge badge-soft badge-xs tabular-nums">
-                      {seg.segmentLength.toFixed(0)} km
+                      {(seg.segmentLength / 1000).toFixed(0)} km
                     </span>
                     <button
                       onClick={() => {
@@ -328,15 +314,18 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
             </div>
           </Fieldset>
 
-          <div class="">
-            <Fieldset title="Controls">
+          <Fieldset title="Markers">
+            <RouteMarkerTable store={store} />
+          </Fieldset>
+
+          <Fieldset title="Map">
+            <div class="h-100">
               <div
                 $mount={(el) => initMap(el, store)}
-                class="h-100 rounded-box shadow-md"
+                class="h-full rounded-box shadow-md"
               />
-              <ControlPointTable store={store} />
-            </Fieldset>
-          </div>
+            </div>
+          </Fieldset>
 
           <store.reactive keys="$valid">
             {({ $valid }) => (
@@ -363,33 +352,70 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
   );
 }
 
+const generateId = () => (1e16 * Math.random()).toString(36);
+
 async function handleGPXFile(
   event,
   store: Livewire<StoreProps, ComputedProps>,
 ) {
   const files: Array<File> = Array.from(event.target.files);
-  const newSegments: Segment[] = [];
+
+  const segments: Segment[] = [];
+  const routeMarkers: RouteMarker[] = [];
 
   for (const file of files) {
     const text = await file.text();
-    const coords = parseGPX(text);
+    const { tracks, markers } = parseGPX(text);
 
-    if (coords.length === 0) {
-      console.log(`No valid track data found in ${file.name}`, "error");
-      continue;
+    for (const t of tracks) {
+      segments.push({
+        id: (t.id = generateId()),
+        fileName: file.name,
+        segmentLength: length(t, { units: "meters" }),
+        // TODO: simplify geometry
+        geometry: t.geometry,
+      });
     }
 
-    newSegments.push({
-      id: Math.random().toString(36).substring(2, 10),
-      fileName: file.name,
-      geometry: simplifyTrack(coords),
-      segmentLength: calculateTrackLength(coords),
-    });
+    for (const m of markers) {
+      let minDist = Infinity;
+      let nearestTrk = null;
+
+      // Find the closest point on any track
+      for (const t of tracks) {
+        const snapped = nearestPointOnLine(t, m);
+
+        if (snapped.properties.dist < minDist) {
+          minDist = snapped.properties.dist;
+          nearestTrk = t;
+        }
+      }
+
+      let routeDistance = null;
+
+      if (nearestTrk) {
+        routeDistance = length(
+          lineSliceAlong(nearestTrk.geometry, 0, minDist),
+          { units: "meters" },
+        );
+      }
+
+      routeMarkers.push({
+        ...m.properties,
+        id: generateId(),
+        kind: "marker",
+        segmentId: nearestTrk?.id,
+        routeDistance: routeDistance,
+        coordinate: m.geometry.coordinates,
+        // TODO: snappedCoordinate: nearestPoint,
+      });
+    }
   }
 
-  // Reset form input
+  store.$.segments = [...store.$.segments, ...segments];
+  store.$.markers = [...store.$.markers, ...routeMarkers];
+
   event.target.value = "";
-  store.$.segments = [...store.$.segments, ...newSegments];
 }
 
 function initMap(
@@ -398,23 +424,32 @@ function initMap(
 ) {
   const map = createMap(node);
   let prevSegmentLength = 0;
+  console.log("init map", node);
 
   const unwatch = store.watch(
-    ["segments", "controls"],
-    ({ segments, controls }) => {
+    ["segments", "markers"],
+    ({
+      segments,
+      markers,
+    }: {
+      segments: Segment[];
+      markers: RouteMarker[];
+    }) => {
       if (!map.getMap().getContainer()?.parentNode) {
         return unwatch();
       }
 
-      const line = segments.map((seg) => seg.geometry);
+      const trackLines = segments.map((seg) =>
+        seg.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
+      );
 
-      // @ts-ignore TODO fixme
-      map.setTrack(line, {
+      map.setTrack(trackLines, {
         fitBounds: segments.length !== prevSegmentLength,
       });
 
-      map.setControlPoints(controls, {
-        onDragEnd: (index, coord, marker) => {
+      // TODO: sucks
+      map.setRouteMarkers(markers, {
+        onDrag: (index, coord, marker) => {
           const snap = snapToNearestTrackSegment(
             store.$.segments,
             [coord.lng, coord.lat],
@@ -423,15 +458,12 @@ function initMap(
           );
 
           // Update the control with snapped position and segment info
-          store.$.controls[index] = {
-            ...store.$.controls[index],
-            coord: {
-              lng: snap.coord[0],
-              lat: snap.coord[1],
-            },
-            anchorSegmentId: snap.segmentId,
+          store.$.markers[index] = {
+            ...store.$.markers[index],
+            coordinate: snap.coord,
+            segmentId: snap.segmentId,
           };
-          store.$.controls = [...store.$.controls];
+          store.$.markers = [...store.$.markers];
 
           // Update the marker position to the snapped location
           marker.setLatLng(snap.coord);
@@ -453,15 +485,13 @@ function initMap(
         200,
       );
 
-      const control: OldControlPoint = {
-        kind: "cp",
-        name: null,
-        closesAt: null,
-        coord: { lng: snapResult.coord[0], lat: snapResult.coord[1] },
-        anchorSegmentId: snapResult.segmentId,
+      const marker: RouteMarker = {
+        id: "",
+        kind: "marker",
+        coordinate: snapResult.coord,
       };
 
-      store.$.controls = [...store.$.controls, control];
+      store.$.markers = [...store.$.markers, marker];
       popup.close();
     }
 

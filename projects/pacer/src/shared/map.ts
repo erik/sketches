@@ -1,6 +1,6 @@
 import L, { LatLngExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { RouteMarker, OldControlPoint } from "./index.js";
+import { RouteMarker } from "./index.js";
 
 class RecenterMapControl extends L.Control {
   controller: MapController;
@@ -21,21 +21,9 @@ class RecenterMapControl extends L.Control {
     );
     container.innerHTML = `
       <a href="#" role="button" title="Recenter map" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" >
-          <!-- Top-left corner bracket -->
-          <path d="M 80 140 Q 80 80 140 80" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
-
-          <!-- Top-right corner bracket -->
-          <path d="M 372 80 Q 432 80 432 140" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
-
-          <!-- Bottom-left corner bracket -->
-          <path d="M 140 432 Q 80 432 80 372" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
-
-          <!-- Bottom-right corner bracket -->
-          <path d="M 432 372 Q 432 432 372 432" fill="none" stroke="#000" stroke-width="40" stroke-linecap="round"/>
-
-          <!-- Center rounded rectangle -->
-          <rect x="160" y="140" width="192" height="232" rx="30" ry="30" fill="none" stroke="#000" stroke-width="32"/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+          <path fill="currentColor" d="M2.75 2.5a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0v-2.5C1 1.784 1.784 1 2.75 1h2.5a.75.75 0 0 1 0 1.5zM10 1.75a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75M1.75 10a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 13.25v-2.5a.75.75 0 0 1 .75-.75m12.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75M8 10a2 2 0 1 0 .001-3.999A2 2 0 0 0 8 10"/>
+          <path fill="currentColor" d="M8 10a2 2 0 1 0 .001-3.999A2 2 0 0 0 8 10"/>
         </svg>
       </a>
     `;
@@ -53,7 +41,6 @@ export class MapController {
   map: L.Map;
   trackLayer: L.Polyline;
   userLocationMarker?: L.Marker;
-  controls: L.Marker[];
   markers: L.Marker[];
   controlSegments: L.Layer[];
 
@@ -61,7 +48,6 @@ export class MapController {
     this.map = map;
 
     this.trackLayer = null;
-    this.controls = [];
     this.markers = [];
     this.controlSegments = [];
   }
@@ -100,11 +86,7 @@ export class MapController {
 
     if (coords.length === 0) return;
 
-    const latLngs = coords.map((l) =>
-      l.map(([lng, lat]) => [lat, lng]),
-    ) as LatLngTuple[][];
-
-    this.trackLayer = L.polyline(latLngs, {
+    this.trackLayer = L.polyline(coords, {
       color: options.color || "#2563eb",
       weight: options.weight || 4,
       opacity: options.opacity || 0.7,
@@ -115,7 +97,13 @@ export class MapController {
     }
   }
 
-  setMarkers(markers: RouteMarker[]) {
+  setRouteMarkers(
+    markers: RouteMarker[],
+    options: {
+      onClick?: (m: RouteMarker) => void;
+      onDrag?: (i: number, pt: L.LatLng, m: L.Marker) => void;
+    } = {},
+  ) {
     this.clearMarkers();
 
     for (const [index, marker] of markers.entries()) {
@@ -128,85 +116,47 @@ export class MapController {
         iconAnchor: [0, 0],
       });
 
-      this.markers.push(
-        L.marker({ lng, lat }, { icon })
-          .addTo(this.map)
-          .bindPopup(`<b>${marker.name}</b>`),
-      );
-    }
-  }
-
-  setControlPoints(
-    controls: OldControlPoint[],
-    options: {
-      trackCoords?: any[];
-      onClick?: (c: OldControlPoint) => void;
-      onDragEnd?: (i: number, pt: L.LatLng, m: L.Marker) => void;
-    } = {},
-  ) {
-    // Clear existing markers
-    this.clearMarkers();
-
-    for (const [index, cp] of controls.entries()) {
-      const { lng, lat } = cp.coord;
-
-      const name = cp.name || `CP ${index + 1}`;
-
-      let icon = L.divIcon({
-        className: "",
-        html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${name}"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [0, 0],
-      });
-
-      const marker = L.marker([lat, lng], { icon })
+      const mapMarker = L.marker({ lng, lat }, { icon })
         .addTo(this.map)
-        .bindPopup(`<b>${name}</b>`);
+        .bindPopup(`<b>${marker.name}</b>`);
+
+      this.markers.push(mapMarker);
 
       // Click handler for setup mode
       if (options.onClick) {
-        marker.on("click", () => options.onClick(cp));
+        mapMarker.on("click", () => options.onClick(marker));
       }
 
-      // Draggable in setup mode
-      marker.dragging.enable();
-
-      // Simple dragend handler - pass both index, coordinate, and marker
-      marker.on("dragend", (e) => {
-        if (options.onDragEnd) {
-          options.onDragEnd(index, e.target.getLatLng(), marker);
-        }
-      });
-
-      this.controls.push(marker);
-    }
-
-    // Draw dashed lines between checkpoints if either is not snapped to track
-    for (let i = 0; i < controls.length - 1; i++) {
-      const cp1 = controls[i];
-      const cp2 = controls[i + 1];
-
-      // Show dashed line if either checkpoint is not snapped to a track segment
-      if (cp1.anchorSegmentId == null || cp2.anchorSegmentId == null) {
-        const line = L.polyline([cp1.coord, cp2.coord], {
-          color: "#666",
-          weight: 2,
-          opacity: 0.7,
-          dashArray: "5, 10",
-          interactive: false,
-        }).addTo(this.map);
-
-        this.controlSegments.push(line);
+      if (options.onDrag) {
+        mapMarker.dragging.enable();
+        mapMarker.on("dragend", (e) =>
+          options.onDrag(index, e.target.getLatLng(), mapMarker),
+        );
       }
     }
   }
+
+  // TODO: port this
+  // Draw dashed lines between checkpoints if either is not snapped to track
+  // for (let i = 0; i < controls.length - 1; i++) {
+  //   const cp1 = controls[i];
+  //   const cp2 = controls[i + 1];
+  //   // Show dashed line if either checkpoint is not snapped to a track segment
+  //   if (cp1.anchorSegmentId == null || cp2.anchorSegmentId == null) {
+  //     const line = L.polyline([cp1.coord, cp2.coord], {
+  //       color: "#666",
+  //       weight: 2,
+  //       opacity: 0.7,
+  //       dashArray: "5, 10",
+  //       interactive: false,
+  //     }).addTo(this.map);
+  //     this.controlSegments.push(line);
+  //   }
+  // }
 
   clearMarkers() {
     this.markers.forEach((marker) => this.map.removeLayer(marker));
     this.markers = [];
-
-    this.controls.forEach((marker) => this.map.removeLayer(marker));
-    this.controls = [];
 
     this.controlSegments.forEach((line) => this.map.removeLayer(line));
     this.controlSegments = [];
@@ -226,7 +176,7 @@ export class MapController {
       bounds.extend(this.trackLayer.getBounds());
     }
 
-    for (const marker of this.controls) {
+    for (const marker of this.markers) {
       bounds.extend(marker.getLatLng());
     }
 

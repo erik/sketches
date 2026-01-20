@@ -30,13 +30,12 @@ type EventState = {
 };
 
 function formatDateTimeCompact(instant: Temporal.Instant | null): string {
-  if (!instant) return "--";
+  if (instant == null) return "--";
 
   const zdt = instant.toZonedDateTimeISO(Temporal.Now.timeZoneId());
 
   const time = TIME_FORMAT.format(zdt.toInstant());
   const date = DATE_FORMAT.format(zdt.toInstant());
-
   return `${time} ${date}`;
 }
 
@@ -54,35 +53,20 @@ function formatDuration(duration: Temporal.Duration): string {
   return parts.join(" ");
 }
 
-function getTimeRemaining(endTime: Temporal.Instant): string {
-  const now = Temporal.Now.instant();
-  const duration = endTime.since(now);
-
-  if (duration.total({ unit: "seconds" }) <= 0) return "--";
-  return formatDuration(duration);
-}
-
-function getRemainingDistance(
-  event: EventConfig,
+function formatRelativeDistance(
   currentDistance: number,
+  totalDistance: number,
 ): string {
-  return `${(event.routeLength - currentDistance).toFixed(1)} km remaining`;
+  return `${(totalDistance - currentDistance).toFixed(1)} km remaining`;
 }
 
-function calculateElapsedTime(event: EventConfig): string {
-  const now = Temporal.Now.instant();
-  const startTime = event.startTime || now;
-  const elapsedDuration = now.since(startTime);
-  return formatDuration(elapsedDuration);
-}
-
-function getEtaRemainingTime(eta: Temporal.Instant | null): string {
-  if (eta == null) return "??";
+function formatRelativeTime(time: Temporal.Instant | null): string {
+  if (time == null) return "??";
 
   const now = Temporal.Now.instant();
-  const remainingDuration = eta.since(now);
-  if (remainingDuration.total({ unit: "seconds" }) <= 0) return "Arrived";
-  return "in " + formatDuration(remainingDuration);
+  const duration = time.since(now);
+  // if (duration.total({ unit: "seconds" }) <= 0) return "Arrived";
+  return formatDuration(duration.abs());
 }
 
 type MarkerVisitStatus = {
@@ -101,8 +85,6 @@ type StoreProps = {
 type ComputedProps = {
   $currentDistance: number;
   $currentPace: number;
-  $requiredPace: number;
-  $eta: Temporal.Instant | null;
 };
 
 globalThis.faker = null;
@@ -173,39 +155,6 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
     }
 
     return 0;
-  });
-
-  store.compute("$requiredPace", ({ event, $currentDistance, progress }) => {
-    const now = Temporal.Now.instant();
-    const markers = event.markers.filter((m) => m.kind !== "start");
-
-    const next = markers.find(
-      (m) => m.cutoffTime && progress[m.id]?.state !== "visited",
-    );
-    if (!next) return 0;
-
-    const remaining = next.cutoffTime.since(now);
-
-    const dist = next.routeDistance || event.routeLength || 0;
-    return (dist - $currentDistance) / remaining.total({ unit: "hours" });
-  });
-
-  store.compute("$eta", ({ event, $currentDistance, $currentPace }) => {
-    if ($currentPace <= 0) {
-      return null;
-    }
-
-    const finishMarker = event.markers.find((m) => m.kind === "finish");
-    if (!finishMarker) {
-      console.error("bug, finish marker wrong", finishMarker);
-      return null;
-    }
-
-    const distanceToFinish = event.routeLength - ($currentDistance || 0);
-
-    const hoursToArrival = distanceToFinish / $currentPace;
-    const now = Temporal.Now.instant();
-    return now.add({ seconds: Math.round(hoursToArrival * 3600) });
   });
 
   // Automatic checkpoint detection based on current distance
@@ -311,47 +260,89 @@ const StatsTab = ({ store }) => {
     <div class="flex-1 overflow-auto p-4">
       <div class="space-y-6">
         <store.reactive
-          keys={[
-            "$currentDistance",
-            "$currentPace",
-            "$requiredPace",
-            "$eta",
-            "event",
-            "progress",
-          ]}
+          keys={["$currentDistance", "$currentPace", "event", "progress"]}
         >
-          {({ $currentDistance, $currentPace, $requiredPace, $eta, event }) => (
-            <div class="grid grid-cols-2 gap-4">
-              <StatCard
-                title="Distance"
-                value={`${$currentDistance.toFixed(1)} km`}
-                subtitle={getRemainingDistance(event, $currentDistance)}
-              />
-              <StatCard
-                title="Current Pace"
-                value={`${$currentPace.toFixed(1)} km/h`}
-              />
-              <StatCard
-                title="Required Pace"
-                value={`${$requiredPace.toFixed(1)} km/h`}
-              />
-              <StatCard
-                title="Finish ETA"
-                value={formatDateTimeCompact($eta)}
-                subtitle={getEtaRemainingTime($eta)}
-              />
-              <StatCard
-                title="Elapsed Time"
-                value={calculateElapsedTime(event)}
-                subtitle={`Started: ${formatDateTimeCompact(event.startTime)}`}
-              />
-              <StatCard
-                title="Time Remaining"
-                value={getTimeRemaining(event.endTime)}
-                subtitle={`Cutoff: ${formatDateTimeCompact(event.endTime)}`}
-              />
-            </div>
-          )}
+          {({ $currentDistance, $currentPace, event, progress }) => {
+            const markers = event.markers.filter(
+              (m) => m.kind !== "start" && m.kind !== "finish",
+            );
+            const nextMarker = markers.find(
+              (m) => m.cutoffTime && progress[m.id]?.state !== "visited",
+            );
+
+            const minPaceNextCutoff =
+              nextMarker &&
+              calculateRequiredPace(
+                $currentDistance,
+                nextMarker.routeDistance || event.routeLength || 0,
+                nextMarker.cutoffTime,
+              );
+
+            const finishEta = calculateEta(
+              $currentDistance,
+              event.routeLength,
+              $currentPace,
+            );
+
+            const pacingDelta = finishEta && event.endTime.since(finishEta);
+
+            return (
+              <div class="grid grid-cols-2 gap-4">
+                <StatCard
+                  title="Distance"
+                  value={`${$currentDistance.toFixed(1)} km`}
+                  subtitle={formatRelativeDistance(
+                    $currentDistance,
+                    event.routeLength,
+                  )}
+                />
+                <StatCard
+                  title="Overall Pace"
+                  value={`${$currentPace.toFixed(1)} km/h`}
+                />
+                {nextMarker && (
+                  <>
+                    <StatCard
+                      title={`Min Pace (${nextMarker.name})`}
+                      value={`${minPaceNextCutoff.toFixed(1)} km/h`}
+                      subtitle={`Cutoff: ${formatDateTimeCompact(nextMarker.cutoffTime)}`}
+                    />
+                    <StatCard
+                      title={`ETA (${nextMarker.name})`}
+                      value={formatDateTimeCompact(nextMarker.cutoffTime)}
+                      subtitle={formatRelativeTime(
+                        calculateEta(
+                          $currentDistance,
+                          nextMarker.routeDistance,
+                          $currentPace,
+                        ),
+                      )}
+                    />
+                  </>
+                )}
+                <StatCard
+                  title="Finish ETA"
+                  value={formatDateTimeCompact(finishEta)}
+                  subtitle={formatRelativeTime(finishEta)}
+                />
+                <StatCard
+                  title="Pacing"
+                  value={pacingDelta ? formatDuration(pacingDelta.abs()) : "--"}
+                  subtitle={pacingDelta?.sign >= 0 ? "ahead" : "behind"}
+                />
+                <StatCard
+                  title="Elapsed Time"
+                  value={formatRelativeTime(event.startTime)}
+                  subtitle={`Started: ${formatDateTimeCompact(event.startTime)}`}
+                />
+                <StatCard
+                  title="Time Remaining"
+                  value={formatRelativeTime(event.endTime)}
+                  subtitle={`Finish Cutoff: ${formatDateTimeCompact(event.endTime)}`}
+                />
+              </div>
+            );
+          }}
         </store.reactive>
 
         <store.reactive keys={["progress", "$currentDistance"]}>
@@ -555,7 +546,7 @@ function initializeMap(
     (s) => s.geometry.coordinates,
   ) as LatLngTuple[][];
 
-  map.setMarkers(markers);
+  map.setRouteMarkers(markers);
   map.setTrack(allCoordinates, { fitBounds: true });
 
   store.watch(["userLocation"], ({ userLocation }) => {
