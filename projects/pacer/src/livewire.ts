@@ -1,9 +1,20 @@
 // livewire -- no dependency JS reactivity
 
-type Props = Record<string, any>;
-type StateFn<P, C> = (state: P & C) => any;
-type StateAction<P, C> = (state: P & C, ...args: any[]) => Partial<P>;
-type StateActions<P, C> = Record<string, StateAction<P, C>>;
+export type Props = Record<string, any>;
+export type StateFn<P, C> = (state: P & C) => any;
+export type StateAction<P, C> = (state: P & C, ...args: any[]) => Partial<P>;
+export type StateActions<P, C> = Record<string, StateAction<P, C>>;
+
+export type ElementAttrs = Record<string, any>;
+export type Child =
+  | Node
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | (() => Child);
+export type Children = Child[];
 
 type LivewireOptions<A> = {
   actions?: A;
@@ -72,79 +83,80 @@ export class Livewire<
     this.reduce(this.#actions[action], ...args);
   }
 
-  reactive = ({ keys }, children: StateFn<P, C>[]) => {
+  reactive = (
+    { keys }: { keys: string | string[] },
+    ...children: StateFn<P, C>[]
+  ) => {
     return this.render(keys, (state) =>
-      createFragment(
-        {},
-        children.map((fn) => fn(state)),
-      ),
+      createFragment({}, ...children.map((fn) => fn(state))),
     );
   };
 
   reactiveEach = (
-    { key },
-    children: ((value: any, index: number, state: P & C) => any)[],
+    { key }: { key: string },
+    ...children: ((value: any, index: number, state: P & C) => Child)[]
   ) => {
     return this.render([key], (state: P & C) =>
       createFragment(
         {},
-        children.map((fn) =>
-          state[key].map((value, index) => fn(value, index, state)),
+        ...children.map((fn) =>
+          state[key].map((value: any, index: number) =>
+            fn(value, index, state),
+          ),
         ),
       ),
     );
   };
 
-  render(keys: string | string[], fn: StateFn<P, C>) {
-    let node = fn(this.#state);
-    let anchor = null;
-    let fragmentNodes = [];
+  render(keys: string | string[], fn: StateFn<P, C>): Node {
+    let prevNode = fn(this.#state);
+    let fragAnchor = null;
+    let fragment: Array<Node> = [];
 
-    if (node instanceof DocumentFragment) {
-      anchor = document.createComment("frag");
-      node.appendChild(anchor);
-      fragmentNodes = Array.from(node.childNodes);
+    if (prevNode instanceof DocumentFragment) {
+      fragAnchor = document.createComment("frag");
+      prevNode.appendChild(fragAnchor);
+      fragment = Array.from(prevNode.childNodes);
     }
 
     const unwatch = this.watch(keys, (state: P & C) => {
-      const newNode = fn(state);
+      const nextNode = fn(state);
 
       // for fragments, replace all children
-      if (anchor && anchor.parentNode) {
-        const parent = anchor.parentNode;
-        const nextSibling = anchor.nextSibling;
+      if (fragAnchor && fragAnchor.parentNode) {
+        const parent = fragAnchor.parentNode;
+        const sibling = fragAnchor.nextSibling;
 
         // Remove old nodes
-        fragmentNodes.forEach((n) => n.parentNode?.removeChild(n));
+        fragment.forEach((n) => n.parentNode?.removeChild(n));
+        fragment =
+          nextNode instanceof DocumentFragment
+            ? Array.from(nextNode.childNodes)
+            : [nextNode];
 
-        // Insert new nodes
-        if (newNode instanceof DocumentFragment) {
-          fragmentNodes = Array.from(newNode.childNodes);
-          parent.insertBefore(newNode, nextSibling);
-          parent.insertBefore(anchor, nextSibling);
-        } else {
-          fragmentNodes = [newNode];
-          parent.insertBefore(newNode, nextSibling);
-          parent.insertBefore(anchor, nextSibling);
-        }
-      } else if (node && node.parentNode) {
-        node.parentNode.replaceChild(newNode, node);
-      } else if (node && !node.parentNode) {
+        parent.insertBefore(nextNode, sibling);
+        parent.insertBefore(fragAnchor, sibling);
+      } else if (prevNode && prevNode.parentNode) {
+        prevNode.parentNode.replaceChild(nextNode, prevNode);
+      } else if (prevNode && !prevNode.parentNode) {
         unwatch();
       }
-      node = newNode;
+      prevNode = nextNode;
     });
 
-    return node;
+    return prevNode;
   }
 
-  compute(key: keyof C, fn: StateFn<P, C>) {
+  compute(key: keyof C, fn: StateFn<P, C>): this {
     this.#computed.set(key, fn);
-    this.#state[key as keyof C] = fn(this.#state);
+    this.#state[key] = fn(this.#state);
     return this;
   }
 
-  watch(maybeFn: string | string[] | StateFn<P, C>, fn?: StateFn<P, C>) {
+  watch(
+    maybeFn: string | string[] | StateFn<P, C>,
+    fn?: StateFn<P, C>,
+  ): () => void {
     let wrappedFn: StateFn<P, C>;
 
     if (typeof maybeFn === "function") {
@@ -154,7 +166,7 @@ export class Livewire<
       const filterState = (s: P & C) =>
         Object.entries(s).filter(([k]) => keys.has(k));
 
-      let prev = null;
+      let prev: string;
       wrappedFn = (state: P & C) => {
         const curr = JSON.stringify(filterState(state));
         if (curr !== prev) {
@@ -189,19 +201,29 @@ export class Livewire<
   }
 }
 
-export function createFragment(attrs, children) {
-  return _createElement("fragment", attrs, children);
+export function createFragment(
+  attrs: ElementAttrs,
+  ...children: Children
+): DocumentFragment {
+  return createElement("fragment", attrs, ...children) as DocumentFragment;
 }
 
-export function htmlTemplate(s: TemplateStringsArray): Element {
-  return _createElement("template", { innerHTML: s }).content;
+export function htmlTemplate(s: TemplateStringsArray): DocumentFragment {
+  const el = document.createElement("template");
+  // TODO: fixme
+  el.innerHTML = s.toString();
+  return el.content;
 }
 
-function _createElement(tag, attrs, ...children) {
+export function createElement(
+  tag: string | ((attrs?: ElementAttrs, ...children: Children) => Element),
+  attrs?: ElementAttrs,
+  ...children: Children
+): Element | DocumentFragment {
   attrs = attrs || {};
 
   if (typeof tag === "function") {
-    return tag(attrs, children);
+    return tag(attrs, ...children);
   }
 
   let el =
@@ -213,19 +235,21 @@ function _createElement(tag, attrs, ...children) {
     if (k === "$mount" && typeof v === "function") {
       queueMicrotask(() => v(el));
     } else if (k.startsWith("on") && typeof v === "function") {
-      el.addEventListener(k.slice(2).toLowerCase(), v);
-    } else if (k === "style" && typeof v === "object") {
-      for (const p of Object.entries(v)) {
-        el.style.setProperty(p[0], p[1]);
+      el.addEventListener(k.slice(2).toLowerCase(), v as (_: Event) => void);
+    } else if (el instanceof HTMLElement) {
+      if (k === "style" && typeof v === "object") {
+        for (const p of Object.entries(v)) {
+          el.style.setProperty(p[0], String(p[1]));
+        }
+      } else if (k === "className") {
+        el.setAttribute("class", String(v));
+      } else if (k === "innerHTML") {
+        el.innerHTML = String(v);
+      } else if (v === false || v === "" || v == null) {
+        el.removeAttribute(k);
+      } else {
+        el.setAttribute(k, String(v));
       }
-    } else if (k === "className") {
-      el.setAttribute("class", v);
-    } else if (k === "innerHTML") {
-      el.innerHTML = v;
-    } else if (v === false || v === "" || v == null) {
-      el.removeAttribute(k);
-    } else {
-      el.setAttribute(k, v);
     }
   }
 
@@ -240,17 +264,3 @@ function _createElement(tag, attrs, ...children) {
 
   return el;
 }
-
-type CreateElementCurry = {
-  [key: string]: (attrs: Record<string, any>, ...children: any[]) => any;
-} & {
-  (tag: string, attrs?: Record<string, any>, ...children: any[]): any;
-};
-
-// magic curry sauce
-export const createElement = new Proxy(_createElement, {
-  get:
-    (_, prop) =>
-    (attrs: Record<string, any>, ...children: any[]) =>
-      _createElement(prop, attrs, ...children),
-}) as CreateElementCurry;

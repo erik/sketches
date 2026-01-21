@@ -87,16 +87,18 @@ type ComputedProps = {
   $currentPace: number;
 };
 
-globalThis.faker = null;
-function mockUserLocation(store: Livewire<StoreProps, ComputedProps>) {
-  if (globalThis.faker) return;
+type AppState = Livewire<StoreProps, ComputedProps>;
+
+(globalThis as any).faker = null;
+function mockUserLocation(store: AppState) {
+  if ((globalThis as any).faker) return;
 
   const fakePoints = [...DEMO_DATA.segments[0].geometry.coordinates].slice(
     15000,
   );
-  globalThis.faker = setInterval(() => {
+  (globalThis as any).faker = setInterval(() => {
     if (fakePoints.length === 0) {
-      clearInterval(globalThis.faker);
+      clearInterval((globalThis as any).faker);
     } else {
       store.$.userLocation = fakePoints.shift();
     }
@@ -128,10 +130,13 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
   store.compute("$currentDistance", ({ userLocation, event }) => {
     // If we have user location and route data, calculate actual position
     if (userLocation && event.segments.length > 0) {
-      const routeCoordinates = event.segments[0].geometry.coordinates;
+      const routeCoordinates = event.segments[0].geometry.coordinates as [
+        number,
+        number,
+      ][];
       const { distanceFromStart, distanceFromTrack } = calculateRoutePosition(
         routeCoordinates,
-        userLocation,
+        userLocation as [number, number],
       );
 
       // If user is very far from route (50+ km), snap to position 0
@@ -183,7 +188,7 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
   return store;
 };
 
-const TabView = ({ store }) => {
+const TabView = ({ store }: { store: AppState }) => {
   const tabStore = new Livewire({
     activeTab: "stats",
   });
@@ -195,7 +200,7 @@ const TabView = ({ store }) => {
 
   return (
     <tabStore.reactive keys="activeTab">
-      {({ activeTab }) => (
+      {({ activeTab }: { activeTab: string }) => (
         <div class="flex-1 pb-16">
           {activeTab === "stats" ? (
             <StatsTab store={store} />
@@ -204,7 +209,7 @@ const TabView = ({ store }) => {
           )}
         </div>
       )}
-      {({ activeTab }) => (
+      {({ activeTab }: { activeTab: string }) => (
         <div class="fixed bottom-0 left-0 right-0 z-10">
           <div class="flex border-t border-base-300 bg-base-100">
             {tabs.map((tab) => (
@@ -255,14 +260,19 @@ const StatCard = ({
   </div>
 );
 
-const StatsTab = ({ store }) => {
+const StatsTab = ({ store }: { store: AppState }) => {
   return (
     <div class="flex-1 overflow-auto p-4">
       <div class="space-y-6">
         <store.reactive
           keys={["$currentDistance", "$currentPace", "event", "progress"]}
         >
-          {({ $currentDistance, $currentPace, event, progress }) => {
+          {({
+            $currentDistance,
+            $currentPace,
+            event,
+            progress,
+          }: StoreProps & ComputedProps) => {
             const markers = event.markers.filter(
               (m) => m.kind !== "start" && m.kind !== "finish",
             );
@@ -346,14 +356,9 @@ const StatsTab = ({ store }) => {
         </store.reactive>
 
         <store.reactive keys={["progress", "$currentDistance"]}>
-          {({ event }) =>
+          {({ event }: StoreProps) =>
             event.markers.map((m, index) => (
-              <RouteMarkerCard
-                marker={m}
-                index={index}
-                store={store}
-                {...store.$}
-              />
+              <RouteMarkerCard marker={m} store={store} {...store.$} />
             ))
           }
         </store.reactive>
@@ -402,6 +407,13 @@ const RouteMarkerCard = ({
   $currentPace,
   $currentDistance,
   event,
+}: {
+  marker: any;
+  store: any;
+  progress: any;
+  $currentPace: any;
+  $currentDistance: any;
+  event: any;
 }) => {
   const progressEvent = progress[marker.id];
   const isCompleted = progressEvent?.state === "visited";
@@ -431,7 +443,7 @@ const RouteMarkerCard = ({
   // For start point, don't allow check-in
   const isStartPoint = marker.kind === "start";
 
-  const MiniStat = ({ title, value }) => (
+  const MiniStat = ({ title, value }: { title: string; value: string }) => (
     <div class="text-xs">
       <div class="text-gray-500">{title}</div>
       <div>{value}</div>
@@ -523,13 +535,13 @@ const RouteMarkerCard = ({
   );
 };
 
-const MapTab = ({ store }) => {
+const MapTab = ({ store }: { store: AppState }) => {
   return (
     <div class="h-full w-full relative pb-16">
       <div
         id="map-container"
         class="h-full w-full min-h-75"
-        $mount={(el) => initializeMap(el, store)}
+        $mount={(el: HTMLElement) => initializeMap(el, store)}
       />
     </div>
   );

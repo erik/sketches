@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "module": "NodeNext",
-    "noImplicitAny": false,
-    "removeComments": true,
+    "noImplicitAny": true,
+    "removeComments": false,
     "preserveConstEnums": true,
     "sourceMap": true,
     "jsx": "preserve",

@@ -6,7 +6,7 @@ import { RouteMarker, Segment } from "../shared/index.js";
 
 import { snapToNearestTrackSegment } from "../shared/geo.js";
 import { parseGPX } from "../shared/gpx.js";
-import { Livewire } from "../livewire.js";
+import { Livewire, type Children } from "../livewire.js";
 import { GlobalStoreProps } from "../main.jsx";
 import length from "@turf/length";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
@@ -42,7 +42,7 @@ const createStore = (
   return store;
 };
 
-const Fieldset = (props, children) => {
+const Fieldset = (props: { title: string }, ...children: Children) => {
   return (
     <fieldset class="fieldset bg-base-200 border border-base-300 p-2">
       <legend class="fieldset-legend">{props.title}</legend>
@@ -51,7 +51,15 @@ const Fieldset = (props, children) => {
   );
 };
 
-const EditableText = ({ onChange, value, placeholder }) => {
+const EditableText = ({
+  onChange,
+  value,
+  placeholder,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+  placeholder: string;
+}) => {
   const store = new Livewire({
     editing: false,
     textValue: value,
@@ -64,9 +72,9 @@ const EditableText = ({ onChange, value, placeholder }) => {
         value={textValue || ""}
         placeholder={placeholder}
         autoFocus
-        onBlur={(e) => {
+        onBlur={(e: Event) => {
           store.$.editing = false;
-          store.$.textValue = e.target.value;
+          store.$.textValue = (e.target as HTMLInputElement).value;
           store.$.textValue !== placeholder && onChange(store.$.textValue);
         }}
         class="input input-sm"
@@ -82,7 +90,10 @@ const EditableText = ({ onChange, value, placeholder }) => {
   );
 };
 
-const SortableRow = ({ store, index, watchKey }, children) => {
+const SortableRow = (
+  { store, index, watchKey }: { store: any; index: number; watchKey: string },
+  ...children: Children
+) => {
   const reorderItems = (i: number, j: number) => {
     if (i !== j && i >= 0 && j >= 0) {
       const xs = [...store.$[watchKey]];
@@ -100,31 +111,34 @@ const SortableRow = ({ store, index, watchKey }, children) => {
   };
 
   // Mouse/drag event handlers
-  const handleDragStart = (e) => {
-    e.dataTransfer.setData("text/plain", index);
+  const handleDragStart = (e: DragEvent) => {
+    e.dataTransfer.setData("text/plain", index.toString());
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const onDragEnter = (e) => {
-    const node = e.target.classList.contains("sortable-row")
-      ? e.target
-      : e.target.closest(".sortable-row");
+  const onDragEnter = (e: DragEvent) => {
+    const target = e.target as HTMLElement;
 
-    dropStyle.forEach((s) => node.classList.add(s));
+    const node = target.classList.contains("sortable-row")
+      ? target
+      : target.closest(".sortable-row");
+
+    dropStyle.forEach((s) => node?.classList.add(s));
   };
 
-  const onDragLeave = (e) => {
-    if (e.target.classList.contains("sortable-row")) {
-      dropStyle.forEach((s) => e.target.classList.remove(s));
+  const onDragLeave = (e: DragEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains("sortable-row")) {
+      dropStyle.forEach((s) => target.classList.remove(s));
     }
   };
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "drop";
+    e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent) => {
     e.preventDefault();
     const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
     const toIndex = index;
@@ -133,10 +147,7 @@ const SortableRow = ({ store, index, watchKey }, children) => {
     cleanupDrag();
   };
 
-  const handleDragEnd = (e) => {
-    cleanupDrag();
-  };
-
+  const handleDragEnd = (e: DragEvent) => cleanupDrag();
   return (
     <li
       class="sortable-row list-row flex items-baseline border border-base-300 bg-base-100 hover:bg-base-200 active:opacity-50"
@@ -154,11 +165,19 @@ const SortableRow = ({ store, index, watchKey }, children) => {
   );
 };
 
-const RouteMarkerRow = ({ store, index, marker }) => {
+const RouteMarkerRow = ({
+  store,
+  index,
+  marker,
+}: {
+  store: Livewire<StoreProps, ComputedProps>;
+  index: number;
+  marker: RouteMarker;
+}) => {
   return (
     <SortableRow store={store} index={index} watchKey="markers">
       <EditableText
-        value={marker.name}
+        value={marker.name || ""}
         placeholder={`CP ${index + 1}`}
         onChange={(s) => {
           store.$.markers[index].name = s;
@@ -179,11 +198,15 @@ const RouteMarkerRow = ({ store, index, marker }) => {
   );
 };
 
-const RouteMarkerTable = ({ store }) => {
+const RouteMarkerTable = ({
+  store,
+}: {
+  store: Livewire<StoreProps, ComputedProps>;
+}) => {
   return (
     <ul class="list">
       <store.reactive keys="markers">
-        {({ markers }) =>
+        {({ markers }: StoreProps) =>
           markers.length === 0 ? (
             <p class="label">No route markers added yet</p>
           ) : (
@@ -201,19 +224,26 @@ const RouteMarkerTable = ({ store }) => {
   );
 };
 
-const DateTimePicker = ({ title, onChange }) => {
+const DateTimePicker = ({
+  title,
+  onChange,
+}: {
+  title: string;
+  onChange: (d: Temporal.Instant) => void;
+}) => {
   return (
     <label className="input validator">
       <span className="label">{title} </span>
       <input
         type="datetime-local"
-        onBlur={(e) => {
-          const val = e.target.value;
+        onBlur={(e: Event) => {
+          const target = e.target as HTMLInputElement;
+          const val = target.value;
           if (val === "") {
-            e.target.setAttribute("aria-invalid", "true");
+            target.setAttribute("aria-invalid", "true");
             return;
           }
-          e.target.removeAttribute("aria-invalid");
+          target.removeAttribute("aria-invalid");
 
           const dateTime = Temporal.PlainDateTime.from(val).toZonedDateTime(
             Temporal.Now.timeZoneId(),
@@ -238,12 +268,12 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
             </p>
             <DateTimePicker
               title={"Start"}
-              onChange={(date) => (store.$.startTime = date)}
+              onChange={(date: Temporal.Instant) => (store.$.startTime = date)}
             />
 
             <DateTimePicker
               title={"End"}
-              onChange={(date) => (store.$.endTime = date)}
+              onChange={(date: Temporal.Instant) => (store.$.endTime = date)}
             />
           </Fieldset>
 
@@ -254,7 +284,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
               class="hidden"
               accept=".gpx"
               multiple={true}
-              onChange={(e) => handleGPXFile(e, store)}
+              onChange={(e: Event) => handleGPXFile(e, store)}
             />
 
             <p class="label whitespace-normal!">
@@ -321,14 +351,14 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
           <Fieldset title="Map">
             <div class="h-100">
               <div
-                $mount={(el) => initMap(el, store)}
+                $mount={(el: HTMLElement) => initMap(el, store)}
                 class="h-full rounded-box shadow-md"
               />
             </div>
           </Fieldset>
 
           <store.reactive keys="$valid">
-            {({ $valid }) => (
+            {({ $valid }: ComputedProps) => (
               <button class="btn" onClick="" disabled={!$valid}>
                 Done
               </button>
@@ -344,7 +374,9 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
       <details>
         <pre>
           <store.reactive keys={Object.keys(store.$)}>
-            {(state) => JSON.stringify(state, null, 4)}
+            {(state: StoreProps & ComputedProps) =>
+              JSON.stringify(state, null, 4)
+            }
           </store.reactive>
         </pre>
       </details>
@@ -355,10 +387,12 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 const generateId = () => (1e16 * Math.random()).toString(36);
 
 async function handleGPXFile(
-  event,
+  event: Event,
   store: Livewire<StoreProps, ComputedProps>,
 ) {
-  const files: Array<File> = Array.from(event.target.files);
+  const files: Array<File> = Array.from(
+    (event.target as HTMLInputElement).files,
+  );
 
   const segments: Segment[] = [];
   const routeMarkers: RouteMarker[] = [];
@@ -404,7 +438,7 @@ async function handleGPXFile(
         ...m.properties,
         id: generateId(),
         kind: "marker",
-        segmentId: nearestTrk?.id,
+        segmentId: nearestTrk?.id?.toString(),
         routeDistance: routeDistance,
         coordinate: m.geometry.coordinates,
         // TODO: snappedCoordinate: nearestPoint,
@@ -415,7 +449,7 @@ async function handleGPXFile(
   store.$.segments = [...store.$.segments, ...segments];
   store.$.markers = [...store.$.markers, ...routeMarkers];
 
-  event.target.value = "";
+  (event.target as HTMLInputElement).value = "";
 }
 
 function initMap(
@@ -449,7 +483,11 @@ function initMap(
 
       // TODO: sucks
       map.setRouteMarkers(markers, {
-        onDrag: (index, coord, marker) => {
+        onDrag: (
+          index: number,
+          coord: { lng: number; lat: number },
+          marker: L.Marker,
+        ) => {
           const snap = snapToNearestTrackSegment(
             store.$.segments,
             [coord.lng, coord.lat],
@@ -474,19 +512,19 @@ function initMap(
     },
   );
 
-  map.onMapClick(({ lng, lat }) => {
+  map.onMapClick(({ lng, lat }: { lng: number; lat: number }) => {
     const popup = L.popup().setLatLng({ lng, lat });
 
     function addControlHere() {
       const snapResult = snapToNearestTrackSegment(
         store.$.segments,
-        { lng, lat },
+        [lng, lat],
         map.getMap(),
         200,
       );
 
       const marker: RouteMarker = {
-        id: "",
+        id: generateId(),
         kind: "marker",
         coordinate: snapResult.coord,
       };
