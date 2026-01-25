@@ -5,20 +5,17 @@ import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
 import { type EventConfig } from "./shared/index.js";
 import { calculateRoutePosition } from "./shared/geo.js";
+import {
+  formatDateTimeCompact,
+  formatDuration,
+  formatRelativeTime,
+} from "./shared/time.js";
 
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
 
-const TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-});
+// Re-export for backward compatibility
+export { formatDateTimeCompact };
 
 // App state persisted to /restord from LocalStorage between page loads
 type EventState = {
@@ -29,46 +26,11 @@ type EventState = {
   markerArrivalTimes: Record<string, Temporal.Instant>;
 };
 
-export function formatDateTimeCompact(
-  instant: Temporal.Instant | null,
-): string {
-  if (instant == null) return "--";
-
-  const zdt = instant.toZonedDateTimeISO(Temporal.Now.timeZoneId());
-
-  const time = TIME_FORMAT.format(zdt.toInstant());
-  const date = DATE_FORMAT.format(zdt.toInstant());
-  return `${time} ${date}`;
-}
-
-function formatDuration(duration: Temporal.Duration): string {
-  const days = Math.floor(duration.total({ unit: "days" }));
-  const hours = Math.floor(duration.total({ unit: "hours" }) % 24);
-  const minutes = Math.floor(duration.total({ unit: "minutes" }) % 60);
-
-  const parts = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  if (parts.length === 0) parts.push("n/a");
-
-  return parts.join(" ");
-}
-
 function formatRelativeDistance(
   currentDistance: number,
   totalDistance: number,
 ): string {
   return `${(totalDistance - currentDistance).toFixed(1)} km remaining`;
-}
-
-function formatRelativeTime(time: Temporal.Instant | null): string {
-  if (time == null) return "??";
-
-  const now = Temporal.Now.instant();
-  const duration = time.since(now);
-  // if (duration.total({ unit: "seconds" }) <= 0) return "Arrived";
-  return formatDuration(duration.abs());
 }
 
 type MarkerVisitStatus = {

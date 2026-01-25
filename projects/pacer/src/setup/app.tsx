@@ -3,8 +3,11 @@ import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
 import { RouteMarker, Segment, Meters, metersToKm } from "../shared/index.js";
-
-import { formatDateTimeCompact } from "../pacer.jsx";
+import {
+  formatDateTimeCompact,
+  instantToDateTimeLocal,
+  dateTimeLocalToInstant,
+} from "../shared/time.js";
 import { snapToNearestTrackSegment } from "../shared/geo.js";
 import { parseGPX } from "../shared/gpx.js";
 import { htmlTemplate, Livewire, type Children } from "../livewire.js";
@@ -234,9 +237,7 @@ const MarkerDropdown = ({
 
   const setCutoffTime = (value: string | null) => {
     if (value) {
-      const instant = Temporal.PlainDateTime.from(value)
-        .toZonedDateTime(Temporal.Now.timeZoneId())
-        .toInstant();
+      const instant = dateTimeLocalToInstant(value);
       store.update("markers", (arr) => {
         const copy = [...arr];
         copy[index] = { ...copy[index], cutoffTime: instant };
@@ -248,9 +249,7 @@ const MarkerDropdown = ({
 
   const setGoalTime = (value: string | null) => {
     if (value) {
-      const instant = Temporal.PlainDateTime.from(value)
-        .toZonedDateTime(Temporal.Now.timeZoneId())
-        .toInstant();
+      const instant = dateTimeLocalToInstant(value);
       store.update("markers", (arr) => {
         const copy = [...arr];
         copy[index] = { ...copy[index], goalTime: instant };
@@ -376,13 +375,7 @@ const MarkerDropdown = ({
 
         <dropdownState.reactiveIf key={"showCutoffInput"}>
           {() => {
-            let inputValue = marker.cutoffTime
-              ? marker.cutoffTime
-                  .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                  .toPlainDateTime()
-                  .toString()
-                  .slice(0, 16)
-              : "";
+            let inputValue = instantToDateTimeLocal(marker.cutoffTime);
             return (
               <div class="p-2 flex items-center gap-2">
                 <input
@@ -424,13 +417,7 @@ const MarkerDropdown = ({
 
         <dropdownState.reactiveIf key={"showGoalInput"}>
           {() => {
-            let inputValue = marker.goalTime
-              ? marker.goalTime
-                  .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                  .toPlainDateTime()
-                  .toString()
-                  .slice(0, 16)
-              : "";
+            let inputValue = instantToDateTimeLocal(marker.goalTime);
             return (
               <div class="p-2 flex items-center gap-2">
                 <input
@@ -549,9 +536,11 @@ const RouteMarkerTable = ({
 
 const DateTimePicker = ({
   title,
+  value,
   onChange,
 }: {
   title: string;
+  value?: Temporal.Instant;
   onChange: (d: Temporal.Instant) => void;
 }) => {
   return (
@@ -559,6 +548,7 @@ const DateTimePicker = ({
       <span className="label">{title} </span>
       <input
         type="datetime-local"
+        value={instantToDateTimeLocal(value)}
         onBlur={(e: Event) => {
           const target = e.target as HTMLInputElement;
           const val = target.value;
@@ -568,10 +558,7 @@ const DateTimePicker = ({
           }
           target.removeAttribute("aria-invalid");
 
-          const dateTime = Temporal.PlainDateTime.from(val).toZonedDateTime(
-            Temporal.Now.timeZoneId(),
-          );
-          onChange(dateTime.toInstant());
+          onChange(dateTimeLocalToInstant(val));
         }}
       />
     </label>
@@ -589,15 +576,33 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
             <p class="label whitespace-normal!">
               Set start and end time to calculate required pacing.
             </p>
-            <DateTimePicker
-              title={"Start"}
-              onChange={(date: Temporal.Instant) => (store.$.startTime = date)}
-            />
+            <store.reactive keys={["startTime", "endTime"]}>
+              {({
+                startTime,
+                endTime,
+              }: {
+                startTime?: Temporal.Instant;
+                endTime?: Temporal.Instant;
+              }) => (
+                <>
+                  <DateTimePicker
+                    title={"Start"}
+                    value={startTime}
+                    onChange={(date: Temporal.Instant) =>
+                      (store.$.startTime = date)
+                    }
+                  />
 
-            <DateTimePicker
-              title={"End"}
-              onChange={(date: Temporal.Instant) => (store.$.endTime = date)}
-            />
+                  <DateTimePicker
+                    title={"End"}
+                    value={endTime}
+                    onChange={(date: Temporal.Instant) =>
+                      (store.$.endTime = date)
+                    }
+                  />
+                </>
+              )}
+            </store.reactive>
           </Fieldset>
 
           <Fieldset title="Route">
