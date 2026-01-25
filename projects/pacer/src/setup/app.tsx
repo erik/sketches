@@ -616,25 +616,45 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
-                {(seg: Segment, idx: number) => (
-                  <SimpleRow>
-                    <div class="flex items-center gap-2">
-                      <span class="flex-1">{seg.title ?? seg.fileName}</span>
-                      <span class="badge badge-soft badge-xs tabular-nums">
-                        {metersToKm(seg.segmentLength).toFixed(0)} km
-                      </span>
-                      <button
-                        onClick={() => {
-                          store.$.segments.splice(idx, 1);
-                          store.$.segments = [...store.$.segments];
-                        }}
-                        class="btn btn-soft btn-sm hover:btn-error"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </SimpleRow>
-                )}
+                {(seg: Segment, idx: number) => {
+                  const handleRemoveSegment = () => {
+                    const attachedMarkers = store.$.markers.filter(
+                      (m) => m.segmentId === seg.id,
+                    );
+
+                    if (attachedMarkers.length > 0) {
+                      const removeMarkers = confirm(
+                        `Remove ${attachedMarkers.length} marker${attachedMarkers.length > 1 ? "s" : ""} attached to this route?`,
+                      );
+
+                      if (removeMarkers) {
+                        store.$.markers = store.$.markers.filter(
+                          (m) => m.segmentId !== seg.id,
+                        );
+                      }
+                    }
+
+                    store.$.segments.splice(idx, 1);
+                    store.$.segments = [...store.$.segments];
+                  };
+
+                  return (
+                    <SimpleRow>
+                      <div class="flex items-center gap-2">
+                        <span class="flex-1">{seg.title ?? seg.fileName}</span>
+                        <span class="badge badge-soft badge-xs tabular-nums">
+                          {metersToKm(seg.segmentLength).toFixed(0)} km
+                        </span>
+                        <button
+                          onClick={handleRemoveSegment}
+                          class="btn btn-soft btn-sm hover:btn-error"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </SimpleRow>
+                  );
+                }}
               </store.reactiveEach>
             </ul>
 
