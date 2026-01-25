@@ -111,17 +111,16 @@ export class MapController {
 
     for (const [index, marker] of markers.entries()) {
       let [lng, lat] = marker.coordinate;
+      const markerName = marker.name || `CP ${index + 1}`;
 
       let icon = L.divIcon({
         className: "",
-        html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${marker.name}"></div>`,
+        html: `<div class="w-3 h-3 -translate-1/2 rounded-full bg-primary/50 tooltip hover:w-6 hover:h-6 transition-all border-2 border-primary drop-shadow-2xl" data-tip="${markerName}"></div>`,
         iconSize: [12, 12],
         iconAnchor: [0, 0],
       });
 
-      const mapMarker = L.marker({ lng, lat }, { icon })
-        .addTo(this.map)
-        .bindPopup(`<b>${marker.name}</b>`);
+      const mapMarker = L.marker({ lng, lat }, { icon }).addTo(this.map);
 
       this.markers.push(mapMarker);
 

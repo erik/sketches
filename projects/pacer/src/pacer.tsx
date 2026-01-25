@@ -190,7 +190,13 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
   return store;
 };
 
-const TabView = ({ store }: { store: AppState }) => {
+const TabView = ({
+  store,
+  globalStore,
+}: {
+  store: AppState;
+  globalStore: Livewire<GlobalStoreProps>;
+}) => {
   const tabStore = new Livewire({
     activeTab: "stats",
   });
@@ -198,6 +204,7 @@ const TabView = ({ store }: { store: AppState }) => {
   const tabs = [
     { id: "stats", label: "Stats" },
     { id: "map", label: "Map" },
+    { id: "setup", label: "Setup" },
   ];
 
   return (
@@ -218,7 +225,13 @@ const TabView = ({ store }: { store: AppState }) => {
               <button
                 key={tab.id}
                 class={`flex-1 py-3 px-4 text-center transition-all duration-200 ${activeTab === tab.id ? "bg-primary text-primary-content font-medium" : "bg-base-100 text-base-content hover:bg-base-200"}`}
-                onClick={() => tabStore.reduce(() => ({ activeTab: tab.id }))}
+                onClick={() => {
+                  if (tab.id === "setup") {
+                    globalStore.$.mode = "SETUP";
+                  } else {
+                    tabStore.reduce(() => ({ activeTab: tab.id }));
+                  }
+                }}
               >
                 {tab.label}
               </button>
@@ -235,7 +248,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
   return (
     <main class="h-dvh flex flex-col bg-base-100">
-      <TabView store={store}></TabView>
+      <TabView store={store} globalStore={globalStore}></TabView>
     </main>
   );
 }

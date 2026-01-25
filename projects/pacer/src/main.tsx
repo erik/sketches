@@ -41,7 +41,7 @@ async function init() {
 
   document.querySelector("#app").appendChild(
     <div class="mx-auto max-w-5xl">
-      <div class="navbar bg-base-200 shadow-sm border-b-2 border-base-200 sticky top-0 z-50">
+      <div class="navbar bg-base-200 shadow-sm border-b-2 border-base-200">
         <div class="flex-1">
           <span class="btn btn-ghost text-lg">sorelegs</span>
         </div>
