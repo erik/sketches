@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { createMap } from "../shared/map.js";
 import { RouteMarker, Segment } from "../shared/index.js";
 
+import { formatDateTimeCompact } from "../pacer.jsx";
 import { snapToNearestTrackSegment } from "../shared/geo.js";
 import { parseGPX } from "../shared/gpx.js";
 import { Livewire, type Children } from "../livewire.js";
@@ -24,16 +25,83 @@ type ComputedProps = {
   $valid: boolean;
 };
 
+// Demo data for testing - set to null to start with empty state
+const DEMO_SETUP_DATA = (() => {
+  const demoStartTime = Temporal.Now.instant().add({ hours: 2 });
+  const demoEndTime = demoStartTime.add({ hours: 128 });
+
+  return {
+    trackName: "2026 Two Volcano Sprint",
+    startTime: demoStartTime,
+    endTime: demoEndTime,
+    segments: [
+      {
+        id: "r1",
+        title: "2vs full route",
+        fileName: "2vs_combined.gpx",
+        segmentLength: 1250000, // 1250km in meters
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [14.382801, 40.820178], // Naples area (start)
+            [14.856495, 40.214285], // South towards Salerno
+            [15.426495, 39.814285], // Calabria
+            [16.026495, 39.614285], // Maratea area
+            [15.926495, 38.914285], // Further south
+            [15.626495, 38.214285], // Ferry crossing area
+            [15.326495, 37.814285], // Sicily approach
+            [15.026495, 37.614285], // Nicolosi/Etna area (finish)
+          ],
+        },
+      },
+    ],
+    markers: [
+      {
+        id: "m1",
+        kind: "marker" as const,
+        name: "Maratea - halfway",
+        segmentId: "r1",
+        coordinate: [16.026495, 39.614285] as [number, number],
+        routeDistance: 650,
+        goalTime: demoStartTime.add({ hours: 32 }),
+      },
+      {
+        id: "m2",
+        kind: "control" as const,
+        name: "Ferry",
+        note: "24h",
+        segmentId: "r1",
+        coordinate: [15.626495, 38.214285] as [number, number],
+        routeDistance: 950,
+        cutoffTime: demoStartTime.add({ hours: 48 }),
+        goalTime: demoStartTime.add({ hours: 40 }),
+      },
+      {
+        id: "m3",
+        kind: "finish" as const,
+        name: "Finish Line",
+        note: "Town of Nicolosi after Etna descent",
+        segmentId: "r1",
+        coordinate: [15.026495, 37.614285] as [number, number],
+        routeDistance: 1250,
+        cutoffTime: demoEndTime,
+      },
+    ],
+  };
+})();
+
 const createStore = (
   global: Livewire<GlobalStoreProps>,
 ): Livewire<StoreProps, ComputedProps> => {
-  const store = new Livewire<StoreProps, ComputedProps>({
-    trackName: "Untitled",
-    startTime: null,
-    endTime: null,
-    segments: [],
-    markers: [],
-  }).compute(
+  const store = new Livewire<StoreProps, ComputedProps>(
+    DEMO_SETUP_DATA || {
+      trackName: "Untitled",
+      startTime: null,
+      endTime: null,
+      segments: [],
+      markers: [],
+    },
+  ).compute(
     "$valid",
     ({ trackName, startTime, endTime }) =>
       trackName?.length && !!startTime && !!endTime,
@@ -77,91 +145,183 @@ const EditableText = ({
           store.$.textValue = (e.target as HTMLInputElement).value;
           store.$.textValue !== placeholder && onChange(store.$.textValue);
         }}
-        class="input input-sm"
+        class="input input-sm w-full"
       />
     ) : (
-      <span
+      <div
         onClick={() => (store.$.editing = true)}
-        class="cursor-pointer text-sm hover:bg-base-100 p-2"
+        class="cursor-pointer font-medium hover:bg-base-200 px-2 py-1 rounded -ml-2"
       >
         {textValue || placeholder}
-      </span>
+      </div>
     ),
   );
 };
 
-const SortableRow = (
-  { store, index, watchKey }: { store: any; index: number; watchKey: string },
-  ...children: Children
-) => {
-  const reorderItems = (i: number, j: number) => {
-    if (i !== j && i >= 0 && j >= 0) {
-      const xs = [...store.$[watchKey]];
-      const [x] = xs.splice(i, 1);
-      xs.splice(j, 0, x);
-      store.$[watchKey] = xs;
-    }
-  };
-
-  const dropStyle = ["ring-2", "ring-inset", "ring-primary", "bg-primary/20"];
-  const cleanupDrag = () => {
-    document.querySelectorAll(".sortable-row").forEach((row) => {
-      dropStyle.forEach((s) => row.classList.remove(s));
-    });
-  };
-
-  // Mouse/drag event handlers
-  const handleDragStart = (e: DragEvent) => {
-    e.dataTransfer.setData("text/plain", index.toString());
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const onDragEnter = (e: DragEvent) => {
-    const target = e.target as HTMLElement;
-
-    const node = target.classList.contains("sortable-row")
-      ? target
-      : target.closest(".sortable-row");
-
-    dropStyle.forEach((s) => node?.classList.add(s));
-  };
-
-  const onDragLeave = (e: DragEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.classList.contains("sortable-row")) {
-      dropStyle.forEach((s) => target.classList.remove(s));
-    }
-  };
-
-  const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault();
-    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
-    const toIndex = index;
-
-    reorderItems(fromIndex, toIndex);
-    cleanupDrag();
-  };
-
-  const handleDragEnd = (e: DragEvent) => cleanupDrag();
+const SimpleRow = (_props: {}, ...children: Children) => {
   return (
-    <li
-      class="sortable-row list-row flex items-baseline border border-base-300 bg-base-100 hover:bg-base-200 active:opacity-50"
-      draggable={true}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-      onDragEnd={handleDragEnd}
-      onDragEnter={onDragEnter}
-      onDragLeave={onDragLeave}
-    >
-      <div class="cursor-grab active:cursor-grabbing">⠿</div>
+    <li class="border border-base-300 bg-base-100 hover:bg-base-200 p-3">
       {...children}
     </li>
+  );
+};
+
+const MarkerDropdown = ({
+  store,
+  index,
+  marker,
+}: {
+  store: Livewire<StoreProps, ComputedProps>;
+  index: number;
+  marker: RouteMarker;
+}) => {
+  const dropdownState = new Livewire({
+    showCutoffInput: false,
+    showGoalInput: false,
+  });
+
+  const isTimed = !!(marker.goalTime || marker.cutoffTime);
+
+  const toggleTimed = () => {
+    if (isTimed) {
+      // Clear times
+      store.$.markers[index].goalTime = undefined;
+      store.$.markers[index].cutoffTime = undefined;
+    } else {
+      // Set default goal time to event start time (or current time)
+      store.$.markers[index].goalTime =
+        store.$.startTime || Temporal.Now.instant();
+    }
+    store.$.markers = [...store.$.markers];
+  };
+
+  const setCutoffTime = (value: string) => {
+    if (value) {
+      const instant = Temporal.PlainDateTime.from(value)
+        .toZonedDateTime(Temporal.Now.timeZoneId())
+        .toInstant();
+      store.$.markers[index].cutoffTime = instant;
+      store.$.markers = [...store.$.markers];
+    }
+    dropdownState.$.showCutoffInput = false;
+  };
+
+  const setGoalTime = (value: string) => {
+    if (value) {
+      const instant = Temporal.PlainDateTime.from(value)
+        .toZonedDateTime(Temporal.Now.timeZoneId())
+        .toInstant();
+      store.$.markers[index].goalTime = instant;
+      store.$.markers = [...store.$.markers];
+    }
+    dropdownState.$.showGoalInput = false;
+  };
+
+  const removeMarker = () => {
+    store.$.markers.splice(index, 1);
+    store.$.markers = [...store.$.markers];
+  };
+
+  return dropdownState.render(
+    ["showCutoffInput", "showGoalInput"],
+    ({ showCutoffInput, showGoalInput }) => (
+      <div class="dropdown dropdown-end">
+        <button class="btn btn-soft btn-sm" type="button" tabindex="0">
+          ...
+        </button>
+        <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-10">
+          <li>
+            <a onClick={toggleTimed}>
+              {isTimed ? "Mark as untimed" : "Mark as timed"}
+            </a>
+          </li>
+
+          {isTimed && (
+            <>
+              <li>
+                <a
+                  onClick={() => (dropdownState.$.showCutoffInput = true)}
+                  class="flex justify-between items-center"
+                >
+                  <span>Set cutoff time</span>
+                  {marker.cutoffTime && (
+                    <span class="badge badge-xs badge-soft">
+                      {formatDateTimeCompact(marker.cutoffTime)}
+                    </span>
+                  )}
+                </a>
+              </li>
+
+              {showCutoffInput && (
+                <li class="p-2">
+                  <input
+                    type="datetime-local"
+                    value={
+                      marker.cutoffTime
+                        ? marker.cutoffTime
+                            .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                            .toPlainDateTime()
+                            .toString()
+                            .slice(0, 16)
+                        : ""
+                    }
+                    autoFocus
+                    onBlur={(e: Event) =>
+                      setCutoffTime((e.target as HTMLInputElement).value)
+                    }
+                    class="input input-sm w-full"
+                  />
+                </li>
+              )}
+
+              <li>
+                <a
+                  onClick={() => (dropdownState.$.showGoalInput = true)}
+                  class="flex justify-between items-center"
+                >
+                  <span>Set goal time</span>
+                  {marker.goalTime && (
+                    <span class="badge badge-xs badge-soft">
+                      {formatDateTimeCompact(marker.goalTime)}
+                    </span>
+                  )}
+                </a>
+              </li>
+
+              {showGoalInput && (
+                <li class="p-2">
+                  <input
+                    type="datetime-local"
+                    value={
+                      marker.goalTime
+                        ? marker.goalTime
+                            .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                            .toPlainDateTime()
+                            .toString()
+                            .slice(0, 16)
+                        : ""
+                    }
+                    autoFocus
+                    onBlur={(e: Event) =>
+                      setGoalTime((e.target as HTMLInputElement).value)
+                    }
+                    class="input input-sm w-full"
+                  />
+                </li>
+              )}
+
+              <hr />
+            </>
+          )}
+
+          <li>
+            <a onClick={removeMarker} class="text-error">
+              Remove marker
+            </a>
+          </li>
+        </ul>
+      </div>
+    ),
   );
 };
 
@@ -174,27 +334,57 @@ const RouteMarkerRow = ({
   index: number;
   marker: RouteMarker;
 }) => {
+  const hasSecondaryInfo =
+    marker.routeDistance !== undefined ||
+    marker.cutoffTime ||
+    marker.goalTime ||
+    marker.note;
+
   return (
-    <SortableRow store={store} index={index} watchKey="markers">
-      <EditableText
-        value={marker.name || ""}
-        placeholder={`CP ${index + 1}`}
-        onChange={(s) => {
-          store.$.markers[index].name = s;
-          store.$.markers = [...store.$.markers];
-        }}
-      />
-      <span class="flex-1" />
-      <button
-        onClick={() => {
-          store.$.markers.splice(index, 1);
-          store.$.markers = [...store.$.markers];
-        }}
-        class="btn btn-soft btn-sm hover:btn-error"
-      >
-        ...
-      </button>
-    </SortableRow>
+    <SimpleRow>
+      <div class="block">
+        {/* Title row with name and dropdown */}
+        <div class="flex w-full justify-between">
+          <div>
+            <EditableText
+              value={marker.name || ""}
+              placeholder={`CP ${index + 1}`}
+              onChange={(s) => {
+                store.$.markers[index].name = s;
+                store.$.markers = [...store.$.markers];
+              }}
+            />
+          </div>
+          <div>
+            <MarkerDropdown store={store} index={index} marker={marker} />
+          </div>
+        </div>
+
+        {/* Secondary info on separate lines */}
+        {hasSecondaryInfo && (
+          <div class="space-y-1 text-xs text-gray-600">
+            {marker.routeDistance !== undefined && (
+              <div>{marker.routeDistance.toFixed(1)} km</div>
+            )}
+            {(marker.cutoffTime || marker.goalTime) && (
+              <div class="flex flex-wrap gap-2">
+                {marker.goalTime && (
+                  <span class="badge badge-xs badge-soft">
+                    Goal: {formatDateTimeCompact(marker.goalTime)}
+                  </span>
+                )}
+                {marker.cutoffTime && (
+                  <span class="badge badge-xs badge-soft">
+                    Cutoff: {formatDateTimeCompact(marker.cutoffTime)}
+                  </span>
+                )}
+              </div>
+            )}
+            {marker.note && <div class="italic">{marker.note}</div>}
+          </div>
+        )}
+      </div>
+    </SimpleRow>
   );
 };
 
@@ -312,23 +502,23 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
             <ul class="list max-h-72 overflow-y-auto space-y-1">
               <store.reactiveEach key="segments">
                 {(seg: Segment, idx: number) => (
-                  <SortableRow store={store} index={idx} watchKey="segments">
-                    {seg.title ?? seg.fileName}
-                    <span class="flex-1" />
-
-                    <span class="badge badge-soft badge-xs tabular-nums">
-                      {(seg.segmentLength / 1000).toFixed(0)} km
-                    </span>
-                    <button
-                      onClick={() => {
-                        store.$.segments.splice(idx, 1);
-                        store.$.segments = [...store.$.segments];
-                      }}
-                      class="btn btn-soft btn-sm hover:btn-error"
-                    >
-                      ×
-                    </button>
-                  </SortableRow>
+                  <SimpleRow>
+                    <div class="flex items-center gap-2">
+                      <span class="flex-1">{seg.title ?? seg.fileName}</span>
+                      <span class="badge badge-soft badge-xs tabular-nums">
+                        {(seg.segmentLength / 1000).toFixed(0)} km
+                      </span>
+                      <button
+                        onClick={() => {
+                          store.$.segments.splice(idx, 1);
+                          store.$.segments = [...store.$.segments];
+                        }}
+                        class="btn btn-soft btn-sm hover:btn-error"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </SimpleRow>
                 )}
               </store.reactiveEach>
             </ul>

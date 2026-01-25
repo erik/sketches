@@ -29,7 +29,9 @@ type EventState = {
   markerArrivalTimes: Record<string, Temporal.Instant>;
 };
 
-function formatDateTimeCompact(instant: Temporal.Instant | null): string {
+export function formatDateTimeCompact(
+  instant: Temporal.Instant | null,
+): string {
   if (instant == null) return "--";
 
   const zdt = instant.toZonedDateTimeISO(Temporal.Now.timeZoneId());
@@ -400,6 +402,41 @@ function calculateEta(
   return now.add({ seconds: Math.round((distRemain / pace) * 3600) });
 }
 
+function getNextRelevantTime(
+  marker: any,
+  now: Temporal.Instant,
+): { time: Temporal.Instant; type: "cutoff" | "goal" } | null {
+  const cutoff = marker.cutoffTime;
+  const goal = marker.goalTime;
+
+  if (!cutoff && !goal) return null;
+  if (!cutoff) return { time: goal, type: "goal" };
+  if (!goal) return { time: cutoff, type: "cutoff" };
+
+  // Both times exist - prioritize the next upcoming one
+  const cutoffPassed = Temporal.Instant.compare(now, cutoff) > 0;
+  const goalPassed = Temporal.Instant.compare(now, goal) > 0;
+
+  if (!cutoffPassed && !goalPassed) {
+    // Neither passed - show whichever is sooner
+    return Temporal.Instant.compare(cutoff, goal) < 0
+      ? { time: cutoff, type: "cutoff" }
+      : { time: goal, type: "goal" };
+  }
+
+  if (cutoffPassed && goalPassed) {
+    // Both passed - show the later one
+    return Temporal.Instant.compare(cutoff, goal) > 0
+      ? { time: cutoff, type: "cutoff" }
+      : { time: goal, type: "goal" };
+  }
+
+  // One passed, one hasn't - show the one that hasn't passed
+  return cutoffPassed
+    ? { time: goal, type: "goal" }
+    : { time: cutoff, type: "cutoff" };
+}
+
 const RouteMarkerCard = ({
   marker,
   store,
@@ -443,6 +480,10 @@ const RouteMarkerCard = ({
   // For start point, don't allow check-in
   const isStartPoint = marker.kind === "start";
 
+  const now = Temporal.Now.instant();
+  const nextTime =
+    !isCompleted && !isStartPoint ? getNextRelevantTime(marker, now) : null;
+
   const MiniStat = ({ title, value }: { title: string; value: string }) => (
     <div class="text-xs">
       <div class="text-gray-500">{title}</div>
@@ -455,8 +496,16 @@ const RouteMarkerCard = ({
       class={`card shadow-sm mb-4 overflow-hidden p-4 bg-base-200 rounded-lg ${isCompleted || isStartPoint ? "bg-gray-600/10" : "bg-base-100 border-base-300"}`}
     >
       <div class="flex justify-between items-center mb-3">
-        <div>
-          <h4 class="font-bold text-md">{marker.name}</h4>
+        <div class="flex-1">
+          <div class="flex items-center gap-2 mb-1">
+            <h4 class="font-bold text-md">{marker.name}</h4>
+            {nextTime && (
+              <span class="badge badge-xs badge-soft">
+                {nextTime.type === "cutoff" ? "Cutoff" : "Goal"}:{" "}
+                {formatDateTimeCompact(nextTime.time)}
+              </span>
+            )}
+          </div>
           {marker.note && <p class="text-sm text-gray-600">{marker.note}</p>}
         </div>
         {isCompleted && (
