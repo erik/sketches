@@ -1,7 +1,8 @@
 import "./style.css";
 import "temporal-polyfill/global";
 
-import { loadRouteFromURL } from "./shared/storage.js";
+import { loadRouteFromURL, setUrlToEvent } from "./shared/storage.js";
+import { EventConfig } from "./shared/index.js";
 
 import { Livewire, htmlTemplate } from "./livewire.js";
 import { createApp as createSetupApp } from "./setup/app.jsx";
@@ -33,6 +34,16 @@ async function init() {
     theme: "dark",
   });
 
+  // Store current event config (loaded from URL or set by setup)
+  let currentEvent: EventConfig | null = storedRoute;
+
+  // Callback for setup form to pass event config to tracker
+  const onSetupComplete = async (eventConfig: EventConfig) => {
+    currentEvent = eventConfig;
+    await setUrlToEvent(eventConfig);
+    store.$.mode = "PACE_TRACKER";
+  };
+
   // Set initial theme
   const initialDaisyTheme = store.$.theme === "dark" ? "halloween" : "light";
   document.documentElement.setAttribute("data-theme", initialDaisyTheme);
@@ -59,7 +70,9 @@ async function init() {
 
       <store.reactive keys={["mode"]}>
         {({ mode }: { mode: string }) =>
-          mode === "SETUP" ? createSetupApp(store) : createPaceTrackerApp(store)
+          mode === "SETUP"
+            ? createSetupApp(store, onSetupComplete)
+            : createPaceTrackerApp(store, currentEvent)
         }
       </store.reactive>
     </div>,

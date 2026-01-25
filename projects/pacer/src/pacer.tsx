@@ -83,10 +83,13 @@ function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
   // );
 }
 
-const createStore = (g: Livewire<GlobalStoreProps>) => {
+const createStore = (
+  g: Livewire<GlobalStoreProps>,
+  event: EventConfig | null,
+) => {
   const store = new Livewire<StoreProps, ComputedProps>({
     state: "inprogress",
-    event: DEMO_DATA,
+    event: event || DEMO_DATA,
     userLocation: undefined,
     progress: {},
   });
@@ -206,8 +209,11 @@ const TabView = ({
   );
 };
 
-export function createApp(globalStore: Livewire<GlobalStoreProps>) {
-  const store = createStore(globalStore);
+export function createApp(
+  globalStore: Livewire<GlobalStoreProps>,
+  event: EventConfig | null,
+) {
+  const store = createStore(globalStore, event);
 
   return (
     <main class="h-dvh flex flex-col bg-base-100">

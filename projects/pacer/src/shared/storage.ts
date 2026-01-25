@@ -43,6 +43,41 @@ export async function setUrlToEvent(event: EventConfig) {
   window.history.replaceState(null, "", `#r=${compressed}`);
 }
 
+/**
+ * Revive Temporal.Instant objects from ISO strings after JSON deserialization
+ */
+function reviveTemporalInstants(obj: any): any {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map((item) => reviveTemporalInstants(item));
+  }
+
+  // Handle objects
+  const revived: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    // Check if this looks like a Temporal.Instant ISO string
+    if (
+      typeof value === "string" &&
+      (key === "startTime" ||
+        key === "endTime" ||
+        key === "goalTime" ||
+        key === "cutoffTime" ||
+        key === "arrivalTime") &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)
+    ) {
+      revived[key] = Temporal.Instant.from(value);
+    } else {
+      revived[key] = reviveTemporalInstants(value);
+    }
+  }
+
+  return revived;
+}
+
 export async function loadRouteFromURL(): Promise<EventConfig | null> {
   const hash = window.location.hash;
 
@@ -51,7 +86,8 @@ export async function loadRouteFromURL(): Promise<EventConfig | null> {
   }
   try {
     const compressed = hash.slice(3);
-    return await decompressFromURL(compressed);
+    const data = await decompressFromURL(compressed);
+    return reviveTemporalInstants(data);
   } catch (e) {
     console.error("Failed to decompress route from URL:", e);
     return null;

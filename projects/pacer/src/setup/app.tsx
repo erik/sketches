@@ -2,7 +2,13 @@ import L, { LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
-import { RouteMarker, Segment, Meters, metersToKm } from "../shared/index.js";
+import {
+  RouteMarker,
+  Segment,
+  Meters,
+  metersToKm,
+  EventConfig,
+} from "../shared/index.js";
 import {
   formatDateTimeCompact,
   instantToDateTimeLocal,
@@ -565,8 +571,31 @@ const DateTimePicker = ({
   );
 };
 
-export function createApp(globalStore: Livewire<GlobalStoreProps>) {
+export function createApp(
+  globalStore: Livewire<GlobalStoreProps>,
+  onSetupComplete: (event: EventConfig) => void,
+) {
   const store = createStore(globalStore);
+
+  const handleDone = () => {
+    // Calculate total route length
+    const routeLength = Meters(
+      store.$.segments.reduce((sum, seg) => sum + seg.segmentLength, 0),
+    );
+
+    // Build EventConfig from form data
+    const eventConfig: EventConfig = {
+      name: store.$.trackName,
+      startTime: store.$.startTime!,
+      endTime: store.$.endTime!,
+      routeLength,
+      segments: store.$.segments,
+      markers: store.$.markers,
+    };
+
+    // Pass to callback
+    onSetupComplete(eventConfig);
+  };
 
   return (
     <main class="bg-base-100 p-4">
@@ -710,7 +739,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
           <store.reactive keys="$valid">
             {({ $valid }: ComputedProps) => (
-              <button class="btn" onClick="" disabled={!$valid}>
+              <button class="btn" onClick={handleDone} disabled={!$valid}>
                 Done
               </button>
             )}
