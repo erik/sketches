@@ -3,7 +3,7 @@ import L, { LatLngTuple } from "leaflet";
 
 import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
-import { type EventConfig } from "./shared/index.js";
+import { type EventConfig, Meters, metersToKm } from "./shared/index.js";
 import { calculateRoutePosition } from "./shared/geo.js";
 import {
   formatDateTimeCompact,
@@ -21,16 +21,16 @@ export { formatDateTimeCompact };
 type EventState = {
   eventStatus: "before" | "during" | "after";
   nextMarkerId: string;
-  currentDistance: number;
+  currentDistance: Meters;
   lastLocation: Position;
   markerArrivalTimes: Record<string, Temporal.Instant>;
 };
 
 function formatRelativeDistance(
-  currentDistance: number,
-  totalDistance: number,
+  currentDistance: Meters,
+  totalDistance: Meters,
 ): string {
-  return `${(totalDistance - currentDistance).toFixed(1)} km remaining`;
+  return `${metersToKm(Meters(totalDistance - currentDistance)).toFixed(1)} km remaining`;
 }
 
 type MarkerVisitStatus = {
@@ -47,7 +47,7 @@ type StoreProps = {
 };
 
 type ComputedProps = {
-  $currentDistance: number;
+  $currentDistance: Meters;
   $currentPace: number;
 };
 
@@ -105,13 +105,13 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
 
       // If user is very far from route (50+ km), snap to position 0
       if (distanceFromTrack > 50) {
-        return 0;
+        return Meters(0);
       }
 
       return distanceFromStart;
     }
 
-    return 0;
+    return Meters(0);
   });
 
   store.compute("$currentPace", ({ event, $currentDistance }) => {
@@ -120,7 +120,8 @@ const createStore = (g: Livewire<GlobalStoreProps>) => {
     const hoursElapsed = elapsedTime.total({ unit: "hours" });
 
     if ($currentDistance > 0 && hoursElapsed > 0) {
-      return $currentDistance / hoursElapsed;
+      // Convert meters to km and divide by hours to get km/h
+      return metersToKm($currentDistance) / hoursElapsed;
     }
 
     return 0;
@@ -261,7 +262,7 @@ const StatsTab = ({ store }: { store: AppState }) => {
               nextMarker &&
               calculateRequiredPace(
                 $currentDistance,
-                nextMarker.routeDistance || event.routeLength || 0,
+                nextMarker.routeDistance || event.routeLength || Meters(0),
                 nextMarker.cutoffTime,
               );
 
@@ -277,7 +278,7 @@ const StatsTab = ({ store }: { store: AppState }) => {
               <div class="grid grid-cols-2 gap-4">
                 <StatCard
                   title="Distance"
-                  value={`${$currentDistance.toFixed(1)} km`}
+                  value={`${metersToKm($currentDistance).toFixed(1)} km`}
                   subtitle={formatRelativeDistance(
                     $currentDistance,
                     event.routeLength,
@@ -345,8 +346,8 @@ const StatsTab = ({ store }: { store: AppState }) => {
 };
 
 function calculateRequiredPace(
-  currentDist: number,
-  totalDist: number,
+  currentDist: Meters,
+  totalDist: Meters,
   targetTime: Temporal.Instant | null,
 ): number | null {
   if (!targetTime) return null;
@@ -358,23 +359,23 @@ function calculateRequiredPace(
     return null;
 
   const timeRemain = duration.total({ unit: "hours" });
-  const distRemain = totalDist - currentDist;
+  const distRemainKm = metersToKm(Meters(totalDist - currentDist));
 
-  return distRemain / timeRemain;
+  return distRemainKm / timeRemain;
 }
 
 function calculateEta(
-  currentDist: number,
-  totalDist: number,
+  currentDist: Meters,
+  totalDist: Meters,
   pace: number,
 ): Temporal.Instant | null {
   if (pace <= 0) return null;
 
-  const distRemain = totalDist - currentDist;
-  if (distRemain <= 0) return null;
+  const distRemainKm = metersToKm(Meters(totalDist - currentDist));
+  if (distRemainKm <= 0) return null;
 
   const now = Temporal.Now.instant();
-  return now.add({ seconds: Math.round((distRemain / pace) * 3600) });
+  return now.add({ seconds: Math.round((distRemainKm / pace) * 3600) });
 }
 
 function getNextRelevantTime(
@@ -503,7 +504,7 @@ const RouteMarkerCard = ({
           <>
             <MiniStat
               title="Distance"
-              value={`${marker.routeDistance?.toFixed(1) || "?"} km`}
+              value={`${marker.routeDistance ? metersToKm(marker.routeDistance).toFixed(1) : "?"} km`}
             />
             <MiniStat
               title="Pace"
@@ -519,7 +520,7 @@ const RouteMarkerCard = ({
           <>
             <MiniStat
               title="Distance"
-              value={`${(marker.routeDistance - $currentDistance).toFixed(1)} km`}
+              value={`${metersToKm(Meters(marker.routeDistance - $currentDistance)).toFixed(1)} km`}
             />
             <MiniStat
               title="ETA"

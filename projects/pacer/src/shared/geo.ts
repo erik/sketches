@@ -11,19 +11,20 @@ export { nearestPointOnLine, length, lineSlice };
 
 /**
  * Calculate route position including distance along track and distance from track.
+ * Returns distanceFromStart in meters (as Meters branded type).
  */
 export function calculateRoutePosition(
   routeCoordinates: [number, number][],
   userLocation: [number, number],
-): { distanceFromStart: number; distanceFromTrack: number } {
+): { distanceFromStart: Meters; distanceFromTrack: number } {
   const line = lineString(routeCoordinates);
   const nearest = nearestPointOnLine(line, userLocation, { units: "meters" });
 
-  // Calculate distance along track
+  // Calculate distance along track in meters
   const start = point(routeCoordinates[0]);
   const snappedPoint = point(nearest.geometry.coordinates);
   const sliced = lineSlice(start, snappedPoint, line);
-  const distanceFromStart = length(sliced, { units: "kilometers" });
+  const distanceFromStart = Meters(length(sliced, { units: "meters" }));
 
   return {
     distanceFromStart,
