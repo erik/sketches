@@ -1,25 +1,9 @@
 import { type LineString, type Position } from "geojson";
 
-/**
- * Branded type for distance in meters.
- * Prevents accidental mixing of units (meters, kilometers, miles, etc).
- */
-export type Meters = number & { readonly __brand: "Meters" };
+export type Meters = number & { readonly __brand: "m" };
 
-/**
- * Create a Meters value from a number.
- * Use this to explicitly mark a number as representing meters.
- */
 export const Meters = (value: number): Meters => value as Meters;
-
-/**
- * Convert Meters to kilometers for display.
- */
 export const metersToKm = (meters: Meters): number => meters / 1000;
-
-/**
- * Convert kilometers to Meters.
- */
 export const kmToMeters = (km: number): Meters => Meters(km * 1000);
 
 export type EventConfig = {

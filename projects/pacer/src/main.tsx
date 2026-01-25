@@ -8,10 +8,13 @@ import { Livewire, htmlTemplate } from "./livewire.js";
 import { createApp as createSetupApp } from "./setup/app.jsx";
 import { createApp as createPaceTrackerApp } from "./pacer.jsx";
 
+const DARK_THEME = "halloween";
+const LIGHT_THEME = "light";
+
 export type GlobalStoreProps = {
   mode: "PACE_TRACKER" | "SETUP";
   units: "METRIC" | "IMPERIAL";
-  theme: "light" | "dark";
+  darkmode: boolean;
 };
 
 const THEME_ICON = htmlTemplate`
@@ -31,7 +34,7 @@ async function init() {
   const store = new Livewire<GlobalStoreProps>({
     mode: initialMode,
     units: "METRIC",
-    theme: "dark",
+    darkmode: true,
   });
 
   // Store current event config (loaded from URL or set by setup)
@@ -44,15 +47,15 @@ async function init() {
     store.$.mode = "PACE_TRACKER";
   };
 
-  // Set initial theme
-  const initialDaisyTheme = store.$.theme === "dark" ? "halloween" : "light";
-  document.documentElement.setAttribute("data-theme", initialDaisyTheme);
+  store.watch(["darkmode"], (darkmode) => {
+    document.documentElement.setAttribute(
+      "data-theme",
+      darkmode ? DARK_THEME : LIGHT_THEME,
+    );
+  });
 
   const toggleTheme = () => {
-    const newTheme = store.$.theme === "dark" ? "light" : "dark";
-    store.$.theme = newTheme;
-    const daisyTheme = newTheme === "dark" ? "halloween" : "light";
-    document.documentElement.setAttribute("data-theme", daisyTheme);
+    store.$.darkmode = !store.$.darkmode;
   };
 
   document.querySelector("#app").appendChild(

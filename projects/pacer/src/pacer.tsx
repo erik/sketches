@@ -10,6 +10,12 @@ import {
   formatDuration,
   formatRelativeTime,
 } from "./shared/time.js";
+import {
+  getEventId,
+  loadTrackerState,
+  saveTrackerState,
+  type TrackerState,
+} from "./shared/storage.js";
 
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
@@ -86,12 +92,13 @@ function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
 const createStore = (
   g: Livewire<GlobalStoreProps>,
   event: EventConfig | null,
+  savedState: TrackerState | null,
 ) => {
   const store = new Livewire<StoreProps, ComputedProps>({
-    state: "inprogress",
+    state: savedState?.state || "inprogress",
     event: event || DEMO_DATA,
     userLocation: undefined,
-    progress: {},
+    progress: savedState?.progress || {},
   });
 
   store.compute("$currentDistance", ({ userLocation, event }) => {
@@ -156,6 +163,39 @@ const createStore = (
   return store;
 };
 
+/**
+ * Set up automatic state persistence to localStorage
+ */
+async function setupStatePersistence(store: AppState, event: EventConfig) {
+  const eventId = getEventId(event);
+
+  // Watch for state or progress changes and save to localStorage
+  store.watch(["state", "progress"], ({ state, progress }) => {
+    // Convert Temporal.Instant to ISO strings for storage
+    const serializedProgress: Record<
+      string,
+      {
+        state: "unvisited" | "visited" | "skipped";
+        arrivalTime?: string;
+        segmentPace?: number;
+      }
+    > = {};
+    for (const [markerId, markerProgress] of Object.entries(progress)) {
+      serializedProgress[markerId] = {
+        ...markerProgress,
+        arrivalTime: markerProgress.arrivalTime?.toString(),
+      };
+    }
+
+    const trackerState = {
+      state,
+      progress: serializedProgress,
+    };
+
+    saveTrackerState(eventId, trackerState);
+  });
+}
+
 const TabView = ({
   store,
   globalStore,
@@ -213,7 +253,16 @@ export function createApp(
   globalStore: Livewire<GlobalStoreProps>,
   event: EventConfig | null,
 ) {
-  const store = createStore(globalStore, event);
+  const actualEvent = event || DEMO_DATA;
+
+  // Load saved tracker state from localStorage
+  const eventId = getEventId(actualEvent);
+  const savedState = loadTrackerState(eventId);
+
+  const store = createStore(globalStore, actualEvent, savedState);
+
+  // Set up automatic state persistence
+  setupStatePersistence(store, actualEvent);
 
   return (
     <main class="h-dvh flex flex-col bg-base-100">
@@ -395,19 +444,16 @@ function getNextRelevantTime(
   if (!cutoff) return { time: goal, type: "goal" };
   if (!goal) return { time: cutoff, type: "cutoff" };
 
-  // Both times exist - prioritize the next upcoming one
   const cutoffPassed = Temporal.Instant.compare(now, cutoff) > 0;
   const goalPassed = Temporal.Instant.compare(now, goal) > 0;
 
   if (!cutoffPassed && !goalPassed) {
-    // Neither passed - show whichever is sooner
     return Temporal.Instant.compare(cutoff, goal) < 0
       ? { time: cutoff, type: "cutoff" }
       : { time: goal, type: "goal" };
   }
 
   if (cutoffPassed && goalPassed) {
-    // Both passed - show the later one
     return Temporal.Instant.compare(cutoff, goal) > 0
       ? { time: cutoff, type: "cutoff" }
       : { time: goal, type: "goal" };
@@ -590,23 +636,20 @@ function initializeMap(
   globalStore: Livewire<GlobalStoreProps>,
 ) {
   const { markers, segments } = store.$.event;
-  const map = createMap(container, { theme: globalStore.$.theme });
-
-  const allCoordinates = segments.map(
-    (s) => s.geometry.coordinates,
-  ) as LatLngTuple[][];
+  const map = createMap(container, {
+    darkmode: globalStore.$.darkmode,
+  });
 
   map.setRouteMarkers(markers);
-  map.setTrack(allCoordinates, { fitBounds: true });
+  map.setTrackSegments(segments, { fitBounds: true });
 
   store.watch(["userLocation"], ({ userLocation }) => {
     const [lng, lat] = userLocation;
     map.setUserLocation({ lat, lng });
   });
 
-  // Watch for theme changes
-  globalStore.watch(["theme"], ({ theme }) => {
-    map.setTheme(theme);
+  globalStore.watch(["darkmode"], ({ darkmode }) => {
+    map.setDarkMode(darkmode);
   });
 
   watchUserLocation(store);

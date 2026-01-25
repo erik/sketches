@@ -1,4 +1,4 @@
-import L, { LatLngTuple } from "leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
@@ -34,7 +34,6 @@ type ComputedProps = {
   $valid: boolean;
 };
 
-// Demo data for testing - set to null to start with empty state
 const DEMO_SETUP_DATA = (() => {
   const demoStartTime = Temporal.Now.instant().add({ hours: 2 });
   const demoEndTime = demoStartTime.add({ hours: 128 });
@@ -209,19 +208,17 @@ const MarkerDropdown = ({
   const isTimed = !!(marker.goalTime || marker.cutoffTime);
 
   const setName = (value: string) => {
-    store.update("markers", (arr) => {
-      const copy = [...arr];
-      copy[index] = { ...copy[index], name: value };
-      return copy;
+    store.update("markers", (markers) => {
+      markers[index].name = value;
+      return markers;
     });
     dropdownState.$.showNameInput = false;
   };
 
   const setNote = (value: string) => {
-    store.update("markers", (arr) => {
-      const copy = [...arr];
-      copy[index] = { ...copy[index], note: value };
-      return copy;
+    store.update("markers", (markers) => {
+      markers[index].note = value;
+      return markers;
     });
     dropdownState.$.showNoteInput = false;
   };
@@ -229,25 +226,22 @@ const MarkerDropdown = ({
   const clearTiming = (e: Event) => {
     e.preventDefault();
 
-    store.update("markers", (arr) => {
-      const copy = [...arr];
-      copy[index] = {
-        ...copy[index],
+    store.update("markers", (markers) => {
+      markers[index] = {
+        ...markers[index],
         goalTime: undefined,
         cutoffTime: undefined,
         kind: "marker",
       };
-      return copy;
+      return markers;
     });
   };
 
   const setCutoffTime = (value: string | null) => {
     if (value) {
-      const instant = dateTimeLocalToInstant(value);
-      store.update("markers", (arr) => {
-        const copy = [...arr];
-        copy[index] = { ...copy[index], cutoffTime: instant };
-        return copy;
+      store.update("markers", (markers) => {
+        markers[index].cutoffTime = dateTimeLocalToInstant(value);
+        return markers;
       });
     }
     dropdownState.$.showCutoffInput = false;
@@ -255,21 +249,18 @@ const MarkerDropdown = ({
 
   const setGoalTime = (value: string | null) => {
     if (value) {
-      const instant = dateTimeLocalToInstant(value);
-      store.update("markers", (arr) => {
-        const copy = [...arr];
-        copy[index] = { ...copy[index], goalTime: instant };
-        return copy;
+      store.update("markers", (markers) => {
+        markers[index].goalTime = dateTimeLocalToInstant(value);
+        return markers;
       });
     }
     dropdownState.$.showGoalInput = false;
   };
 
   const removeMarker = () => {
-    store.update("markers", (arr) => {
-      const copy = [...arr];
-      copy.splice(index, 1);
-      return copy;
+    store.update("markers", (markers) => {
+      markers.splice(index, 1);
+      return markers;
     });
   };
 
@@ -278,7 +269,7 @@ const MarkerDropdown = ({
       <button class="btn btn-soft btn-sm" type="button" tabindex="0">
         ...
       </button>
-      <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-[999]">
+      <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-999">
         <li>
           <button
             onClick={(e: Event) => {
@@ -476,7 +467,6 @@ const RouteMarkerRow = ({
   return (
     <SimpleRow>
       <div class="block">
-        {/* Title row with name and dropdown */}
         <div class="flex w-full justify-between items-start">
           <div class="flex-1 min-w-0">
             <h4 class="font-medium text-base">
@@ -486,7 +476,6 @@ const RouteMarkerRow = ({
           <MarkerDropdown store={store} index={index} marker={marker} />
         </div>
 
-        {/* Secondary info on separate lines */}
         {hasSecondaryInfo && (
           <div class="space-y-1 text-xs text-gray-600 mt-2">
             {marker.note && <div class="italic">{marker.note}</div>}
@@ -578,12 +567,10 @@ export function createApp(
   const store = createStore(globalStore);
 
   const handleDone = () => {
-    // Calculate total route length
     const routeLength = Meters(
       store.$.segments.reduce((sum, seg) => sum + seg.segmentLength, 0),
     );
 
-    // Build EventConfig from form data
     const eventConfig: EventConfig = {
       name: store.$.trackName,
       startTime: store.$.startTime!,
@@ -593,7 +580,6 @@ export function createApp(
       markers: store.$.markers,
     };
 
-    // Pass to callback
     onSetupComplete(eventConfig);
   };
 
@@ -680,16 +666,15 @@ export function createApp(
                       );
 
                       if (removeMarkers) {
-                        store.update("markers", (arr) =>
-                          arr.filter((m) => m.segmentId !== seg.id),
+                        store.update("markers", (markers) =>
+                          markers.filter((m) => m.segmentId !== seg.id),
                         );
                       }
                     }
 
-                    store.update("segments", (arr) => {
-                      const copy = [...arr];
-                      copy.splice(idx, 1);
-                      return copy;
+                    store.update("segments", (segments) => {
+                      segments.splice(idx, 1);
+                      return segments;
                     });
                   };
 
@@ -746,34 +731,13 @@ export function createApp(
           </store.reactive>
         </div>
       </div>
-
-      <button class="btn" onClick={() => (globalStore.$.mode = "PACE_TRACKER")}>
-        switch
-      </button>
-
-      <details>
-        <pre>
-          <store.reactive keys={Object.keys(store.$)}>
-            {(state: StoreProps & ComputedProps) =>
-              JSON.stringify(state, null, 4)
-            }
-          </store.reactive>
-        </pre>
-      </details>
     </main>
   );
 }
 
 const generateId = () => (1e16 * Math.random()).toString(36);
 
-/**
- * Sort markers by route distance while preserving order of unsnapped markers.
- * Markers with routeDistance are sorted by that value.
- * Markers without routeDistance maintain their relative positions.
- */
-const sortMarkersByRouteDistance = (
-  markers: RouteMarker[],
-): RouteMarker[] => {
+const sortMarkersByRouteDistance = (markers: RouteMarker[]): RouteMarker[] => {
   // Separate snapped and unsnapped markers
   const snapped: Array<{ marker: RouteMarker; originalIndex: number }> = [];
   const unsnapped: Array<{ marker: RouteMarker; originalIndex: number }> = [];
@@ -873,9 +837,8 @@ async function handleGPXFile(
   }
 
   store.update("segments", (arr) => [...arr, ...segments]);
-  store.update(
-    "markers",
-    (arr) => sortMarkersByRouteDistance([...arr, ...routeMarkers]),
+  store.update("markers", (arr) =>
+    sortMarkersByRouteDistance([...arr, ...routeMarkers]),
   );
 
   (event.target as HTMLInputElement).value = "";
@@ -886,10 +849,11 @@ function initMap(
   store: Livewire<StoreProps, ComputedProps>,
   globalStore: Livewire<GlobalStoreProps>,
 ) {
-  const map = createMap(node, { theme: globalStore.$.theme });
+  const map = createMap(node, {
+    darkmode: globalStore.$.darkmode,
+  });
   let prevSegmentLength = 0;
   let isInitialLoad = true;
-  console.log("init map", node);
 
   const updateMap = ({
     segments,
@@ -898,13 +862,10 @@ function initMap(
     segments: Segment[];
     markers: RouteMarker[];
   }) => {
-    const trackLines = segments.map((seg) =>
-      seg.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
-    );
+    const shouldFitBounds =
+      isInitialLoad || segments.length !== prevSegmentLength;
 
-    const shouldFitBounds = isInitialLoad || segments.length !== prevSegmentLength;
-
-    map.setTrack(trackLines, {
+    map.setTrackSegments(segments, {
       fitBounds: shouldFitBounds,
     });
 
@@ -925,15 +886,14 @@ function initMap(
         );
 
         // Update the marker with snapped position and segment info
-        store.update("markers", (arr) => {
-          const updatedMarkers = [...arr];
-          updatedMarkers[index] = {
-            ...updatedMarkers[index],
+        store.update("markers", (markers) => {
+          markers[index] = {
+            ...markers[index],
             coordinate: snap.coord,
             segmentId: snap.segmentId,
             routeDistance: snap.meters,
           };
-          return sortMarkersByRouteDistance(updatedMarkers);
+          return sortMarkersByRouteDistance(markers);
         });
 
         // Update the marker position to the snapped location
@@ -961,15 +921,8 @@ function initMap(
     },
   );
 
-  // Watch for theme changes
-  const unwatchTheme = globalStore.watch(["theme"], ({ theme }) => {
-    if (!map.getMap().getContainer()?.parentNode) {
-      return unwatchTheme();
-    }
-    map.setTheme(theme);
-  });
+  globalStore.watch(["darkmode"], ({ darkmode }) => map.setDarkMode(darkmode));
 
-  // Initialize map with current data
   updateMap({ segments: store.$.segments, markers: store.$.markers });
 
   map.onMapClick(({ lng, lat }: { lng: number; lat: number }) => {
@@ -991,8 +944,8 @@ function initMap(
         routeDistance: snapResult.meters,
       };
 
-      store.update("markers", (arr) =>
-        sortMarkersByRouteDistance([...arr, marker]),
+      store.update("markers", (markers) =>
+        sortMarkersByRouteDistance([...markers, marker]),
       );
       popup.close();
     }

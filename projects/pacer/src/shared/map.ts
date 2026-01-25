@@ -1,6 +1,11 @@
 import L, { LatLngExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { RouteMarker } from "./index.js";
+import { RouteMarker, Segment } from "./index.js";
+
+const DARKMODE_TILES =
+  "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png";
+const LIGHTMODE_TILES =
+  "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
 
 class RecenterMapControl extends L.Control {
   controller: MapController;
@@ -76,8 +81,8 @@ export class MapController {
     }
   }
 
-  setTrack(
-    coords: LatLngTuple[][],
+  setTrackSegments(
+    segments: Segment[],
     options: {
       fitBounds?: boolean;
       color?: string;
@@ -88,8 +93,11 @@ export class MapController {
     if (this.trackLayer) {
       this.map.removeLayer(this.trackLayer);
     }
+    if (segments.length === 0) return;
 
-    if (coords.length === 0) return;
+    const coords = segments.map((s) =>
+      s.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
+    );
 
     this.trackLayer = L.polyline(coords, {
       color: options.color || "#2563eb",
@@ -126,7 +134,6 @@ export class MapController {
 
       this.markers.push(mapMarker);
 
-      // Click handler for setup mode
       if (options.onClick) {
         mapMarker.on("click", () => options.onClick(marker));
       }
@@ -170,9 +177,6 @@ export class MapController {
     this.map.on("click", (e) => callback(e.latlng));
   }
 
-  /**
-   * Fit map to show all current layers.
-   */
   fitToContent() {
     const bounds = L.latLngBounds([]);
 
@@ -187,13 +191,8 @@ export class MapController {
     this.map.fitBounds(bounds, { padding: [100, 100] });
   }
 
-  setTheme(theme: "light" | "dark") {
-    const tileUrl =
-      theme === "dark"
-        ? "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
-        : "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
-
-    this.tileLayer.setUrl(tileUrl);
+  setDarkMode(darkmode: boolean) {
+    this.tileLayer.setUrl(darkmode ? DARKMODE_TILES : LIGHTMODE_TILES);
   }
 }
 
@@ -202,23 +201,16 @@ export function createMap(
   options: {
     center?: LatLngExpression;
     zoom?: number;
-    theme?: "light" | "dark";
+    darkmode?: boolean;
   } = {},
 ) {
-  // Initialize map
   const map = L.map(container, {
     center: options.center || [52.52, 13.405],
     zoom: options.zoom || 6,
     zoomControl: true,
   });
 
-  // Add tile layer based on theme
-  const tileUrl =
-    options.theme === "dark"
-      ? "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
-      : "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
-
-  const tileLayer = L.tileLayer(tileUrl, {
+  const tileLayer = L.tileLayer(DARKMODE_TILES, {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
@@ -226,5 +218,6 @@ export function createMap(
 
   const controller = new MapController(map, tileLayer);
   map.addControl(new RecenterMapControl(controller));
+  controller.setDarkMode(options.darkmode ?? true);
   return controller;
 }

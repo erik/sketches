@@ -93,3 +93,70 @@ export async function loadRouteFromURL(): Promise<EventConfig | null> {
     return null;
   }
 }
+
+export function getEventId(event: EventConfig): string {
+  // TODO: betterId
+  return event.name;
+}
+
+type TrackerStateSerialized = {
+  state: "unstarted" | "inprogress" | "finished";
+  progress: Record<
+    string,
+    {
+      state: "unvisited" | "visited" | "skipped";
+      arrivalTime?: string; // ISO string
+      segmentPace?: number;
+    }
+  >;
+};
+
+export type TrackerState = {
+  state: "unstarted" | "inprogress" | "finished";
+  progress: Record<
+    string,
+    {
+      state: "unvisited" | "visited" | "skipped";
+      arrivalTime?: Temporal.Instant;
+      segmentPace?: number;
+    }
+  >;
+};
+
+export function saveTrackerState(
+  eventId: string,
+  state: TrackerStateSerialized,
+): void {
+  try {
+    const key = `tracker-state-${eventId}`;
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch (e) {
+    console.error("Failed to save tracker state:", e);
+  }
+}
+
+export function loadTrackerState(eventId: string): TrackerState | null {
+  try {
+    const key = `tracker-state-${eventId}`;
+    const data = localStorage.getItem(key);
+    if (!data) return null;
+
+    const parsed = JSON.parse(data);
+
+    if (parsed.progress) {
+      for (const markerId in parsed.progress) {
+        const markerProgress = parsed.progress[markerId];
+        if (markerProgress.arrivalTime) {
+          markerProgress.arrivalTime = Temporal.Instant.from(
+            markerProgress.arrivalTime,
+          );
+        }
+      }
+    }
+
+    return parsed;
+  } catch (e) {
+    console.error("Failed to load tracker state:", e);
+    return null;
+  }
+}
