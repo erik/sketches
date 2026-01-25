@@ -83,6 +83,15 @@ export class Livewire<
     this.reduce(this.#actions[action], ...args);
   }
 
+  reactiveIf = (
+    { key }: { key: string },
+    trueBranch: StateFn<P, C>,
+    falseBranch: StateFn<P, C> = () => undefined,
+  ) =>
+    this.render([key], (state) =>
+      createFragment({}, !!state[key] ? trueBranch(state) : falseBranch(state)),
+    );
+
   reactive = (
     { keys }: { keys: string | string[] },
     ...children: StateFn<P, C>[]

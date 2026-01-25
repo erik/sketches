@@ -7,7 +7,7 @@ import { RouteMarker, Segment } from "../shared/index.js";
 import { formatDateTimeCompact } from "../pacer.jsx";
 import { snapToNearestTrackSegment } from "../shared/geo.js";
 import { parseGPX } from "../shared/gpx.js";
-import { Livewire, type Children } from "../livewire.js";
+import { htmlTemplate, Livewire, type Children } from "../livewire.js";
 import { GlobalStoreProps } from "../main.jsx";
 import length from "@turf/length";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
@@ -89,6 +89,21 @@ const DEMO_SETUP_DATA = (() => {
     ],
   };
 })();
+
+const SVG_CHECK = () => htmlTemplate`<svg
+  xmlns="http://www.w3.org/2000/svg"
+  class="h-6 w-6"
+  fill="none"
+  viewBox="0 0 24 24"
+  stroke="currentColor"
+ >
+   <path
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     stroke-width="2"
+     d="M5 13l4 4L19 7"
+   />
+</svg>`;
 
 const createStore = (
   global: Livewire<GlobalStoreProps>,
@@ -178,20 +193,21 @@ const MarkerDropdown = ({
   const dropdownState = new Livewire({
     showCutoffInput: false,
     showGoalInput: false,
+    cutoffInputValue: "",
+    goalInputValue: "",
   });
 
   const isTimed = !!(marker.goalTime || marker.cutoffTime);
 
-  const toggleTimed = () => {
-    if (isTimed) {
-      // Clear times
-      store.$.markers[index].goalTime = undefined;
-      store.$.markers[index].cutoffTime = undefined;
-    } else {
-      // Set default goal time to event start time (or current time)
-      store.$.markers[index].goalTime =
-        store.$.startTime || Temporal.Now.instant();
-    }
+  const clearTiming = (e: Event) => {
+    e.preventDefault();
+
+    store.$.markers[index] = {
+      ...marker,
+      goalTime: undefined,
+      cutoffTime: undefined,
+      kind: "marker",
+    };
     store.$.markers = [...store.$.markers];
   };
 
@@ -222,106 +238,126 @@ const MarkerDropdown = ({
     store.$.markers = [...store.$.markers];
   };
 
-  return dropdownState.render(
-    ["showCutoffInput", "showGoalInput"],
-    ({ showCutoffInput, showGoalInput }) => (
-      <div class="dropdown dropdown-end">
-        <button class="btn btn-soft btn-sm" type="button" tabindex="0">
-          ...
-        </button>
-        <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-10">
+  return (
+    <div class="dropdown dropdown-end">
+      <button class="btn btn-soft btn-sm" type="button" tabindex="0">
+        ...
+      </button>
+      <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-999">
+        {isTimed && (
           <li>
-            <a onClick={toggleTimed}>
-              {isTimed ? "Mark as untimed" : "Mark as timed"}
-            </a>
+            <button onClick={clearTiming}>Clear timing</button>
           </li>
+        )}
 
-          {isTimed && (
-            <>
-              <li>
-                <a
-                  onClick={() => (dropdownState.$.showCutoffInput = true)}
-                  class="flex justify-between items-center"
-                >
-                  <span>Set cutoff time</span>
-                  {marker.cutoffTime && (
-                    <span class="badge badge-xs badge-soft">
-                      {formatDateTimeCompact(marker.cutoffTime)}
-                    </span>
-                  )}
-                </a>
-              </li>
+        <li>
+          <button
+            onClick={(e: Event) => {
+              e.preventDefault();
+              dropdownState.$.showCutoffInput =
+                !dropdownState.$.showCutoffInput;
+            }}
+            class="flex justify-between items-center"
+          >
+            <span>Set cutoff time</span>
+            {marker.cutoffTime && (
+              <span class="badge badge-xs badge-soft">
+                {formatDateTimeCompact(marker.cutoffTime)}
+              </span>
+            )}
+          </button>
+        </li>
 
-              {showCutoffInput && (
-                <li class="p-2">
-                  <input
-                    type="datetime-local"
-                    value={
-                      marker.cutoffTime
-                        ? marker.cutoffTime
-                            .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                            .toPlainDateTime()
-                            .toString()
-                            .slice(0, 16)
-                        : ""
-                    }
-                    autoFocus
-                    onBlur={(e: Event) =>
-                      setCutoffTime((e.target as HTMLInputElement).value)
-                    }
-                    class="input input-sm w-full"
-                  />
-                </li>
-              )}
-
-              <li>
-                <a
-                  onClick={() => (dropdownState.$.showGoalInput = true)}
-                  class="flex justify-between items-center"
-                >
-                  <span>Set goal time</span>
-                  {marker.goalTime && (
-                    <span class="badge badge-xs badge-soft">
-                      {formatDateTimeCompact(marker.goalTime)}
-                    </span>
-                  )}
-                </a>
-              </li>
-
-              {showGoalInput && (
-                <li class="p-2">
-                  <input
-                    type="datetime-local"
-                    value={
-                      marker.goalTime
-                        ? marker.goalTime
-                            .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                            .toPlainDateTime()
-                            .toString()
-                            .slice(0, 16)
-                        : ""
-                    }
-                    autoFocus
-                    onBlur={(e: Event) =>
-                      setGoalTime((e.target as HTMLInputElement).value)
-                    }
-                    class="input input-sm w-full"
-                  />
-                </li>
-              )}
-
-              <hr />
-            </>
+        <dropdownState.reactiveIf key={"showCutoffInput"}>
+          {() => (
+            <div class="p-2 flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={
+                  marker.cutoffTime
+                    ? marker.cutoffTime
+                        .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                        .toPlainDateTime()
+                        .toString()
+                        .slice(0, 16)
+                    : ""
+                }
+                autoFocus
+                class="input input-sm w-full"
+                onInput={(e: Event) => {
+                  dropdownState.$.cutoffInputValue = (
+                    e.target as HTMLInputElement
+                  ).value;
+                }}
+              />
+              <button
+                class="btn btn-sm btn-square"
+                onClick={() => setCutoffTime(dropdownState.$.cutoffInputValue)}
+              >
+                {SVG_CHECK}
+              </button>
+            </div>
           )}
+        </dropdownState.reactiveIf>
 
-          <li>
-            <a onClick={removeMarker} class="text-error">
-              Remove marker
-            </a>
-          </li>
-        </ul>
-      </div>
-    ),
+        <li>
+          <button
+            onClick={(e: Event) => {
+              e.preventDefault();
+              dropdownState.$.showGoalInput = !dropdownState.$.showGoalInput;
+            }}
+            class="flex justify-between items-center"
+          >
+            <span>Set goal time</span>
+            {marker.goalTime && (
+              <span class="badge badge-xs badge-soft">
+                {formatDateTimeCompact(marker.goalTime)}
+              </span>
+            )}
+          </button>
+        </li>
+
+        <dropdownState.reactiveIf key={"showGoalInput"}>
+          {() => (
+            <div class="p-2 flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={
+                  marker.goalTime
+                    ? marker.goalTime
+                        .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                        .toPlainDateTime()
+                        .toString()
+                        .slice(0, 16)
+                    : ""
+                }
+                autoFocus
+                class="input input-sm w-full"
+                onInput={(e: Event) => {
+                  dropdownState.$.goalInputValue = (
+                    e.target as HTMLInputElement
+                  ).value;
+                }}
+              />
+              <button
+                class="btn btn-sm btn-square"
+                onClick={() => setGoalTime(dropdownState.$.goalInputValue)}
+              >
+                {SVG_CHECK}
+              </button>
+            </div>
+          )}
+        </dropdownState.reactiveIf>
+
+        <hr />
+
+        <li>
+          <a onClick={removeMarker} class="text-error">
+            Remove marker
+          </a>
+        </li>
+      </ul>
+    </div>
   );
 };
 
@@ -363,24 +399,24 @@ const RouteMarkerRow = ({
         {/* Secondary info on separate lines */}
         {hasSecondaryInfo && (
           <div class="space-y-1 text-xs text-gray-600">
-            {marker.routeDistance !== undefined && (
-              <div>{marker.routeDistance.toFixed(1)} km</div>
-            )}
-            {(marker.cutoffTime || marker.goalTime) && (
-              <div class="flex flex-wrap gap-2">
-                {marker.goalTime && (
-                  <span class="badge badge-xs badge-soft">
-                    Goal: {formatDateTimeCompact(marker.goalTime)}
-                  </span>
-                )}
-                {marker.cutoffTime && (
-                  <span class="badge badge-xs badge-soft">
-                    Cutoff: {formatDateTimeCompact(marker.cutoffTime)}
-                  </span>
-                )}
-              </div>
-            )}
             {marker.note && <div class="italic">{marker.note}</div>}
+            <div class="flex flex-wrap gap-2">
+              {marker.routeDistance !== undefined && (
+                <span class="badge badge-xs badge-soft">
+                  {marker.routeDistance.toFixed(1)} km
+                </span>
+              )}
+              {marker.goalTime && (
+                <span class="badge badge-xs badge-soft">
+                  Goal: {formatDateTimeCompact(marker.goalTime)}
+                </span>
+              )}
+              {marker.cutoffTime && (
+                <span class="badge badge-xs badge-soft">
+                  Cutoff: {formatDateTimeCompact(marker.cutoffTime)}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

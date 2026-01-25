@@ -16,7 +16,16 @@ export const DEMO_DATA: EventConfig = {
       segmentLength: 1250,
       geometry: {
         type: "LineString",
-        coordinates: [],
+        coordinates: [
+          [40.820178, 14.382801], // Naples area (start)
+          [40.214285, 14.856495], // South towards Salerno
+          [39.814285, 15.426495], // Calabria
+          [39.614285, 16.026495], // Maratea area
+          [38.914285, 15.926495], // Further south
+          [38.214285, 15.626495], // Ferry crossing area
+          [37.814285, 15.326495], // Sicily approach
+          [37.614285, 15.026495], // Nicolosi/Etna area (finish)
+        ],
       },
     },
   ],
