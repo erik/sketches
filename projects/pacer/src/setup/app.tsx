@@ -2,7 +2,7 @@ import L, { LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { createMap } from "../shared/map.js";
-import { RouteMarker, Segment } from "../shared/index.js";
+import { RouteMarker, Segment, Meters, metersToKm } from "../shared/index.js";
 
 import { formatDateTimeCompact } from "../pacer.jsx";
 import { snapToNearestTrackSegment } from "../shared/geo.js";
@@ -39,7 +39,7 @@ const DEMO_SETUP_DATA = (() => {
         id: "r1",
         title: "2vs full route",
         fileName: "2vs_combined.gpx",
-        segmentLength: 1250000, // 1250km in meters
+        segmentLength: Meters(1250000), // 1250km in meters
         geometry: {
           type: "LineString" as const,
           coordinates: [
@@ -62,7 +62,7 @@ const DEMO_SETUP_DATA = (() => {
         name: "Maratea - halfway",
         segmentId: "r1",
         coordinate: [16.026495, 39.614285] as [number, number],
-        routeDistance: 650,
+        routeDistance: Meters(650000), // 650km in meters
         goalTime: demoStartTime.add({ hours: 32 }),
       },
       {
@@ -72,7 +72,7 @@ const DEMO_SETUP_DATA = (() => {
         note: "24h",
         segmentId: "r1",
         coordinate: [15.626495, 38.214285] as [number, number],
-        routeDistance: 950,
+        routeDistance: Meters(950000), // 950km in meters
         cutoffTime: demoStartTime.add({ hours: 48 }),
         goalTime: demoStartTime.add({ hours: 40 }),
       },
@@ -83,7 +83,7 @@ const DEMO_SETUP_DATA = (() => {
         note: "Town of Nicolosi after Etna descent",
         segmentId: "r1",
         coordinate: [15.026495, 37.614285] as [number, number],
-        routeDistance: 1250,
+        routeDistance: Meters(1250000), // 1250km in meters
         cutoffTime: demoEndTime,
       },
     ],
@@ -482,7 +482,7 @@ const RouteMarkerRow = ({
             <div class="flex flex-wrap gap-2">
               {marker.routeDistance !== undefined && (
                 <span class="badge badge-xs badge-soft">
-                  {marker.routeDistance.toFixed(1)} km
+                  {metersToKm(marker.routeDistance).toFixed(1)} km
                 </span>
               )}
               {marker.goalTime && (
@@ -607,7 +607,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
                       {`${segments.length} segments`}
                     </span>
                     <span class="badge badge-soft badge-xs">
-                      {`${segments.reduce((xs, x) => x.segmentLength + xs, 0).toFixed()}km`}
+                      {`${metersToKm(Meters(segments.reduce((xs, x) => x.segmentLength + xs, 0))).toFixed()}km`}
                     </span>
                   </div>
                 )
@@ -621,7 +621,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
                     <div class="flex items-center gap-2">
                       <span class="flex-1">{seg.title ?? seg.fileName}</span>
                       <span class="badge badge-soft badge-xs tabular-nums">
-                        {(seg.segmentLength / 1000).toFixed(0)} km
+                        {metersToKm(seg.segmentLength).toFixed(0)} km
                       </span>
                       <button
                         onClick={() => {
@@ -691,6 +691,51 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
 
 const generateId = () => (1e16 * Math.random()).toString(36);
 
+/**
+ * Sort markers by route distance while preserving order of unsnapped markers.
+ * Markers with routeDistance are sorted by that value.
+ * Markers without routeDistance maintain their relative positions.
+ */
+const sortMarkersByRouteDistance = (
+  markers: RouteMarker[],
+): RouteMarker[] => {
+  // Separate snapped and unsnapped markers
+  const snapped: Array<{ marker: RouteMarker; originalIndex: number }> = [];
+  const unsnapped: Array<{ marker: RouteMarker; originalIndex: number }> = [];
+
+  markers.forEach((marker, index) => {
+    if (marker.routeDistance !== undefined && marker.routeDistance !== null) {
+      snapped.push({ marker, originalIndex: index });
+    } else {
+      unsnapped.push({ marker, originalIndex: index });
+    }
+  });
+
+  // Sort snapped markers by route distance
+  snapped.sort((a, b) => a.marker.routeDistance - b.marker.routeDistance);
+
+  // Merge: insert unsnapped markers back at their original relative positions
+  const result: RouteMarker[] = [];
+  let snappedIdx = 0;
+  let unsnappedIdx = 0;
+
+  for (let i = 0; i < markers.length; i++) {
+    // Check if this position originally had an unsnapped marker
+    if (
+      unsnappedIdx < unsnapped.length &&
+      unsnapped[unsnappedIdx].originalIndex === i
+    ) {
+      result.push(unsnapped[unsnappedIdx].marker);
+      unsnappedIdx++;
+    } else if (snappedIdx < snapped.length) {
+      result.push(snapped[snappedIdx].marker);
+      snappedIdx++;
+    }
+  }
+
+  return result;
+};
+
 async function handleGPXFile(
   event: Event,
   store: Livewire<StoreProps, ComputedProps>,
@@ -710,7 +755,7 @@ async function handleGPXFile(
       segments.push({
         id: (t.id = generateId()),
         fileName: file.name,
-        segmentLength: length(t, { units: "meters" }),
+        segmentLength: Meters(length(t, { units: "meters" })),
         // TODO: simplify geometry
         geometry: t.geometry,
       });
@@ -730,12 +775,13 @@ async function handleGPXFile(
         }
       }
 
-      let routeDistance = null;
+      let routeDistance: Meters | null = null;
 
       if (nearestTrk) {
-        routeDistance = length(
-          lineSliceAlong(nearestTrk.geometry, 0, minDist),
-          { units: "meters" },
+        routeDistance = Meters(
+          length(lineSliceAlong(nearestTrk.geometry, 0, minDist), {
+            units: "meters",
+          }),
         );
       }
 
@@ -752,7 +798,10 @@ async function handleGPXFile(
   }
 
   store.$.segments = [...store.$.segments, ...segments];
-  store.$.markers = [...store.$.markers, ...routeMarkers];
+  store.$.markers = sortMarkersByRouteDistance([
+    ...store.$.markers,
+    ...routeMarkers,
+  ]);
 
   (event.target as HTMLInputElement).value = "";
 }
@@ -799,13 +848,17 @@ function initMap(
           50,
         );
 
-        // Update the control with snapped position and segment info
-        store.$.markers[index] = {
-          ...store.$.markers[index],
+        // Update the marker with snapped position and segment info
+        const updatedMarkers = [...store.$.markers];
+        updatedMarkers[index] = {
+          ...updatedMarkers[index],
           coordinate: snap.coord,
           segmentId: snap.segmentId,
+          routeDistance: snap.meters,
         };
-        store.$.markers = [...store.$.markers];
+
+        // Sort markers by route distance
+        store.$.markers = sortMarkersByRouteDistance(updatedMarkers);
 
         // Update the marker position to the snapped location
         marker.setLatLng(snap.coord);
@@ -850,9 +903,14 @@ function initMap(
         id: generateId(),
         kind: "marker",
         coordinate: snapResult.coord,
+        segmentId: snapResult.segmentId,
+        routeDistance: snapResult.meters,
       };
 
-      store.$.markers = [...store.$.markers, marker];
+      store.$.markers = sortMarkersByRouteDistance([
+        ...store.$.markers,
+        marker,
+      ]);
       popup.close();
     }
 

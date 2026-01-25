@@ -2,8 +2,9 @@ import { lineString, point } from "@turf/helpers";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
 import length from "@turf/length";
 import lineSlice from "@turf/line-slice";
+import lineSliceAlong from "@turf/line-slice-along";
 import L from "leaflet";
-import { Segment } from "./index.js";
+import { Segment, Meters } from "./index.js";
 
 // Export commonly used Turf functions for direct use in other modules
 export { nearestPointOnLine, length, lineSlice };
@@ -49,13 +50,13 @@ export function snapToNearestTrackSegment(
   maxPixelDistance: number = 200,
 ): {
   coord: [number, number];
-  km: number;
+  meters: Meters;
   segmentId: string | null;
   pixelDistance: number;
 } {
   let nearestResult: {
     coord: [number, number];
-    km: number;
+    meters: Meters;
     segmentId: string | null;
     pixelDistance: number;
   } | null = null;
@@ -81,11 +82,14 @@ export function snapToNearestTrackSegment(
     if (pixelDistance <= maxPixelDistance && pixelDistance < minPixelDistance) {
       minPixelDistance = pixelDistance;
 
-      // Calculate distance along track
-      const km = snapped.properties.dist;
+      // Calculate distance along track in meters from start to snapped point
+      const snappedPoint = point(snapped.geometry.coordinates);
+      const slicedLine = lineSlice(point(track.coordinates[0]), snappedPoint, track);
+      const distanceAlongTrack = length(slicedLine, { units: "meters" });
+
       nearestResult = {
         coord: snapped.geometry.coordinates as [number, number],
-        km: km,
+        meters: Meters(distanceAlongTrack),
         segmentId: segmentIndex.toString(),
         pixelDistance: pixelDistance,
       };
@@ -96,7 +100,7 @@ export function snapToNearestTrackSegment(
   if (!nearestResult) {
     return {
       coord: clickLocation,
-      km: 0,
+      meters: Meters(0),
       segmentId: null,
       pixelDistance: Infinity,
     };
