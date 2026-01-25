@@ -32,7 +32,10 @@ class RecenterMapControl extends L.Control {
     container.title = "Recenter map";
 
     L.DomEvent.disableClickPropagation(container);
-    container.onclick = () => this.controller.fitToContent();
+    container.onclick = (e) => {
+      e.preventDefault();
+      this.controller.fitToContent();
+    };
     return container;
   }
 }

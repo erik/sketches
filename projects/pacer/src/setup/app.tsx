@@ -191,13 +191,25 @@ const MarkerDropdown = ({
   marker: RouteMarker;
 }) => {
   const dropdownState = new Livewire({
+    showNameInput: false,
+    showNoteInput: false,
     showCutoffInput: false,
     showGoalInput: false,
-    cutoffInputValue: "",
-    goalInputValue: "",
   });
 
   const isTimed = !!(marker.goalTime || marker.cutoffTime);
+
+  const setName = (value: string) => {
+    store.$.markers[index].name = value;
+    store.$.markers = [...store.$.markers];
+    dropdownState.$.showNameInput = false;
+  };
+
+  const setNote = (value: string) => {
+    store.$.markers[index].note = value;
+    store.$.markers = [...store.$.markers];
+    dropdownState.$.showNoteInput = false;
+  };
 
   const clearTiming = (e: Event) => {
     e.preventDefault();
@@ -211,7 +223,7 @@ const MarkerDropdown = ({
     store.$.markers = [...store.$.markers];
   };
 
-  const setCutoffTime = (value: string) => {
+  const setCutoffTime = (value: string | null) => {
     if (value) {
       const instant = Temporal.PlainDateTime.from(value)
         .toZonedDateTime(Temporal.Now.timeZoneId())
@@ -222,7 +234,7 @@ const MarkerDropdown = ({
     dropdownState.$.showCutoffInput = false;
   };
 
-  const setGoalTime = (value: string) => {
+  const setGoalTime = (value: string | null) => {
     if (value) {
       const instant = Temporal.PlainDateTime.from(value)
         .toZonedDateTime(Temporal.Now.timeZoneId())
@@ -243,7 +255,83 @@ const MarkerDropdown = ({
       <button class="btn btn-soft btn-sm" type="button" tabindex="0">
         ...
       </button>
-      <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-999">
+      <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-[999]">
+        <li>
+          <button
+            onClick={(e: Event) => {
+              e.preventDefault();
+              dropdownState.$.showNameInput = !dropdownState.$.showNameInput;
+            }}
+          >
+            Edit name
+          </button>
+        </li>
+
+        <dropdownState.reactiveIf key={"showNameInput"}>
+          {() => {
+            let inputValue = marker.name || "";
+            return (
+              <div class="p-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={inputValue}
+                  placeholder={`CP ${index + 1}`}
+                  autoFocus
+                  class="input input-sm w-full"
+                  onInput={(e: Event) => {
+                    inputValue = (e.target as HTMLInputElement).value;
+                  }}
+                />
+                <button
+                  class="btn btn-sm btn-square"
+                  onClick={() => setName(inputValue)}
+                >
+                  {SVG_CHECK}
+                </button>
+              </div>
+            );
+          }}
+        </dropdownState.reactiveIf>
+
+        <li>
+          <button
+            onClick={(e: Event) => {
+              e.preventDefault();
+              dropdownState.$.showNoteInput = !dropdownState.$.showNoteInput;
+            }}
+          >
+            Edit note
+          </button>
+        </li>
+
+        <dropdownState.reactiveIf key={"showNoteInput"}>
+          {() => {
+            let inputValue = marker.note || "";
+            return (
+              <div class="p-2 flex items-center gap-2">
+                <textarea
+                  value={inputValue}
+                  placeholder="Add a note..."
+                  autoFocus
+                  class="textarea textarea-sm w-full"
+                  rows={2}
+                  onInput={(e: Event) => {
+                    inputValue = (e.target as HTMLTextAreaElement).value;
+                  }}
+                />
+                <button
+                  class="btn btn-sm btn-square"
+                  onClick={() => setNote(inputValue)}
+                >
+                  {SVG_CHECK}
+                </button>
+              </div>
+            );
+          }}
+        </dropdownState.reactiveIf>
+
+        <hr />
+
         {isTimed && (
           <li>
             <button onClick={clearTiming}>Clear timing</button>
@@ -269,35 +357,34 @@ const MarkerDropdown = ({
         </li>
 
         <dropdownState.reactiveIf key={"showCutoffInput"}>
-          {() => (
-            <div class="p-2 flex items-center gap-2">
-              <input
-                type="datetime-local"
-                value={
-                  marker.cutoffTime
-                    ? marker.cutoffTime
-                        .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                        .toPlainDateTime()
-                        .toString()
-                        .slice(0, 16)
-                    : ""
-                }
-                autoFocus
-                class="input input-sm w-full"
-                onInput={(e: Event) => {
-                  dropdownState.$.cutoffInputValue = (
-                    e.target as HTMLInputElement
-                  ).value;
-                }}
-              />
-              <button
-                class="btn btn-sm btn-square"
-                onClick={() => setCutoffTime(dropdownState.$.cutoffInputValue)}
-              >
-                {SVG_CHECK}
-              </button>
-            </div>
-          )}
+          {() => {
+            let inputValue = marker.cutoffTime
+              ? marker.cutoffTime
+                  .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                  .toPlainDateTime()
+                  .toString()
+                  .slice(0, 16)
+              : "";
+            return (
+              <div class="p-2 flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={inputValue}
+                  autoFocus
+                  class="input input-sm w-full"
+                  onInput={(e: Event) => {
+                    inputValue = (e.target as HTMLInputElement).value;
+                  }}
+                />
+                <button
+                  class="btn btn-sm btn-square"
+                  onClick={() => setCutoffTime(inputValue)}
+                >
+                  {SVG_CHECK}
+                </button>
+              </div>
+            );
+          }}
         </dropdownState.reactiveIf>
 
         <li>
@@ -318,35 +405,34 @@ const MarkerDropdown = ({
         </li>
 
         <dropdownState.reactiveIf key={"showGoalInput"}>
-          {() => (
-            <div class="p-2 flex items-center gap-2">
-              <input
-                type="datetime-local"
-                value={
-                  marker.goalTime
-                    ? marker.goalTime
-                        .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-                        .toPlainDateTime()
-                        .toString()
-                        .slice(0, 16)
-                    : ""
-                }
-                autoFocus
-                class="input input-sm w-full"
-                onInput={(e: Event) => {
-                  dropdownState.$.goalInputValue = (
-                    e.target as HTMLInputElement
-                  ).value;
-                }}
-              />
-              <button
-                class="btn btn-sm btn-square"
-                onClick={() => setGoalTime(dropdownState.$.goalInputValue)}
-              >
-                {SVG_CHECK}
-              </button>
-            </div>
-          )}
+          {() => {
+            let inputValue = marker.goalTime
+              ? marker.goalTime
+                  .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+                  .toPlainDateTime()
+                  .toString()
+                  .slice(0, 16)
+              : "";
+            return (
+              <div class="p-2 flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={inputValue}
+                  autoFocus
+                  class="input input-sm w-full"
+                  onInput={(e: Event) => {
+                    inputValue = (e.target as HTMLInputElement).value;
+                  }}
+                />
+                <button
+                  class="btn btn-sm btn-square"
+                  onClick={() => setGoalTime(inputValue)}
+                >
+                  {SVG_CHECK}
+                </button>
+              </div>
+            );
+          }}
         </dropdownState.reactiveIf>
 
         <hr />
@@ -380,25 +466,18 @@ const RouteMarkerRow = ({
     <SimpleRow>
       <div class="block">
         {/* Title row with name and dropdown */}
-        <div class="flex w-full justify-between">
-          <div>
-            <EditableText
-              value={marker.name || ""}
-              placeholder={`CP ${index + 1}`}
-              onChange={(s) => {
-                store.$.markers[index].name = s;
-                store.$.markers = [...store.$.markers];
-              }}
-            />
+        <div class="flex w-full justify-between items-start">
+          <div class="flex-1 min-w-0">
+            <h4 class="font-medium text-base">
+              {marker.name || `CP ${index + 1}`}
+            </h4>
           </div>
-          <div>
-            <MarkerDropdown store={store} index={index} marker={marker} />
-          </div>
+          <MarkerDropdown store={store} index={index} marker={marker} />
         </div>
 
         {/* Secondary info on separate lines */}
         {hasSecondaryInfo && (
-          <div class="space-y-1 text-xs text-gray-600">
+          <div class="space-y-1 text-xs text-gray-600 mt-2">
             {marker.note && <div class="italic">{marker.note}</div>}
             <div class="flex flex-wrap gap-2">
               {marker.routeDistance !== undefined && (
@@ -684,7 +763,57 @@ function initMap(
 ) {
   const map = createMap(node);
   let prevSegmentLength = 0;
+  let isInitialLoad = true;
   console.log("init map", node);
+
+  const updateMap = ({
+    segments,
+    markers,
+  }: {
+    segments: Segment[];
+    markers: RouteMarker[];
+  }) => {
+    const trackLines = segments.map((seg) =>
+      seg.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
+    );
+
+    const shouldFitBounds = isInitialLoad || segments.length !== prevSegmentLength;
+
+    map.setTrack(trackLines, {
+      fitBounds: shouldFitBounds,
+    });
+
+    isInitialLoad = false;
+
+    // TODO: sucks
+    map.setRouteMarkers(markers, {
+      onDrag: (
+        index: number,
+        coord: { lng: number; lat: number },
+        marker: L.Marker,
+      ) => {
+        const snap = snapToNearestTrackSegment(
+          store.$.segments,
+          [coord.lng, coord.lat],
+          map.getMap(),
+          50,
+        );
+
+        // Update the control with snapped position and segment info
+        store.$.markers[index] = {
+          ...store.$.markers[index],
+          coordinate: snap.coord,
+          segmentId: snap.segmentId,
+        };
+        store.$.markers = [...store.$.markers];
+
+        // Update the marker position to the snapped location
+        marker.setLatLng(snap.coord);
+      },
+    });
+
+    prevSegmentLength = segments.length;
+  };
 
   const unwatch = store.watch(
     ["segments", "markers"],
@@ -699,44 +828,12 @@ function initMap(
         return unwatch();
       }
 
-      const trackLines = segments.map((seg) =>
-        seg.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
-      );
-
-      map.setTrack(trackLines, {
-        fitBounds: segments.length !== prevSegmentLength,
-      });
-
-      // TODO: sucks
-      map.setRouteMarkers(markers, {
-        onDrag: (
-          index: number,
-          coord: { lng: number; lat: number },
-          marker: L.Marker,
-        ) => {
-          const snap = snapToNearestTrackSegment(
-            store.$.segments,
-            [coord.lng, coord.lat],
-            map.getMap(),
-            50,
-          );
-
-          // Update the control with snapped position and segment info
-          store.$.markers[index] = {
-            ...store.$.markers[index],
-            coordinate: snap.coord,
-            segmentId: snap.segmentId,
-          };
-          store.$.markers = [...store.$.markers];
-
-          // Update the marker position to the snapped location
-          marker.setLatLng(snap.coord);
-        },
-      });
-
-      prevSegmentLength = segments.length;
+      updateMap({ segments, markers });
     },
   );
+
+  // Initialize map with current data
+  updateMap({ segments: store.$.segments, markers: store.$.markers });
 
   map.onMapClick(({ lng, lat }: { lng: number; lat: number }) => {
     const popup = L.popup().setLatLng({ lng, lat });
