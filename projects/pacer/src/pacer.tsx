@@ -214,7 +214,7 @@ const TabView = ({
           {activeTab === "stats" ? (
             <StatsTab store={store} />
           ) : (
-            <MapTab store={store} />
+            <MapTab store={store} globalStore={globalStore} />
           )}
         </div>
       )}
@@ -597,13 +597,19 @@ const RouteMarkerCard = ({
   );
 };
 
-const MapTab = ({ store }: { store: AppState }) => {
+const MapTab = ({
+  store,
+  globalStore,
+}: {
+  store: AppState;
+  globalStore: Livewire<GlobalStoreProps>;
+}) => {
   return (
     <div class="h-full w-full relative pb-16">
       <div
         id="map-container"
         class="h-full w-full min-h-75"
-        $mount={(el: HTMLElement) => initializeMap(el, store)}
+        $mount={(el: HTMLElement) => initializeMap(el, store, globalStore)}
       />
     </div>
   );
@@ -612,9 +618,10 @@ const MapTab = ({ store }: { store: AppState }) => {
 function initializeMap(
   container: HTMLElement,
   store: Livewire<StoreProps, ComputedProps>,
+  globalStore: Livewire<GlobalStoreProps>,
 ) {
   const { markers, segments } = store.$.event;
-  const map = createMap(container);
+  const map = createMap(container, { theme: globalStore.$.theme });
 
   const allCoordinates = segments.map(
     (s) => s.geometry.coordinates,
@@ -626,6 +633,11 @@ function initializeMap(
   store.watch(["userLocation"], ({ userLocation }) => {
     const [lng, lat] = userLocation;
     map.setUserLocation({ lat, lng });
+  });
+
+  // Watch for theme changes
+  globalStore.watch(["theme"], ({ theme }) => {
+    map.setTheme(theme);
   });
 
   watchUserLocation(store);

@@ -46,9 +46,11 @@ export class MapController {
   userLocationMarker?: L.Marker;
   markers: L.Marker[];
   controlSegments: L.Layer[];
+  tileLayer: L.TileLayer;
 
-  constructor(map: L.Map) {
+  constructor(map: L.Map, tileLayer: L.TileLayer) {
     this.map = map;
+    this.tileLayer = tileLayer;
 
     this.trackLayer = null;
     this.markers = [];
@@ -184,6 +186,15 @@ export class MapController {
 
     this.map.fitBounds(bounds, { padding: [100, 100] });
   }
+
+  setTheme(theme: "light" | "dark") {
+    const tileUrl =
+      theme === "dark"
+        ? "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
+        : "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
+
+    this.tileLayer.setUrl(tileUrl);
+  }
 }
 
 export function createMap(
@@ -191,6 +202,7 @@ export function createMap(
   options: {
     center?: LatLngExpression;
     zoom?: number;
+    theme?: "light" | "dark";
   } = {},
 ) {
   // Initialize map
@@ -200,17 +212,19 @@ export function createMap(
     zoomControl: true,
   });
 
-  // Add tile layer
-  L.tileLayer(
-    "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png",
-    {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    },
-  ).addTo(map);
+  // Add tile layer based on theme
+  const tileUrl =
+    options.theme === "dark"
+      ? "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
+      : "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
 
-  const controller = new MapController(map);
+  const tileLayer = L.tileLayer(tileUrl, {
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const controller = new MapController(map, tileLayer);
   map.addControl(new RecenterMapControl(controller));
   return controller;
 }

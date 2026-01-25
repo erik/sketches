@@ -697,7 +697,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
           <Fieldset title="Map">
             <div class="h-100">
               <div
-                $mount={(el: HTMLElement) => initMap(el, store)}
+                $mount={(el: HTMLElement) => initMap(el, store, globalStore)}
                 class="h-full rounded-box shadow-md"
               />
             </div>
@@ -850,8 +850,9 @@ async function handleGPXFile(
 function initMap(
   node: HTMLElement,
   store: Livewire<StoreProps, ComputedProps>,
+  globalStore: Livewire<GlobalStoreProps>,
 ) {
-  const map = createMap(node);
+  const map = createMap(node, { theme: globalStore.$.theme });
   let prevSegmentLength = 0;
   let isInitialLoad = true;
   console.log("init map", node);
@@ -925,6 +926,14 @@ function initMap(
       updateMap({ segments, markers });
     },
   );
+
+  // Watch for theme changes
+  const unwatchTheme = globalStore.watch(["theme"], ({ theme }) => {
+    if (!map.getMap().getContainer()?.parentNode) {
+      return unwatchTheme();
+    }
+    map.setTheme(theme);
+  });
 
   // Initialize map with current data
   updateMap({ segments: store.$.segments, markers: store.$.markers });

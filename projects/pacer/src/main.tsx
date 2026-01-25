@@ -10,6 +10,7 @@ import { createApp as createPaceTrackerApp } from "./pacer.jsx";
 export type GlobalStoreProps = {
   mode: "PACE_TRACKER" | "SETUP";
   units: "METRIC" | "IMPERIAL";
+  theme: "light" | "dark";
 };
 
 const THEME_ICON = htmlTemplate`
@@ -29,14 +30,18 @@ async function init() {
   const store = new Livewire<GlobalStoreProps>({
     mode: initialMode,
     units: "METRIC",
+    theme: "dark",
   });
 
+  // Set initial theme
+  const initialDaisyTheme = store.$.theme === "dark" ? "halloween" : "light";
+  document.documentElement.setAttribute("data-theme", initialDaisyTheme);
+
   const toggleTheme = () => {
-    const theme =
-      document.documentElement.getAttribute("data-theme") === "halloween"
-        ? "light"
-        : "halloween";
-    document.documentElement.setAttribute("data-theme", theme);
+    const newTheme = store.$.theme === "dark" ? "light" : "dark";
+    store.$.theme = newTheme;
+    const daisyTheme = newTheme === "dark" ? "halloween" : "light";
+    document.documentElement.setAttribute("data-theme", daisyTheme);
   };
 
   document.querySelector("#app").appendChild(
