@@ -79,6 +79,32 @@ export class Livewire<
     this.tick();
   }
 
+  /**
+   * Update a property using a callback function.
+   * The callback receives the current value and should return the new value.
+   * Automatically triggers reactivity.
+   *
+   * @example
+   * // Remove an element from an array
+   * store.update('markers', (arr) => arr.filter(m => m.id !== 'foo'))
+   *
+   * // Update an element in an array
+   * store.update('markers', (arr) => {
+   *   const copy = [...arr];
+   *   copy[index] = newValue;
+   *   return copy;
+   * })
+   *
+   * // Sort an array
+   * store.update('markers', (arr) => [...arr].sort((a, b) => a.distance - b.distance))
+   */
+  update<K extends keyof P>(key: K, fn: (value: P[K]) => P[K]) {
+    // TODO: Remove type casts - need to fix P & C type handling
+    const newValue = fn(this.#state[key] as P[K]);
+    this.#state[key as keyof (P & C)] = newValue as (P & C)[keyof (P & C)];
+    this.tick();
+  }
+
   dispatch(action: keyof A, ...args: any[]) {
     this.reduce(this.#actions[action], ...args);
   }

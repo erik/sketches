@@ -200,27 +200,36 @@ const MarkerDropdown = ({
   const isTimed = !!(marker.goalTime || marker.cutoffTime);
 
   const setName = (value: string) => {
-    store.$.markers[index].name = value;
-    store.$.markers = [...store.$.markers];
+    store.update("markers", (arr) => {
+      const copy = [...arr];
+      copy[index] = { ...copy[index], name: value };
+      return copy;
+    });
     dropdownState.$.showNameInput = false;
   };
 
   const setNote = (value: string) => {
-    store.$.markers[index].note = value;
-    store.$.markers = [...store.$.markers];
+    store.update("markers", (arr) => {
+      const copy = [...arr];
+      copy[index] = { ...copy[index], note: value };
+      return copy;
+    });
     dropdownState.$.showNoteInput = false;
   };
 
   const clearTiming = (e: Event) => {
     e.preventDefault();
 
-    store.$.markers[index] = {
-      ...marker,
-      goalTime: undefined,
-      cutoffTime: undefined,
-      kind: "marker",
-    };
-    store.$.markers = [...store.$.markers];
+    store.update("markers", (arr) => {
+      const copy = [...arr];
+      copy[index] = {
+        ...copy[index],
+        goalTime: undefined,
+        cutoffTime: undefined,
+        kind: "marker",
+      };
+      return copy;
+    });
   };
 
   const setCutoffTime = (value: string | null) => {
@@ -228,8 +237,11 @@ const MarkerDropdown = ({
       const instant = Temporal.PlainDateTime.from(value)
         .toZonedDateTime(Temporal.Now.timeZoneId())
         .toInstant();
-      store.$.markers[index].cutoffTime = instant;
-      store.$.markers = [...store.$.markers];
+      store.update("markers", (arr) => {
+        const copy = [...arr];
+        copy[index] = { ...copy[index], cutoffTime: instant };
+        return copy;
+      });
     }
     dropdownState.$.showCutoffInput = false;
   };
@@ -239,15 +251,21 @@ const MarkerDropdown = ({
       const instant = Temporal.PlainDateTime.from(value)
         .toZonedDateTime(Temporal.Now.timeZoneId())
         .toInstant();
-      store.$.markers[index].goalTime = instant;
-      store.$.markers = [...store.$.markers];
+      store.update("markers", (arr) => {
+        const copy = [...arr];
+        copy[index] = { ...copy[index], goalTime: instant };
+        return copy;
+      });
     }
     dropdownState.$.showGoalInput = false;
   };
 
   const removeMarker = () => {
-    store.$.markers.splice(index, 1);
-    store.$.markers = [...store.$.markers];
+    store.update("markers", (arr) => {
+      const copy = [...arr];
+      copy.splice(index, 1);
+      return copy;
+    });
   };
 
   return (
@@ -628,14 +646,17 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
                       );
 
                       if (removeMarkers) {
-                        store.$.markers = store.$.markers.filter(
-                          (m) => m.segmentId !== seg.id,
+                        store.update("markers", (arr) =>
+                          arr.filter((m) => m.segmentId !== seg.id),
                         );
                       }
                     }
 
-                    store.$.segments.splice(idx, 1);
-                    store.$.segments = [...store.$.segments];
+                    store.update("segments", (arr) => {
+                      const copy = [...arr];
+                      copy.splice(idx, 1);
+                      return copy;
+                    });
                   };
 
                   return (
@@ -817,11 +838,11 @@ async function handleGPXFile(
     }
   }
 
-  store.$.segments = [...store.$.segments, ...segments];
-  store.$.markers = sortMarkersByRouteDistance([
-    ...store.$.markers,
-    ...routeMarkers,
-  ]);
+  store.update("segments", (arr) => [...arr, ...segments]);
+  store.update(
+    "markers",
+    (arr) => sortMarkersByRouteDistance([...arr, ...routeMarkers]),
+  );
 
   (event.target as HTMLInputElement).value = "";
 }
@@ -869,16 +890,16 @@ function initMap(
         );
 
         // Update the marker with snapped position and segment info
-        const updatedMarkers = [...store.$.markers];
-        updatedMarkers[index] = {
-          ...updatedMarkers[index],
-          coordinate: snap.coord,
-          segmentId: snap.segmentId,
-          routeDistance: snap.meters,
-        };
-
-        // Sort markers by route distance
-        store.$.markers = sortMarkersByRouteDistance(updatedMarkers);
+        store.update("markers", (arr) => {
+          const updatedMarkers = [...arr];
+          updatedMarkers[index] = {
+            ...updatedMarkers[index],
+            coordinate: snap.coord,
+            segmentId: snap.segmentId,
+            routeDistance: snap.meters,
+          };
+          return sortMarkersByRouteDistance(updatedMarkers);
+        });
 
         // Update the marker position to the snapped location
         marker.setLatLng(snap.coord);
@@ -927,10 +948,9 @@ function initMap(
         routeDistance: snapResult.meters,
       };
 
-      store.$.markers = sortMarkersByRouteDistance([
-        ...store.$.markers,
-        marker,
-      ]);
+      store.update("markers", (arr) =>
+        sortMarkersByRouteDistance([...arr, marker]),
+      );
       popup.close();
     }
 
