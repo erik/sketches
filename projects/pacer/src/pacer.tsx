@@ -234,7 +234,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
   const store = createStore(globalStore);
 
   return (
-    <main class="mx-auto max-w-md h-dvh flex flex-col bg-base-100">
+    <main class="h-dvh flex flex-col bg-base-100">
       <TabView store={store}></TabView>
     </main>
   );

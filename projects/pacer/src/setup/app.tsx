@@ -564,7 +564,7 @@ export function createApp(globalStore: Livewire<GlobalStoreProps>) {
   const store = createStore(globalStore);
 
   return (
-    <main class="mx-auto max-w-5xl bg-base-100 p-4 shadow">
+    <main class="bg-base-100 p-4">
       <div class="md:grid md:grid-cols-2 gap-2">
         <div class="w-full space-y-2">
           <Fieldset title="Timing">
