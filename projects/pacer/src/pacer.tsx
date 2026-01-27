@@ -1,5 +1,4 @@
 import { type Position } from "geojson";
-import L, { LatLngTuple } from "leaflet";
 
 import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
@@ -10,27 +9,10 @@ import {
   formatDuration,
   formatRelativeTime,
 } from "./shared/time.js";
-import {
-  getEventId,
-  loadTrackerState,
-  saveTrackerState,
-  type TrackerState,
-} from "./shared/storage.js";
+import { loadFromLocalStorage, saveToLocalStorage } from "./shared/storage.js";
 
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
-
-// Re-export for backward compatibility
-export { formatDateTimeCompact };
-
-// App state persisted to /restord from LocalStorage between page loads
-type EventState = {
-  eventStatus: "before" | "during" | "after";
-  nextMarkerId: string;
-  currentDistance: Meters;
-  lastLocation: Position;
-  markerArrivalTimes: Record<string, Temporal.Instant>;
-};
 
 function formatRelativeDistance(
   currentDistance: Meters,
@@ -44,6 +26,43 @@ type MarkerVisitStatus = {
   arrivalTime?: Temporal.Instant;
   segmentPace?: number;
 };
+
+type TrackerState = {
+  state: "unstarted" | "inprogress" | "finished";
+  progress: Record<string, MarkerVisitStatus>;
+};
+
+function serializeForStorage(state: TrackerState): any {
+  return {
+    state: state.state,
+    progress: Object.fromEntries(
+      Object.entries(state.progress).map(([id, marker]) => [
+        id,
+        {
+          ...marker,
+          arrivalTime: marker.arrivalTime?.toString(),
+        },
+      ]),
+    ),
+  };
+}
+
+function deserializeFromStorage(data: any): TrackerState {
+  return {
+    state: data.state,
+    progress: Object.fromEntries(
+      Object.entries(data.progress).map(([id, marker]: [string, any]) => [
+        id,
+        {
+          ...marker,
+          arrivalTime: marker.arrivalTime
+            ? Temporal.Instant.from(marker.arrivalTime)
+            : undefined,
+        },
+      ]),
+    ),
+  };
+}
 
 type StoreProps = {
   state: "unstarted" | "inprogress" | "finished";
@@ -63,16 +82,18 @@ type AppState = Livewire<StoreProps, ComputedProps>;
 function mockUserLocation(store: AppState) {
   if ((globalThis as any).faker) return;
 
-  const fakePoints = [...DEMO_DATA.segments[0].geometry.coordinates].slice(
-    15000,
-  );
+  const event = store.$.event;
+  if (!event.segments[0]?.geometry?.coordinates) return;
+
+  const fakePoints = [...event.segments[0].geometry.coordinates];
+  const interval = Math.max(250, 30000 / fakePoints.length);
   (globalThis as any).faker = setInterval(() => {
     if (fakePoints.length === 0) {
       clearInterval((globalThis as any).faker);
     } else {
       store.$.userLocation = fakePoints.shift();
     }
-  }, 250);
+  }, interval);
 }
 
 function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
@@ -89,20 +110,20 @@ function watchUserLocation(store: Livewire<StoreProps, ComputedProps>) {
   // );
 }
 
-const createStore = (
-  g: Livewire<GlobalStoreProps>,
-  event: EventConfig | null,
-  savedState: TrackerState | null,
-) => {
+const createStore = (g: Livewire<GlobalStoreProps>, event: EventConfig) => {
+  const eventId = event.id;
+  const storageKey = `tracker-state-${eventId}`;
+  const saved = loadFromLocalStorage(storageKey);
+  const savedState = saved ? deserializeFromStorage(saved) : null;
+
   const store = new Livewire<StoreProps, ComputedProps>({
     state: savedState?.state || "inprogress",
-    event: event || DEMO_DATA,
+    event: event,
     userLocation: undefined,
     progress: savedState?.progress || {},
   });
 
   store.compute("$currentDistance", ({ userLocation, event }) => {
-    // If we have user location and route data, calculate actual position
     if (userLocation && event.segments.length > 0) {
       const routeCoordinates = event.segments[0].geometry.coordinates as [
         number,
@@ -113,7 +134,6 @@ const createStore = (
         userLocation as [number, number],
       );
 
-      // If user is very far from route (50+ km), snap to position 0
       if (distanceFromTrack > 50) {
         return Meters(0);
       }
@@ -125,19 +145,21 @@ const createStore = (
   });
 
   store.compute("$currentPace", ({ event, $currentDistance }) => {
+    if ($currentDistance === 0) {
+      return 0;
+    }
+
     const now = Temporal.Now.instant();
     const elapsedTime = now.since(event.startTime);
     const hoursElapsed = elapsedTime.total({ unit: "hours" });
 
-    if ($currentDistance > 0 && hoursElapsed > 0) {
-      // Convert meters to km and divide by hours to get km/h
+    if (hoursElapsed > 0.01) {
       return metersToKm($currentDistance) / hoursElapsed;
     }
 
     return 0;
   });
 
-  // Automatic checkpoint detection based on current distance
   store.watch(
     ["$currentDistance"],
     ({ $currentDistance, progress, event, $currentPace }) => {
@@ -163,36 +185,14 @@ const createStore = (
   return store;
 };
 
-/**
- * Set up automatic state persistence to localStorage
- */
-async function setupStatePersistence(store: AppState, event: EventConfig) {
-  const eventId = getEventId(event);
+function setupStatePersistence(store: AppState, event: EventConfig) {
+  const eventId = event.id;
+  const storageKey = `tracker-state-${eventId}`;
 
-  // Watch for state or progress changes and save to localStorage
   store.watch(["state", "progress"], ({ state, progress }) => {
-    // Convert Temporal.Instant to ISO strings for storage
-    const serializedProgress: Record<
-      string,
-      {
-        state: "unvisited" | "visited" | "skipped";
-        arrivalTime?: string;
-        segmentPace?: number;
-      }
-    > = {};
-    for (const [markerId, markerProgress] of Object.entries(progress)) {
-      serializedProgress[markerId] = {
-        ...markerProgress,
-        arrivalTime: markerProgress.arrivalTime?.toString(),
-      };
-    }
-
-    const trackerState = {
-      state,
-      progress: serializedProgress,
-    };
-
-    saveTrackerState(eventId, trackerState);
+    const trackerState: TrackerState = { state, progress };
+    const serialized = serializeForStorage(trackerState);
+    saveToLocalStorage(storageKey, serialized);
   });
 }
 
@@ -235,7 +235,7 @@ const TabView = ({
                   if (tab.id === "setup") {
                     globalStore.$.mode = "SETUP";
                   } else {
-                    tabStore.reduce(() => ({ activeTab: tab.id }));
+                    tabStore.$.activeTab = tab.id;
                   }
                 }}
               >
@@ -254,14 +254,8 @@ export function createApp(
   event: EventConfig | null,
 ) {
   const actualEvent = event || DEMO_DATA;
+  const store = createStore(globalStore, actualEvent);
 
-  // Load saved tracker state from localStorage
-  const eventId = getEventId(actualEvent);
-  const savedState = loadTrackerState(eventId);
-
-  const store = createStore(globalStore, actualEvent, savedState);
-
-  // Set up automatic state persistence
   setupStatePersistence(store, actualEvent);
 
   return (
@@ -280,13 +274,13 @@ const StatCard = ({
   value: string;
   subtitle?: string;
 }) => (
-  <div class="card bg-base-200 p-4 shadow-sm overflow-hidden">
+  <div class="card bg-base-200 p-3 shadow-sm overflow-hidden">
     <div class="stat-title text-sm">{title}</div>
     <div class="overflow-hidden text-ellipsis whitespace-nowrap text-2xl font-bold">
       {value}
     </div>
     {subtitle && (
-      <div class="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-gray-500 mt-1">
+      <div class="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-gray-500 mt-0.5">
         {subtitle}
       </div>
     )}
@@ -295,8 +289,8 @@ const StatCard = ({
 
 const StatsTab = ({ store }: { store: AppState }) => {
   return (
-    <div class="flex-1 overflow-auto p-4">
-      <div class="space-y-6">
+    <div class="flex-1 overflow-auto p-3">
+      <div class="space-y-4">
         <store.reactive
           keys={["$currentDistance", "$currentPace", "event", "progress"]}
         >
@@ -330,7 +324,7 @@ const StatsTab = ({ store }: { store: AppState }) => {
             const pacingDelta = finishEta && event.endTime.since(finishEta);
 
             return (
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-2 gap-3">
                 <StatCard
                   title="Distance"
                   value={`${metersToKm($currentDistance).toFixed(1)} km`}
@@ -343,7 +337,7 @@ const StatsTab = ({ store }: { store: AppState }) => {
                   title="Overall Pace"
                   value={`${$currentPace.toFixed(1)} km/h`}
                 />
-                {nextMarker && (
+                {nextMarker && minPaceNextCutoff && (
                   <>
                     <StatCard
                       title={`Min Pace (${nextMarker.name})`}
@@ -352,8 +346,14 @@ const StatsTab = ({ store }: { store: AppState }) => {
                     />
                     <StatCard
                       title={`ETA (${nextMarker.name})`}
-                      value={formatDateTimeCompact(nextMarker.cutoffTime)}
-                      subtitle={formatRelativeTime(
+                      value={formatRelativeTime(
+                        calculateEta(
+                          $currentDistance,
+                          nextMarker.routeDistance,
+                          $currentPace,
+                        ),
+                      )}
+                      subtitle={formatDateTimeCompact(
                         calculateEta(
                           $currentDistance,
                           nextMarker.routeDistance,
@@ -365,8 +365,8 @@ const StatsTab = ({ store }: { store: AppState }) => {
                 )}
                 <StatCard
                   title="Finish ETA"
-                  value={formatDateTimeCompact(finishEta)}
-                  subtitle={formatRelativeTime(finishEta)}
+                  value={formatRelativeTime(finishEta)}
+                  subtitle={formatDateTimeCompact(finishEta)}
                 />
                 <StatCard
                   title="Pacing"
@@ -568,16 +568,12 @@ const RouteMarkerCard = ({
             />
           </>
         ) : (
-          // If not arrived: show distance remaining, ETA, goal/cutoff times
           <>
             <MiniStat
               title="Distance"
               value={`${metersToKm(Meters(marker.routeDistance - $currentDistance)).toFixed(1)} km`}
             />
-            <MiniStat
-              title="ETA"
-              value={eta ? formatDateTimeCompact(eta) : "-"}
-            />
+            <MiniStat title="ETA" value={eta ? formatRelativeTime(eta) : "-"} />
 
             {marker.cutoffTime && (
               <MiniStat

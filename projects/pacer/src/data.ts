@@ -1,9 +1,10 @@
-import { EventConfig, Meters } from "./shared/index.js";
+import { EventConfig, generateId, Meters } from "./shared/index.js";
 
 const startTime = Temporal.Now.instant().subtract({ hours: 36 });
 const endTime = startTime.add({ hours: 128 });
 
 export const DEMO_DATA: EventConfig = {
+  id: generateId(),
   name: "2026 Two Volcano Sprint",
   startTime,
   endTime,

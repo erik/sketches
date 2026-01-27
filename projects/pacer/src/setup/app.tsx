@@ -8,6 +8,7 @@ import {
   Meters,
   metersToKm,
   EventConfig,
+  generateId,
 } from "../shared/index.js";
 import {
   formatDateTimeCompact,
@@ -35,7 +36,7 @@ type ComputedProps = {
 };
 
 const DEMO_SETUP_DATA = (() => {
-  const demoStartTime = Temporal.Now.instant().add({ hours: 2 });
+  const demoStartTime = Temporal.Now.instant().subtract({ hours: 2 });
   const demoEndTime = demoStartTime.add({ hours: 128 });
 
   return {
@@ -283,12 +284,13 @@ const MarkerDropdown = ({
 
         <dropdownState.reactiveIf key={"showNameInput"}>
           {() => {
-            let inputValue = marker.name || "";
+            const currentName = store.$.markers[index].name || "";
+            let inputValue = currentName;
             return (
               <div class="p-2 flex items-center gap-2">
                 <input
                   type="text"
-                  value={inputValue}
+                  defaultValue={currentName}
                   placeholder={`CP ${index + 1}`}
                   autoFocus
                   class="input input-sm w-full"
@@ -320,11 +322,12 @@ const MarkerDropdown = ({
 
         <dropdownState.reactiveIf key={"showNoteInput"}>
           {() => {
-            let inputValue = marker.note || "";
+            const currentNote = store.$.markers[index].note || "";
+            let inputValue = currentNote;
             return (
               <div class="p-2 flex items-center gap-2">
                 <textarea
-                  value={inputValue}
+                  defaultValue={currentNote}
                   placeholder="Add a note..."
                   autoFocus
                   class="textarea textarea-sm w-full"
@@ -572,6 +575,7 @@ export function createApp(
     );
 
     const eventConfig: EventConfig = {
+      id: generateId(),
       name: store.$.trackName,
       startTime: store.$.startTime!,
       endTime: store.$.endTime!,
@@ -734,8 +738,6 @@ export function createApp(
     </main>
   );
 }
-
-const generateId = () => (1e16 * Math.random()).toString(36);
 
 const sortMarkersByRouteDistance = (markers: RouteMarker[]): RouteMarker[] => {
   // Separate snapped and unsnapped markers

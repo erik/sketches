@@ -16,26 +16,16 @@ export type Child =
   | (() => Child);
 export type Children = Child[];
 
-type LivewireOptions<A> = {
-  actions?: A;
-};
-
-export class Livewire<
-  P extends Props,
-  C extends Props = {},
-  A extends StateActions<P, C> = {},
-> {
+export class Livewire<P extends Props, C extends Props = {}> {
   #state = {} as P & C;
-  #actions = {} as A;
   $: P & C;
   #computed = new Map<keyof C, StateFn<P, C>>();
   #observers = new Set<StateFn<P, C>>();
 
   #queued = false;
 
-  constructor(props: P & Partial<C>, options: LivewireOptions<A> = {}) {
+  constructor(props: P & Partial<C>) {
     this.#state = {} as P & C;
-    options.actions && (this.#actions = options.actions);
 
     for (const [k, v] of Object.entries(props)) {
       if (k.startsWith("$")) {
@@ -67,46 +57,12 @@ export class Livewire<
     if (oldValue === value) return true;
 
     Reflect.set(target, key, value);
-    this.tick();
+    this.#queueTick();
     return true;
   }
 
-  reduce(fn: StateAction<P, C>, ...args: any[]) {
-    this.#state = {
-      ...this.#state,
-      ...fn(this.#state, ...args),
-    };
-    this.tick();
-  }
-
-  /**
-   * Update a property using a callback function.
-   * The callback receives the current value and should return the new value.
-   * Automatically triggers reactivity.
-   *
-   * @example
-   * // Remove an element from an array
-   * store.update('markers', (arr) => arr.filter(m => m.id !== 'foo'))
-   *
-   * // Update an element in an array
-   * store.update('markers', (arr) => {
-   *   const copy = [...arr];
-   *   copy[index] = newValue;
-   *   return copy;
-   * })
-   *
-   * // Sort an array
-   * store.update('markers', (arr) => [...arr].sort((a, b) => a.distance - b.distance))
-   */
-  update<K extends keyof P>(key: K, fn: (value: P[K]) => P[K]) {
-    // TODO: Remove type casts - need to fix P & C type handling
-    const newValue = fn(this.#state[key] as P[K]);
-    this.#state[key as keyof (P & C)] = newValue as (P & C)[keyof (P & C)];
-    this.tick();
-  }
-
-  dispatch(action: keyof A, ...args: any[]) {
-    this.reduce(this.#actions[action], ...args);
+  update<K extends keyof P>(key: K, fn: (value: P[K]) => any) {
+    this.$[key] = fn(this.$[key]);
   }
 
   reactiveIf = (
@@ -215,20 +171,17 @@ export class Livewire<
     return () => this.#observers.delete(wrappedFn);
   }
 
-  protected tick() {
-    for (const [key, fn] of this.#computed) {
-      this.#state[key] = fn(this.#state);
-    }
-
-    this.#triggerWatchers();
-  }
-
-  #triggerWatchers() {
+  #queueTick() {
     if (this.#queued) return;
     this.#queued = true;
 
     queueMicrotask(() => {
       this.#queued = false;
+
+      for (const [key, fn] of this.#computed) {
+        this.#state[key] = fn(this.#state);
+      }
+
       for (const fn of this.#observers) {
         fn(this.#state);
       }

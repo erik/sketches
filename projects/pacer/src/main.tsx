@@ -64,7 +64,16 @@ async function init() {
         <div class="flex-1">
           <span class="btn btn-ghost text-lg">sorelegs</span>
         </div>
-        <div class="flex-none">
+        <div class="flex-none gap-2">
+          <button
+            onClick={() => {
+              localStorage.clear();
+              window.location.reload();
+            }}
+            class="btn btn-sm btn-ghost"
+          >
+            Clear Storage
+          </button>
           <button onClick={toggleTheme} class="btn btn-square btn-ghost">
             {THEME_ICON}
           </button>

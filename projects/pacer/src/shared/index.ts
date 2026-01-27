@@ -6,7 +6,10 @@ export const Meters = (value: number): Meters => value as Meters;
 export const metersToKm = (meters: Meters): number => meters / 1000;
 export const kmToMeters = (km: number): Meters => Meters(km * 1000);
 
+export const generateId = () => (1e16 * Math.random()).toString(36);
+
 export type EventConfig = {
+  id: string;
   name: string;
   notes?: string;
   startTime: Temporal.Instant;
