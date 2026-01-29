@@ -21,7 +21,6 @@ import { htmlTemplate, Livewire, type Children } from "../livewire.js";
 import { GlobalStoreProps } from "../main.jsx";
 import length from "@turf/length";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
-import lineSliceAlong from "@turf/line-slice-along";
 
 type StoreProps = {
   trackName: string;
@@ -143,45 +142,6 @@ const Fieldset = (props: { title: string }, ...children: Children) => {
   );
 };
 
-const EditableText = ({
-  onChange,
-  value,
-  placeholder,
-}: {
-  onChange: (value: string) => void;
-  value: string;
-  placeholder: string;
-}) => {
-  const store = new Livewire({
-    editing: false,
-    textValue: value,
-  });
-
-  return store.render("editing", ({ editing, textValue }) =>
-    editing ? (
-      <input
-        type="text"
-        value={textValue || ""}
-        placeholder={placeholder}
-        autoFocus
-        onBlur={(e: Event) => {
-          store.$.editing = false;
-          store.$.textValue = (e.target as HTMLInputElement).value;
-          store.$.textValue !== placeholder && onChange(store.$.textValue);
-        }}
-        class="input input-sm w-full"
-      />
-    ) : (
-      <div
-        onClick={() => (store.$.editing = true)}
-        class="cursor-pointer font-medium hover:bg-base-200 px-2 py-1 rounded -ml-2"
-      >
-        {textValue || placeholder}
-      </div>
-    ),
-  );
-};
-
 const SimpleRow = (_props: {}, ...children: Children) => {
   return (
     <li class="border border-base-300 bg-base-100 hover:bg-base-200 p-3">
@@ -199,34 +159,29 @@ const MarkerDropdown = ({
   index: number;
   marker: RouteMarker;
 }) => {
-  const dropdownState = new Livewire({
-    showNameInput: false,
-    showNoteInput: false,
-    showCutoffInput: false,
-    showGoalInput: false,
+  const state = new Livewire<{
+    activeField: "name" | "notes" | "cutoff" | "goal" | null;
+    value: string | null;
+  }>({
+    activeField: null,
+    value: null,
   });
 
   const isTimed = !!(marker.goalTime || marker.cutoffTime);
 
-  const setName = (value: string) => {
+  const changeMarkerProp = <K extends keyof RouteMarker>(
+    key: K,
+    value: RouteMarker[K],
+  ) => {
     store.update("markers", (markers) => {
-      markers[index].name = value;
-      return markers;
+      markers[index][key] = value;
+      return [...markers];
     });
-    dropdownState.$.showNameInput = false;
-  };
-
-  const setNote = (value: string) => {
-    store.update("markers", (markers) => {
-      markers[index].note = value;
-      return markers;
-    });
-    dropdownState.$.showNoteInput = false;
+    state.$.activeField = state.$.value = null;
   };
 
   const clearTiming = (e: Event) => {
     e.preventDefault();
-
     store.update("markers", (markers) => {
       markers[index] = {
         ...markers[index],
@@ -234,36 +189,19 @@ const MarkerDropdown = ({
         cutoffTime: undefined,
         kind: "marker",
       };
-      return markers;
+      return [...markers];
     });
-  };
-
-  const setCutoffTime = (value: string | null) => {
-    if (value) {
-      store.update("markers", (markers) => {
-        markers[index].cutoffTime = dateTimeLocalToInstant(value);
-        return markers;
-      });
-    }
-    dropdownState.$.showCutoffInput = false;
-  };
-
-  const setGoalTime = (value: string | null) => {
-    if (value) {
-      store.update("markers", (markers) => {
-        markers[index].goalTime = dateTimeLocalToInstant(value);
-        return markers;
-      });
-    }
-    dropdownState.$.showGoalInput = false;
   };
 
   const removeMarker = () => {
     store.update("markers", (markers) => {
       markers.splice(index, 1);
-      return markers;
+      return [...markers];
     });
   };
+
+  const setActiveInput = (name: "name" | "notes" | "cutoff" | "goal" | null) =>
+    (state.$.activeField = name);
 
   return (
     <div class="dropdown dropdown-end">
@@ -272,80 +210,63 @@ const MarkerDropdown = ({
       </button>
       <ul class="dropdown-content menu bg-base-100 rounded-box shadow border border-base-300 min-w-64 p-2 z-999">
         <li>
-          <button
-            onClick={(e: Event) => {
-              e.preventDefault();
-              dropdownState.$.showNameInput = !dropdownState.$.showNameInput;
-            }}
-          >
-            Edit name
-          </button>
+          <button onClick={() => setActiveInput("name")}>Edit name</button>
         </li>
 
-        <dropdownState.reactiveIf key={"showNameInput"}>
-          {() => {
-            const currentName = store.$.markers[index].name || "";
-            let inputValue = currentName;
-            return (
+        {state.render(
+          "activeField",
+          ({ activeField }) =>
+            activeField === "name" && (
               <div class="p-2 flex items-center gap-2">
                 <input
                   type="text"
-                  defaultValue={currentName}
-                  placeholder={`CP ${index + 1}`}
+                  value={marker.name || state.$.value || `CP ${index + 1}`}
                   autoFocus
                   class="input input-sm w-full"
                   onInput={(e: Event) => {
-                    inputValue = (e.target as HTMLInputElement).value;
+                    state.$.value = (e.target as HTMLInputElement).value;
                   }}
                 />
                 <button
                   class="btn btn-sm btn-square"
-                  onClick={() => setName(inputValue)}
+                  onClick={() => changeMarkerProp("name", state.$.value)}
                 >
                   {SVG_CHECK}
                 </button>
               </div>
-            );
-          }}
-        </dropdownState.reactiveIf>
+            ),
+        )}
 
         <li>
-          <button
-            onClick={(e: Event) => {
-              e.preventDefault();
-              dropdownState.$.showNoteInput = !dropdownState.$.showNoteInput;
-            }}
-          >
-            Edit note
-          </button>
+          <button onClick={() => setActiveInput("notes")}>Edit note</button>
         </li>
 
-        <dropdownState.reactiveIf key={"showNoteInput"}>
-          {() => {
-            const currentNote = store.$.markers[index].note || "";
-            let inputValue = currentNote;
-            return (
+        <state.reactive keys={"activeField"}>
+          {() =>
+            state.$.activeField === "notes" && (
               <div class="p-2 flex items-center gap-2">
                 <textarea
-                  defaultValue={currentNote}
+                  $mount={(el: HTMLTextAreaElement) =>
+                    (el.textContent = marker.note || state.$.value)
+                  }
                   placeholder="Add a note..."
                   autoFocus
                   class="textarea textarea-sm w-full"
                   rows={2}
                   onInput={(e: Event) => {
-                    inputValue = (e.target as HTMLTextAreaElement).value;
+                    state.$.value = (e.target as HTMLTextAreaElement).value;
                   }}
                 />
                 <button
                   class="btn btn-sm btn-square"
-                  onClick={() => setNote(inputValue)}
+                  onClick={() => changeMarkerProp("note", state.$.value)}
                 >
                   {SVG_CHECK}
                 </button>
               </div>
-            );
-          }}
-        </dropdownState.reactiveIf>
+            )
+          }
+        </state.reactive>
 
         <hr />
 
@@ -357,11 +278,7 @@ const MarkerDropdown = ({
 
         <li>
           <button
-            onClick={(e: Event) => {
-              e.preventDefault();
-              dropdownState.$.showCutoffInput =
-                !dropdownState.$.showCutoffInput;
-            }}
+            onClick={() => setActiveInput("cutoff")}
             class="flex justify-between items-center"
           >
             <span>Set cutoff time</span>
@@ -373,37 +290,40 @@ const MarkerDropdown = ({
           </button>
         </li>
 
-        <dropdownState.reactiveIf key={"showCutoffInput"}>
-          {() => {
-            let inputValue = instantToDateTimeLocal(marker.cutoffTime);
-            return (
+        <state.reactive keys={"activeField"}>
+          {() =>
+            state.$.activeField === "cutoff" && (
               <div class="p-2 flex items-center gap-2">
                 <input
                   type="datetime-local"
-                  value={inputValue}
+                  value={
+                    instantToDateTimeLocal(marker.cutoffTime) || state.$.value
+                  }
                   autoFocus
                   class="input input-sm w-full"
                   onInput={(e: Event) => {
-                    inputValue = (e.target as HTMLInputElement).value;
+                    state.$.value = (e.target as HTMLInputElement).value;
                   }}
                 />
                 <button
                   class="btn btn-sm btn-square"
-                  onClick={() => setCutoffTime(inputValue)}
+                  onClick={() =>
+                    changeMarkerProp(
+                      "cutoffTime",
+                      dateTimeLocalToInstant(state.$.value),
+                    )
+                  }
                 >
                   {SVG_CHECK}
                 </button>
               </div>
-            );
-          }}
-        </dropdownState.reactiveIf>
+            )
+          }
+        </state.reactive>
 
         <li>
           <button
-            onClick={(e: Event) => {
-              e.preventDefault();
-              dropdownState.$.showGoalInput = !dropdownState.$.showGoalInput;
-            }}
+            onClick={() => setActiveInput("goal")}
             class="flex justify-between items-center"
           >
             <span>Set goal time</span>
@@ -415,30 +335,36 @@ const MarkerDropdown = ({
           </button>
         </li>
 
-        <dropdownState.reactiveIf key={"showGoalInput"}>
-          {() => {
-            let inputValue = instantToDateTimeLocal(marker.goalTime);
-            return (
+        <state.reactive keys={"activeField"}>
+          {() =>
+            state.$.activeField === "goal" && (
               <div class="p-2 flex items-center gap-2">
                 <input
                   type="datetime-local"
-                  value={inputValue}
+                  value={
+                    instantToDateTimeLocal(marker.goalTime) || state.$.value
+                  }
                   autoFocus
                   class="input input-sm w-full"
                   onInput={(e: Event) => {
-                    inputValue = (e.target as HTMLInputElement).value;
+                    state.$.value = (e.target as HTMLInputElement).value;
                   }}
                 />
                 <button
                   class="btn btn-sm btn-square"
-                  onClick={() => setGoalTime(inputValue)}
+                  onClick={() =>
+                    changeMarkerProp(
+                      "goalTime",
+                      dateTimeLocalToInstant(state.$.value),
+                    )
+                  }
                 >
                   {SVG_CHECK}
                 </button>
               </div>
-            );
-          }}
-        </dropdownState.reactiveIf>
+            )
+          }
+        </state.reactive>
 
         <hr />
 
@@ -461,46 +387,42 @@ const RouteMarkerRow = ({
   index: number;
   marker: RouteMarker;
 }) => {
-  const hasSecondaryInfo =
-    marker.routeDistance !== undefined ||
-    marker.cutoffTime ||
-    marker.goalTime ||
-    marker.note;
+  const segmentForMarker =
+    marker.segmentId && store.$.segments.find((s) => s.id === marker.segmentId);
 
   return (
     <SimpleRow>
       <div class="block">
-        <div class="flex w-full justify-between items-start">
-          <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-base">
-              {marker.name || `CP ${index + 1}`}
-            </h4>
+        <div class="flex w-full justify-between text-base gap-2 items-center">
+          <div class="flex-1 font-medium min-w-0">
+            {marker.name || `CP ${index + 1}`}
           </div>
+          <span class="badge badge-xs badge-soft">
+            {segmentForMarker?.title || "Unattached"}
+          </span>
           <MarkerDropdown store={store} index={index} marker={marker} />
         </div>
 
-        {hasSecondaryInfo && (
-          <div class="space-y-1 text-xs text-gray-600 mt-2">
-            {marker.note && <div class="italic">{marker.note}</div>}
-            <div class="flex flex-wrap gap-2">
-              {marker.routeDistance !== undefined && (
-                <span class="badge badge-xs badge-soft">
-                  {metersToKm(marker.routeDistance).toFixed(1)} km
-                </span>
-              )}
-              {marker.goalTime && (
-                <span class="badge badge-xs badge-soft">
-                  Goal: {formatDateTimeCompact(marker.goalTime)}
-                </span>
-              )}
-              {marker.cutoffTime && (
-                <span class="badge badge-xs badge-soft">
-                  Cutoff: {formatDateTimeCompact(marker.cutoffTime)}
-                </span>
-              )}
-            </div>
+        <div class="space-y-1 text-xs text-gray-600 ">
+          {marker.note && <div class="italic">{marker.note}</div>}
+          <div class="flex flex-wrap gap-2 mt-2">
+            {marker.routeDistance !== undefined && (
+              <span class="badge badge-xs badge-soft">
+                {metersToKm(marker.routeDistance).toFixed(1)} km
+              </span>
+            )}
+            {marker.goalTime && (
+              <span class="badge badge-xs badge-soft">
+                Goal: {formatDateTimeCompact(marker.goalTime)}
+              </span>
+            )}
+            {marker.cutoffTime && (
+              <span class="badge badge-xs badge-soft">
+                Cutoff: {formatDateTimeCompact(marker.cutoffTime)}
+              </span>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </SimpleRow>
   );
@@ -678,7 +600,7 @@ export function createApp(
 
                     store.update("segments", (segments) => {
                       segments.splice(idx, 1);
-                      return segments;
+                      return [...segments];
                     });
                   };
 
@@ -686,6 +608,9 @@ export function createApp(
                     <SimpleRow>
                       <div class="flex items-center gap-2">
                         <span class="flex-1">{seg.title ?? seg.fileName}</span>
+                        <span class="badge badge-soft badge-xs tabular-nums">
+                          {seg.fileName}
+                        </span>
                         <span class="badge badge-soft badge-xs tabular-nums">
                           {metersToKm(seg.segmentLength).toFixed(0)} km
                         </span>
@@ -792,10 +717,11 @@ async function handleGPXFile(
     const text = await file.text();
     const { tracks, markers } = parseGPX(text);
 
-    for (const t of tracks) {
+    for (const [i, t] of tracks.entries()) {
       segments.push({
         id: (t.id = generateId()),
-        fileName: file.name,
+        title: t.properties.name,
+        fileName: file.name + (i >= 1 ? ` (${i + 1})` : ""),
         segmentLength: Meters(length(t, { units: "meters" })),
         // TODO: simplify geometry
         geometry: t.geometry,
@@ -803,34 +729,27 @@ async function handleGPXFile(
     }
 
     for (const m of markers) {
-      let minDist = Infinity;
-      let nearestTrk = null;
+      let routeDistance: Meters | null = null;
+
+      let minDistToTrack = Infinity;
+      let nearestTrack = null;
 
       // Find the closest point on any track
       for (const t of tracks) {
-        const snapped = nearestPointOnLine(t, m);
+        const snapped = nearestPointOnLine(t, m, { units: "meters" });
 
-        if (snapped.properties.dist < minDist) {
-          minDist = snapped.properties.dist;
-          nearestTrk = t;
+        if (snapped.properties.dist < minDistToTrack) {
+          minDistToTrack = snapped.properties.dist;
+          routeDistance = Meters(snapped.properties.location);
+          nearestTrack = t;
         }
-      }
-
-      let routeDistance: Meters | null = null;
-
-      if (nearestTrk) {
-        routeDistance = Meters(
-          length(lineSliceAlong(nearestTrk.geometry, 0, minDist), {
-            units: "meters",
-          }),
-        );
       }
 
       routeMarkers.push({
         ...m.properties,
         id: generateId(),
         kind: "marker",
-        segmentId: nearestTrk?.id?.toString(),
+        segmentId: nearestTrack?.id?.toString(),
         routeDistance: routeDistance,
         coordinate: m.geometry.coordinates,
         // TODO: snappedCoordinate: nearestPoint,

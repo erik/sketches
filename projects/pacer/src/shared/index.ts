@@ -21,7 +21,7 @@ export type EventConfig = {
 
 export type Segment = {
   id: string;
-  title?: string;
+  title: string;
   fileName: string;
   segmentLength: Meters;
   geometry: LineString;

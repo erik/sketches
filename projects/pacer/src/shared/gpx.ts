@@ -19,6 +19,7 @@ export function parseGPX(gpxText: string): GpxFile {
   const markers: Feature<Point, GpxMarkerProps>[] = [];
 
   for (const ft of gpx.features) {
+    console.log(ft.geometry.type, ft.properties);
     switch (ft.geometry.type) {
       case "LineString":
         tracks.push(ft as Feature<LineString, GpxTrackProps>);

@@ -48,12 +48,12 @@ export function snapToNearestTrackSegment(
   } | null = null;
   let minPixelDistance = Infinity;
 
-  tracks.forEach((segment, segmentIndex) => {
+  for (const segment of tracks) {
     let track = segment.geometry;
-    if (track.coordinates.length < 2) return;
+    if (track.coordinates.length < 2) continue;
 
     const pt = point(clickLocation);
-    const snapped = nearestPointOnLine(track, pt, { units: "kilometers" });
+    const snapped = nearestPointOnLine(track, pt, { units: "meters" });
 
     const clickLatLng = L.latLng(clickLocation[1], clickLocation[0]);
     const snappedLatLng = L.latLng(
@@ -67,31 +67,20 @@ export function snapToNearestTrackSegment(
     if (pixelDistance <= maxPixelDistance && pixelDistance < minPixelDistance) {
       minPixelDistance = pixelDistance;
 
-      const snappedPoint = point(snapped.geometry.coordinates);
-      const slicedLine = lineSlice(
-        point(track.coordinates[0]),
-        snappedPoint,
-        track,
-      );
-      const distanceAlongTrack = length(slicedLine, { units: "meters" });
-
       nearestResult = {
         coord: snapped.geometry.coordinates as [number, number],
-        meters: Meters(distanceAlongTrack),
-        segmentId: segmentIndex.toString(),
+        meters: Meters(snapped.properties.location),
+        segmentId: segment.id,
         pixelDistance: pixelDistance,
       };
     }
-  });
-
-  if (!nearestResult) {
-    return {
+  }
+  return (
+    nearestResult || {
       coord: clickLocation,
       meters: Meters(0),
       segmentId: null,
       pixelDistance: Infinity,
-    };
-  }
-
-  return nearestResult;
+    }
+  );
 }

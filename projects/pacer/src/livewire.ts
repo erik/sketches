@@ -4,6 +4,7 @@ export type Props = Record<string, any>;
 export type StateFn<P, C> = (state: P & C) => any;
 export type StateAction<P, C> = (state: P & C, ...args: any[]) => Partial<P>;
 export type StateActions<P, C> = Record<string, StateAction<P, C>>;
+export type RenderFn<P, C> = (state: P & C) => Child;
 
 export type ElementAttrs = Record<string, any>;
 export type Child =
@@ -36,12 +37,12 @@ export class Livewire<P extends Props, C extends Props = {}> {
     }
 
     this.$ = new Proxy<P & C>(this.#state, {
-      set: (target, key: string, value: any) => this.#set(target, key, value),
+      set: (target, key: string, value: any) => this.#set(key, value),
       get: (target, key: string) => Reflect.get(target, key),
     });
   }
 
-  #set(target: P & C, key: string, value: any) {
+  #set(key: string, value: any) {
     // Prevent setting computed properties
     if (this.#computed.has(key)) {
       throw Error(`Cannot set computed property: ${key}`);
@@ -53,33 +54,27 @@ export class Livewire<P extends Props, C extends Props = {}> {
     }
 
     // Skip no-op updates
-    const oldValue = target[key];
-    if (oldValue === value) return true;
+    if (this.#state[key] === value) return true;
 
-    Reflect.set(target, key, value);
+    Reflect.set(this.#state, key, value);
     this.#queueTick();
     return true;
   }
 
-  update<K extends keyof P>(key: K, fn: (value: P[K]) => any) {
-    this.$[key] = fn(this.$[key]);
+  update<K extends keyof P>(key: K & string, fn: (value: P[K]) => any) {
+    const val = fn(this.$[key]);
+    this.#set(key, val);
   }
-
-  reactiveIf = (
-    { key }: { key: string },
-    trueBranch: StateFn<P, C>,
-    falseBranch: StateFn<P, C> = () => undefined,
-  ) =>
-    this.render([key], (state) =>
-      createFragment({}, !!state[key] ? trueBranch(state) : falseBranch(state)),
-    );
 
   reactive = (
     { keys }: { keys: string | string[] },
-    ...children: StateFn<P, C>[]
+    ...children: (RenderFn<P, C> | Child)[]
   ) => {
     return this.render(keys, (state) =>
-      createFragment({}, ...children.map((fn) => fn(state))),
+      createFragment(
+        {},
+        ...children.map((f) => (typeof f === "function" ? f(state) : f)),
+      ),
     );
   };
 
@@ -99,43 +94,40 @@ export class Livewire<P extends Props, C extends Props = {}> {
     );
   };
 
-  render(keys: string | string[], fn: StateFn<P, C>): Node {
-    let prevNode = fn(this.#state);
-    let fragAnchor = null;
-    let fragment: Array<Node> = [];
+  render(keys: string | string[], fn: RenderFn<P, C>): Child {
+    const fragment = document.createDocumentFragment();
+    const anchor = document.createComment(`render(${keys.toString()})`);
+    fragment.appendChild(anchor);
 
-    if (prevNode instanceof DocumentFragment) {
-      fragAnchor = document.createComment("frag");
-      prevNode.appendChild(fragAnchor);
-      fragment = Array.from(prevNode.childNodes);
-    }
+    let prev: Node[] = [];
+
+    const _rerender = (state: P & C) => {
+      prev.forEach((n) => n.parentNode?.removeChild(n));
+
+      const node = toDOMNode(fn(state));
+      if (node != null) {
+        prev =
+          node instanceof DocumentFragment
+            ? Array.from(node.childNodes)
+            : [node];
+        anchor.parentNode?.insertBefore(node, anchor.nextSibling);
+      } else {
+        prev = [];
+      }
+    };
+
+    _rerender(this.#state);
 
     const unwatch = this.watch(keys, (state: P & C) => {
-      const nextNode = fn(state);
-
-      // for fragments, replace all children
-      if (fragAnchor && fragAnchor.parentNode) {
-        const parent = fragAnchor.parentNode;
-        const sibling = fragAnchor.nextSibling;
-
-        // Remove old nodes
-        fragment.forEach((n) => n.parentNode?.removeChild(n));
-        fragment =
-          nextNode instanceof DocumentFragment
-            ? Array.from(nextNode.childNodes)
-            : [nextNode];
-
-        parent.insertBefore(nextNode, sibling);
-        parent.insertBefore(fragAnchor, sibling);
-      } else if (prevNode && prevNode.parentNode) {
-        prevNode.parentNode.replaceChild(nextNode, prevNode);
-      } else if (prevNode && !prevNode.parentNode) {
-        unwatch();
+      // We've been removed from the DOM, clean up watcher
+      if (!anchor.isConnected) {
+        console.log("anchor disconnect", keys);
+        return unwatch();
       }
-      prevNode = nextNode;
+      _rerender(state);
     });
 
-    return prevNode;
+    return fragment;
   }
 
   compute(key: keyof C, fn: StateFn<P, C>): this {
@@ -242,13 +234,26 @@ export function createElement(
   }
 
   for (const c of [children].flat(Infinity)) {
-    const v = typeof c === "function" ? c() : c;
-    if (v == null || v === false || (Array.isArray(v) && v.length === 0)) {
-      continue;
+    const node = toDOMNode(c as Child);
+    if (node != null) {
+      el.appendChild(node);
     }
-
-    el.appendChild(v instanceof Node ? v : document.createTextNode(String(v)));
   }
 
   return el;
+}
+
+function toDOMNode(val: Child): Node | null {
+  if (val instanceof Node) return val;
+  if (typeof val === "function") return toDOMNode(val());
+
+  if (
+    val == null ||
+    val === false ||
+    (Array.isArray(val) && val.length === 0)
+  ) {
+    return null;
+  }
+
+  return document.createTextNode(String(val));
 }

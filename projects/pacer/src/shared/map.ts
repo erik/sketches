@@ -1,6 +1,7 @@
-import L, { LatLngExpression, LatLngTuple } from "leaflet";
+import L, { latLngBounds, LatLngExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { RouteMarker, Segment } from "./index.js";
+import { htmlTemplate } from "../livewire.js";
 
 const DARKMODE_TILES =
   "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png";
@@ -47,7 +48,7 @@ class RecenterMapControl extends L.Control {
 
 export class MapController {
   map: L.Map;
-  trackLayer: L.Polyline;
+  trackLayers: L.Polyline[];
   userLocationMarker?: L.Marker;
   markers: L.Marker[];
   controlSegments: L.Layer[];
@@ -57,7 +58,7 @@ export class MapController {
     this.map = map;
     this.tileLayer = tileLayer;
 
-    this.trackLayer = null;
+    this.trackLayers = [];
     this.markers = [];
     this.controlSegments = [];
   }
@@ -90,23 +91,28 @@ export class MapController {
       opacity?: number;
     } = {},
   ) {
-    if (this.trackLayer) {
-      this.map.removeLayer(this.trackLayer);
+    for (const layer of this.trackLayers) {
+      this.map.removeLayer(layer);
     }
-    if (segments.length === 0) return;
 
-    const coords = segments.map((s) =>
-      s.geometry.coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
-    );
+    for (const segment of segments) {
+      const coords = segment.geometry.coordinates.map(
+        ([lng, lat]) => [lat, lng] as LatLngTuple,
+      );
 
-    this.trackLayer = L.polyline(coords, {
-      color: options.color || "#2563eb",
-      weight: options.weight || 4,
-      opacity: options.opacity || 0.7,
-    }).addTo(this.map);
+      const layer = L.polyline(coords, {
+        color: options.color || "#2563eb",
+        weight: options.weight || 4,
+        opacity: options.opacity || 0.7,
+      })
+        .bindPopup(`<h1>${segment.title}</h1>`)
+        .addTo(this.map);
 
-    if (options.fitBounds === true) {
-      this.map.fitBounds(this.trackLayer.getBounds(), { padding: [100, 100] });
+      this.trackLayers.push(layer);
+    }
+
+    if (segments.length !== 0 && options.fitBounds === true) {
+      this.fitToContent();
     }
   }
 
@@ -178,11 +184,10 @@ export class MapController {
   }
 
   fitToContent() {
-    const bounds = L.latLngBounds([]);
-
-    if (this.trackLayer) {
-      bounds.extend(this.trackLayer.getBounds());
-    }
+    const bounds = this.trackLayers.reduce(
+      (bbox, layer) => bbox.extend(layer.getBounds()),
+      L.latLngBounds([]),
+    );
 
     for (const marker of this.markers) {
       bounds.extend(marker.getLatLng());
