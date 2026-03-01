@@ -9,7 +9,11 @@ import {
   formatDuration,
   formatRelativeTime,
 } from "./shared/time.js";
-import { loadFromLocalStorage, saveToLocalStorage } from "./shared/storage.js";
+import {
+  loadFromLocalStorage,
+  saveToLocalStorage,
+  generateShareURL,
+} from "./shared/storage.js";
 
 import { DEMO_DATA } from "./data.js";
 import { createMap } from "./shared/map.js";
@@ -210,8 +214,13 @@ const TabView = ({
   const tabs = [
     { id: "stats", label: "Stats" },
     { id: "map", label: "Map" },
-    { id: "setup", label: "Setup" },
+    { id: "edit", label: "Edit" },
   ];
+
+  const handleShare = async () => {
+    const url = await generateShareURL(store.$.event);
+    await navigator.clipboard.writeText(url);
+  };
 
   return (
     <tabStore.reactive keys="activeTab">
@@ -232,7 +241,7 @@ const TabView = ({
                 key={tab.id}
                 class={`flex-1 py-3 px-4 text-center transition-all duration-200 ${activeTab === tab.id ? "bg-primary text-primary-content font-medium" : "bg-base-100 text-base-content hover:bg-base-200"}`}
                 onClick={() => {
-                  if (tab.id === "setup") {
+                  if (tab.id === "edit") {
                     globalStore.$.mode = "SETUP";
                   } else {
                     tabStore.$.activeTab = tab.id;
@@ -242,6 +251,12 @@ const TabView = ({
                 {tab.label}
               </button>
             ))}
+            <button
+              class="py-3 px-4 text-center transition-all duration-200 bg-base-100 text-base-content hover:bg-base-200"
+              onClick={handleShare}
+            >
+              Share
+            </button>
           </div>
         </div>
       )}

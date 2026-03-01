@@ -2,22 +2,21 @@ import "./style.css";
 import "temporal-polyfill/global";
 
 import {
-  loadRouteFromURL,
-  setUrlToEvent,
-  loadFromLocalStorage,
+  importEventFromURL,
+  loadEventFromLocalStorage,
+  saveEventToLocalStorage,
 } from "./shared/storage.js";
 import { EventConfig } from "./shared/index.js";
 
 import { Livewire, htmlTemplate } from "./livewire.js";
 import { createApp as createSetupApp } from "./setup/app.jsx";
 import { createApp as createPaceTrackerApp } from "./pacer.jsx";
-import { createEntryScreen } from "./entry.jsx";
 
 const DARK_THEME = "halloween";
 const LIGHT_THEME = "light";
 
 export type GlobalStoreProps = {
-  mode: "ENTRY" | "SETUP" | "PACE_TRACKER";
+  mode: "SETUP" | "PACE_TRACKER";
   units: "METRIC" | "IMPERIAL";
   darkmode: boolean;
 };
@@ -32,19 +31,14 @@ const THEME_ICON = htmlTemplate`
     </path>
 </svg>`;
 
-function checkIfEventStarted(event: EventConfig): boolean {
-  const storageKey = `tracker-state-${event.id}`;
-  const saved = loadFromLocalStorage<{ state: string }>(storageKey);
-  return saved?.state === "inprogress";
-}
-
 async function init() {
-  const storedRoute = await loadRouteFromURL();
+  // URL hash is the import mechanism — if present, save to localStorage and clear
+  const imported = await importEventFromURL();
 
-  let initialMode: "ENTRY" | "SETUP" | "PACE_TRACKER" = "ENTRY";
-  if (storedRoute && checkIfEventStarted(storedRoute)) {
-    initialMode = "PACE_TRACKER";
-  }
+  // localStorage is the source of truth
+  let currentEvent: EventConfig | null = imported || loadEventFromLocalStorage();
+
+  const initialMode = currentEvent ? "PACE_TRACKER" : "SETUP";
 
   const store = new Livewire<GlobalStoreProps>({
     mode: initialMode,
@@ -52,21 +46,10 @@ async function init() {
     darkmode: true,
   });
 
-  let currentEvent: EventConfig | null = storedRoute;
-
-  const onSetupComplete = async (eventConfig: EventConfig) => {
+  const onSetupComplete = (eventConfig: EventConfig) => {
     currentEvent = eventConfig;
-    await setUrlToEvent(eventConfig);
+    saveEventToLocalStorage(eventConfig);
     store.$.mode = "PACE_TRACKER";
-  };
-
-  const onEntryAction = (action: "new" | "continue" | null) => {
-    console.log("onEntryAction called with:", action);
-    if (action === "new") {
-      store.$.mode = "SETUP";
-    } else if (action === "continue") {
-      store.$.mode = "PACE_TRACKER";
-    }
   };
 
   store.watch(["darkmode"], ({ darkmode }) => {
@@ -103,10 +86,8 @@ async function init() {
       </div>
 
       {store.render("mode", ({ mode }) => {
-        if (mode === "ENTRY") {
-          return createEntryScreen(currentEvent, onEntryAction);
-        } else if (mode === "SETUP") {
-          return createSetupApp(store, onSetupComplete);
+        if (mode === "SETUP") {
+          return createSetupApp(store, onSetupComplete, currentEvent);
         } else {
           return createPaceTrackerApp(store, currentEvent);
         }

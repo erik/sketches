@@ -113,18 +113,31 @@ const SVG_CHECK = () => htmlTemplate`<svg
    />
 </svg>`;
 
+function eventToStoreProps(event: EventConfig): StoreProps {
+  return {
+    trackName: event.name,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    segments: event.segments,
+    markers: event.markers,
+  };
+}
+
 const createStore = (
   global: Livewire<GlobalStoreProps>,
+  existingEvent?: EventConfig | null,
 ): Livewire<StoreProps, ComputedProps> => {
-  const store = new Livewire<StoreProps, ComputedProps>(
-    DEMO_SETUP_DATA || {
-      trackName: "Untitled",
-      startTime: null,
-      endTime: null,
-      segments: [],
-      markers: [],
-    },
-  ).compute(
+  const initial = existingEvent
+    ? eventToStoreProps(existingEvent)
+    : DEMO_SETUP_DATA || {
+        trackName: "Untitled",
+        startTime: null,
+        endTime: null,
+        segments: [],
+        markers: [],
+      };
+
+  const store = new Livewire<StoreProps, ComputedProps>(initial).compute(
     "$valid",
     ({ trackName, startTime, endTime }) =>
       trackName?.length && !!startTime && !!endTime,
@@ -488,8 +501,9 @@ const DateTimePicker = ({
 export function createApp(
   globalStore: Livewire<GlobalStoreProps>,
   onSetupComplete: (event: EventConfig) => void,
+  existingEvent?: EventConfig | null,
 ) {
-  const store = createStore(globalStore);
+  const store = createStore(globalStore, existingEvent);
 
   const handleDone = () => {
     const routeLength = Meters(
@@ -497,7 +511,7 @@ export function createApp(
     );
 
     const eventConfig: EventConfig = {
-      id: generateId(),
+      id: existingEvent?.id || generateId(),
       name: store.$.trackName,
       startTime: store.$.startTime!,
       endTime: store.$.endTime!,

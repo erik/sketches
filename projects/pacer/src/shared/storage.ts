@@ -1,5 +1,22 @@
 import { EventConfig } from "./index.js";
 
+const EVENT_STORAGE_KEY = "pacer-event";
+
+export function saveEventToLocalStorage(event: EventConfig): void {
+  saveToLocalStorage(EVENT_STORAGE_KEY, event);
+}
+
+export function loadEventFromLocalStorage(): EventConfig | null {
+  const data = loadFromLocalStorage<any>(EVENT_STORAGE_KEY);
+  if (!data) return null;
+  return reviveTemporalInstants(data);
+}
+
+export async function generateShareURL(event: EventConfig): Promise<string> {
+  const compressed = await compressToURL(event);
+  return `${window.location.origin}${window.location.pathname}#r=${compressed}`;
+}
+
 export async function compressToURL(obj: any): Promise<string> {
   const json = JSON.stringify(obj);
   const bytes = new TextEncoder().encode(json);
@@ -38,11 +55,6 @@ export async function decompressFromURL(base64: string): Promise<any> {
   return JSON.parse(json);
 }
 
-export async function setUrlToEvent(event: EventConfig) {
-  const compressed = await compressToURL(event);
-  window.history.replaceState(null, "", `#r=${compressed}`);
-}
-
 function reviveTemporalInstants(obj: any): any {
   if (obj === null || typeof obj !== "object") {
     return obj;
@@ -72,7 +84,7 @@ function reviveTemporalInstants(obj: any): any {
   return revived;
 }
 
-export async function loadRouteFromURL(): Promise<EventConfig | null> {
+export async function importEventFromURL(): Promise<EventConfig | null> {
   const hash = window.location.hash;
 
   if (!hash.startsWith("#r=")) {
@@ -81,9 +93,15 @@ export async function loadRouteFromURL(): Promise<EventConfig | null> {
   try {
     const compressed = hash.slice(3);
     const data = await decompressFromURL(compressed);
-    return reviveTemporalInstants(data);
+    const event = reviveTemporalInstants(data) as EventConfig;
+
+    // Import into localStorage and clear the URL hash
+    saveEventToLocalStorage(event);
+    window.history.replaceState(null, "", window.location.pathname);
+
+    return event;
   } catch (e) {
-    console.error("Failed to decompress route from URL:", e);
+    console.error("Failed to import event from URL:", e);
     return null;
   }
 }
