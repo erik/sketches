@@ -2,16 +2,24 @@ import { type Position } from "geojson";
 
 import { Livewire } from "./livewire.js";
 import { GlobalStoreProps } from "./main.jsx";
-import { type EventConfig, Meters, metersToKm } from "./shared/index.js";
+import {
+  type EventConfig,
+  type RouteMarker,
+  Meters,
+  metersToKm,
+} from "./shared/index.js";
 import { calculateRoutePosition } from "./shared/geo.js";
 import {
   formatDateTimeCompact,
   formatDuration,
   formatRelativeTime,
+  instantToDateTimeLocal,
+  dateTimeLocalToInstant,
 } from "./shared/time.js";
 import {
   loadFromLocalStorage,
   saveToLocalStorage,
+  saveEventToLocalStorage,
   generateShareURL,
 } from "./shared/storage.js";
 
@@ -480,6 +488,20 @@ function getNextRelevantTime(
     : { time: cutoff, type: "cutoff" };
 }
 
+function updateMarker(
+  store: AppState,
+  markerId: string,
+  patch: Partial<RouteMarker>,
+) {
+  const event = store.$.event;
+  const markers = event.markers.map((m) =>
+    m.id === markerId ? { ...m, ...patch } : m,
+  );
+  const updated = { ...event, markers };
+  store.$.event = updated;
+  saveEventToLocalStorage(updated);
+}
+
 const RouteMarkerCard = ({
   marker,
   store,
@@ -488,15 +510,18 @@ const RouteMarkerCard = ({
   $currentDistance,
   event,
 }: {
-  marker: any;
-  store: any;
-  progress: any;
-  $currentPace: any;
-  $currentDistance: any;
-  event: any;
+  marker: RouteMarker;
+  store: AppState;
+  progress: Record<string, MarkerVisitStatus>;
+  $currentPace: number;
+  $currentDistance: Meters;
+  event: EventConfig;
 }) => {
+  const edit = new Livewire<{ editing: string | null }>({ editing: null });
+
   const progressEvent = progress[marker.id];
   const isCompleted = progressEvent?.state === "visited";
+  const isStartPoint = marker.kind === "start";
 
   const eta = calculateEta(
     $currentDistance,
@@ -520,9 +545,6 @@ const RouteMarkerCard = ({
     store.$.progress = newProgress;
   };
 
-  // For start point, don't allow check-in
-  const isStartPoint = marker.kind === "start";
-
   const now = Temporal.Now.instant();
   const nextTime =
     !isCompleted && !isStartPoint ? getNextRelevantTime(marker, now) : null;
@@ -534,6 +556,80 @@ const RouteMarkerCard = ({
     </div>
   );
 
+  // Tappable time stat — shows value, tap to edit inline
+  const EditableTime = ({
+    title,
+    field,
+    value,
+  }: {
+    title: string;
+    field: "cutoffTime" | "goalTime";
+    value?: Temporal.Instant;
+  }) => (
+    <edit.reactive keys="editing">
+      {({ editing }: { editing: string | null }) =>
+        editing === field ? (
+          <div class="text-xs">
+            <div class="text-gray-500">{title}</div>
+            <input
+              type="datetime-local"
+              class="input input-xs w-full"
+              value={instantToDateTimeLocal(value)}
+              autoFocus
+              onBlur={(e: Event) => {
+                const val = (e.target as HTMLInputElement).value;
+                if (val) {
+                  updateMarker(store, marker.id, {
+                    [field]: dateTimeLocalToInstant(val),
+                  });
+                }
+                edit.$.editing = null;
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            class="text-xs cursor-pointer hover:bg-base-300 rounded px-1 -mx-1"
+            onClick={() => (edit.$.editing = field)}
+          >
+            <div class="text-gray-500">{title}</div>
+            <div>{value ? formatDateTimeCompact(value) : "Set..."}</div>
+          </div>
+        )
+      }
+    </edit.reactive>
+  );
+
+  // Tappable name — tap to rename
+  const EditableName = () => (
+    <edit.reactive keys="editing">
+      {({ editing }: { editing: string | null }) =>
+        editing === "name" ? (
+          <input
+            type="text"
+            class="input input-sm font-bold"
+            value={marker.name || ""}
+            autoFocus
+            onBlur={(e: Event) => {
+              const val = (e.target as HTMLInputElement).value;
+              if (val) {
+                updateMarker(store, marker.id, { name: val });
+              }
+              edit.$.editing = null;
+            }}
+          />
+        ) : (
+          <h4
+            class="font-bold text-md cursor-pointer hover:bg-base-300 rounded px-1 -mx-1"
+            onClick={() => (edit.$.editing = "name")}
+          >
+            {marker.name}
+          </h4>
+        )
+      }
+    </edit.reactive>
+  );
+
   return (
     <div
       class={`card shadow-sm mb-4 overflow-hidden p-4 bg-base-200 rounded-lg ${isCompleted || isStartPoint ? "bg-gray-600/10" : "bg-base-100 border-base-300"}`}
@@ -541,7 +637,7 @@ const RouteMarkerCard = ({
       <div class="flex justify-between items-center mb-3">
         <div class="flex-1">
           <div class="flex items-center gap-2 mb-1">
-            <h4 class="font-bold text-md">{marker.name}</h4>
+            <EditableName />
             {nextTime && (
               <span class="badge badge-xs badge-soft">
                 {nextTime.type === "cutoff" ? "Cutoff" : "Goal"}:{" "}
@@ -590,19 +686,16 @@ const RouteMarkerCard = ({
             />
             <MiniStat title="ETA" value={eta ? formatRelativeTime(eta) : "-"} />
 
-            {marker.cutoffTime && (
-              <MiniStat
-                title="Cutoff"
-                value={formatDateTimeCompact(marker.cutoffTime)}
-              />
-            )}
-
-            {marker.goalTime && (
-              <MiniStat
-                title="Goal"
-                value={formatDateTimeCompact(marker.goalTime)}
-              />
-            )}
+            <EditableTime
+              title="Cutoff"
+              field="cutoffTime"
+              value={marker.cutoffTime}
+            />
+            <EditableTime
+              title="Goal"
+              field="goalTime"
+              value={marker.goalTime}
+            />
 
             {requiredPace && (
               <MiniStat
