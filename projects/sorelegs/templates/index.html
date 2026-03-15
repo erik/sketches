@@ -187,7 +187,7 @@
                         {% if m.type == 'photo' %}
                         <a href="/bots/" target="_blank" data-pswp-width="{{ m.width }}"
                             data-pswp-height="{{ m.height }}">
-                            <img data-src="/bots/media/{{ m.media_id }}" loading="lazy" width="{{ m.width }}"
+                            <img data-src="/bots/media/{{ m.media_id }}" width="{{ m.width }}"
                                 height="{{ m.height }}" />
                         </a>
                         {% elif m.type == 'audio' %}
@@ -232,18 +232,34 @@
             }
         }
 
-        function loadMediaElements() {
+        function loadElement(el) {
+            el.src = el.dataset.src.replace("/bots/", "/");
+            el.removeAttribute("data-src");
+
+            if (el.tagName === "SOURCE") {
+                el.parentElement.load();
+            } else if (el.tagName === "IMG") {
+                el.parentElement.href = el.src;
+            }
+        }
+
+        function initLazyLoading() {
             const elements = document.querySelectorAll("img[data-src], audio source[data-src], video source[data-src]");
+            const observer = new IntersectionObserver((entries) => {
+                for (const entry of entries) {
+                    if (entry.isIntersecting) {
+                        const el = entry.target;
+                        // For source elements, load the source; for img, load directly
+                        const dataEl = el.querySelector("[data-src]") || el;
+                        if (dataEl.dataset.src) loadElement(dataEl);
+                        observer.unobserve(el);
+                    }
+                }
+            }, { rootMargin: "200px" });
 
             for (const el of elements) {
-                el.src = el.dataset.src.replace("/bots/", "/");
-                el.removeAttribute("data-src");
-
-                if (el.tagName === "SOURCE") {
-                    el.parentElement.load();
-                } else if (el.tagName === "IMG") {
-                    el.parentElement.href = el.src;
-                }
+                // Observe the visible parent (img directly, parent for source elements)
+                observer.observe(el.tagName === "SOURCE" ? el.parentElement : el);
             }
         }
 
@@ -256,7 +272,7 @@
                 el.innerText = timeSince(date, now);
             });
 
-            setTimeout(loadMediaElements, 100);
+            initLazyLoading();
         };
     </script>
 
