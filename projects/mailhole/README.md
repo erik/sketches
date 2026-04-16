@@ -4,7 +4,7 @@ A lil AppleScript tool to OCR USPS Informed Delivery emails and notify you when
 something matches a regex.
 
 ```bash
-./mailhole.jxa "iCloud" "SomeMailLabel/USPS" "your name"
+./mailhole.js "iCloud" "SomeMailLabel/USPS" "your name"
 ```
 
 ## running it automatically

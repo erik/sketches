@@ -9,7 +9,7 @@ const SUBJECT_LINE = "Your Daily Digest";
 
 function run(argv) {
   if (argv.length !== 3) {
-    console.log("usage: mailhole.jxa <account name> <mailbox> <regexp>");
+    console.log("usage: mailhole.js <account name> <mailbox> <regexp>");
     return;
   }
 
@@ -38,7 +38,9 @@ function run(argv) {
   try {
     mbox.name();
   } catch (e) {
-    console.log(`error: mailbox "${mailboxName}" not found. available: ${acct.mailboxes.name().join(", ")}`);
+    console.log(
+      `error: mailbox "${mailboxName}" not found. available: ${acct.mailboxes.name().join(", ")}`,
+    );
     return;
   }
 
