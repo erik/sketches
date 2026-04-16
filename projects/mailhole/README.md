@@ -16,8 +16,8 @@ Use the plist template below and replace the placeholder values.
 launchctl load ~/Library/LaunchAgents/xxx.mailhole.plist
 
 # uninstall
-launchctl unload ~/Library/LaunchAgents/com.erik.mailhole.plist
-lm ~/Library/LaunchAgents/com.erik.mailhole.plist
+launchctl unload ~/Library/LaunchAgents/xxx.mailhole.plist
+rm ~/Library/LaunchAgents/xxx.mailhole.plist
 ```
 
 ```xml
