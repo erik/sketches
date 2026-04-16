@@ -29,9 +29,6 @@ lm ~/Library/LaunchAgents/com.erik.mailhole.plist
     <string>xxx.mailhole</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/osascript</string>
-        <string>-l</string>
-        <string>JavaScript</string>
         <string> /PATH/TO/mailhole.jxa </string>
         <string> SOME_ACCOUNT </string>
         <string> SOME_MAILBOX </string>
