@@ -29,7 +29,7 @@ rm ~/Library/LaunchAgents/xxx.mailhole.plist
     <string>xxx.mailhole</string>
     <key>ProgramArguments</key>
     <array>
-        <string> /PATH/TO/mailhole.jxa </string>
+        <string> /PATH/TO/mailhole.js </string>
         <string> SOME_ACCOUNT </string>
         <string> SOME_MAILBOX </string>
         <string> SOME_MATCH_STRING </string>
